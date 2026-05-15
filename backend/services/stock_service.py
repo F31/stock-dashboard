@@ -56,6 +56,16 @@ def _sina_symbol(code: str, market: str) -> str:
     return code
 
 
+def _sina_to_tencent_symbol(sina_sym: str) -> str:
+    """Convert Sina quote symbol to Tencent Finance format.
+
+    gb_aapl → usAAPL, sh000001 → sh000001, hk06809 → hk06809
+    """
+    if sina_sym.startswith("gb_"):
+        return "us" + sina_sym[3:].upper()
+    return sina_sym
+
+
 # Full browser-like headers — cloud server IPs need these to avoid 403 from Sina
 _SINA_HEADERS = {
     "User-Agent": (
@@ -117,16 +127,26 @@ async def _fetch_sina_quotes(symbols: List[str]) -> Dict[str, str]:
 async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
     """Fetch quotes from Tencent Finance (qt.gtimg.cn) — fallback when Sina is blocked.
 
-    symbols: Sina-format strings (sh000001, sz399001, gb_aapl …)
-    Returns dict: symbol -> {name, price, prev_close, open, change, change_pct}
+    symbols: Sina-format strings (sh000001, sz399001, hk06809, gb_aapl …)
+    Returns dict keyed by original Sina symbol, values match _parse_*_quote output format.
 
-    Tencent response format (fields separated by ~):
-      v_sh000001="1~上证指数~000001~price~prev_close~open~volume~..."
-      field[3]=price  field[4]=prev_close  field[5]=open
+    Tencent field layout (~ separated):
+      [1]=name, [3]=price, [4]=prev_close, [5]=open, [6]=volume(手),
+      [32]=high, [33]=low, [37]=amount(万元), [38]=turnover_rate(%),
+      [39]=PE, [41]=market_cap(亿元), [42]=float_market_cap(亿元)
     """
     if not symbols:
         return {}
-    url = f"https://qt.gtimg.cn/q={','.join(symbols)}"
+
+    # Build sina→tencent conversion and reverse lookup
+    sym_map: Dict[str, str] = {}  # tencent_sym → original sina_sym
+    tencent_syms: List[str] = []
+    for sina_sym in symbols:
+        t_sym = _sina_to_tencent_symbol(sina_sym)
+        sym_map[t_sym] = sina_sym
+        tencent_syms.append(t_sym)
+
+    url = f"https://qt.gtimg.cn/q={','.join(tencent_syms)}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, headers=_TENCENT_HEADERS)
@@ -135,7 +155,7 @@ async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
         logger.warning(f"Tencent quote HTTP error: {e}")
         return {}
 
-    result = {}
+    result: Dict[str, dict] = {}
     for line in resp.text.strip().split("\n"):
         line = line.strip()
         if not line:
@@ -143,28 +163,68 @@ async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
         m = re.match(r'v_(\w+)="(.+)"', line)
         if not m:
             continue
-        symbol = m.group(1)
+        tencent_sym = m.group(1)
+        original_sym = sym_map.get(tencent_sym, tencent_sym)
         parts = m.group(2).split("~")
         if len(parts) < 6:
             continue
+
+        def fp(i: int) -> Optional[float]:
+            try:
+                v = parts[i].strip()
+                return float(v) if v else None
+            except (IndexError, ValueError):
+                return None
+
         try:
-            name = parts[1]
-            price = float(parts[3]) if parts[3] else None
-            prev_close = float(parts[4]) if parts[4] else None
-            open_ = float(parts[5]) if parts[5] else None
+            name = parts[1] if len(parts) > 1 else ""
+            price = fp(3)
+            prev_close = fp(4)
+            open_ = fp(5)
+            volume = fp(6)   # 手 (lots), consistent with Sina field [8] which is also 手
+            high = fp(32)
+            low = fp(33)
+
+            # amount: Tencent field [37] is in 万元 → convert to 元
+            amt_raw = fp(37)
+            amount = amt_raw * 1e4 if amt_raw is not None else None
+
+            turnover_rate = fp(38)
+            pe = fp(39)
+
+            # market_cap / float_market_cap: Tencent fields [41]/[42] in 亿元 → 元
+            mc_raw = fp(41)
+            market_cap = mc_raw * 1e8 if mc_raw is not None else None
+            fmc_raw = fp(42)
+            float_market_cap = fmc_raw * 1e8 if fmc_raw is not None else None
+
             change, change_pct = None, None
-            if price is not None and prev_close and prev_close != 0:
+            if price is not None and prev_close is not None and prev_close != 0:
                 change = round(price - prev_close, 4)
                 change_pct = round(change / prev_close * 100, 2)
-            result[symbol] = {
-                "name": name,
+
+            amplitude = None
+            if high is not None and low is not None and prev_close is not None and prev_close != 0:
+                amplitude = round((high - low) / prev_close * 100, 2)
+
+            result[original_sym] = {
+                "stock_name": name,
                 "price": price,
-                "prev_close": prev_close,
-                "open": open_,
                 "change": change,
                 "change_pct": change_pct,
+                "prev_close": prev_close,
+                "open": open_,
+                "high": high,
+                "low": low,
+                "volume": volume,
+                "amount": amount,
+                "turnover_rate": turnover_rate,
+                "pe": pe,
+                "market_cap": market_cap,
+                "float_market_cap": float_market_cap,
+                "amplitude": amplitude,
             }
-        except (ValueError, IndexError):
+        except Exception:
             continue
     return result
 
@@ -710,7 +770,7 @@ async def _enrich_with_finance(entries: List[dict]):
 
 
 async def fetch_stock_realtime(stock_code: str, market: str) -> dict:
-    """Fetch realtime data for a single stock via Sina individual API."""
+    """Fetch realtime data for a single stock. Primary: Sina. Fallback: Tencent."""
     cache_key = f"realtime:{market}:{stock_code}"
     cached = _get_cached(cache_key)
     if cached:
@@ -719,8 +779,21 @@ async def fetch_stock_realtime(stock_code: str, market: str) -> dict:
     symbol = _sina_symbol(stock_code, market)
     quotes = await _fetch_sina_quotes([symbol])
     csv = quotes.get(symbol)
+
     if not csv:
-        raise ValueError(f"Stock {stock_code} ({market}) not found in Sina")
+        # Sina blocked or empty — try Tencent Finance
+        logger.info(f"Sina empty for {stock_code} ({market}), trying Tencent fallback")
+        tencent_quotes = await _fetch_tencent_quotes([symbol])
+        tencent_data = tencent_quotes.get(symbol)
+        if tencent_data and tencent_data.get("stock_name"):
+            result = dict(tencent_data)
+            result["code"] = stock_code
+            result["market"] = market
+            await _enrich_with_finance([result])
+            _set_cache(cache_key, result)
+            logger.info(f"Tencent OK: {stock_code} ({market}) = {result.get('price')}")
+            return result
+        raise ValueError(f"Stock {stock_code} ({market}) not found in Sina or Tencent")
 
     parser = _PARSERS.get(market, _parse_a_quote)
     result = parser(csv)
@@ -759,6 +832,13 @@ async def fetch_stocks_batch(stocks: List[Dict[str, str]]) -> List[dict]:
     for market, codes in uncached.items():
         symbols = [_sina_symbol(c, market) for c in codes]
         quotes = await _fetch_sina_quotes(symbols)
+
+        # Tencent fallback: if Sina returned nothing (403 or network error), try Tencent
+        tencent_quotes: Dict[str, dict] = {}
+        if not quotes and symbols:
+            logger.info(f"Sina empty for {market} ({len(codes)} stocks), trying Tencent fallback")
+            tencent_quotes = await _fetch_tencent_quotes(symbols)
+
         parser = _PARSERS.get(market, _parse_a_quote)
 
         for code in codes:
@@ -771,9 +851,17 @@ async def fetch_stocks_batch(stocks: List[Dict[str, str]]) -> List[dict]:
                 if entry.get("stock_name"):
                     new_entries.append(entry)
                     continue
+            # Try Tencent fallback data
+            tq = tencent_quotes.get(sym)
+            if tq and tq.get("stock_name"):
+                entry = dict(tq)
+                entry["code"] = code
+                entry["market"] = market
+                new_entries.append(entry)
+                continue
             results.append({
                 "code": code, "market": market,
-                "error": "not found in Sina",
+                "error": "not found",
             })
 
     # Enrich all new entries with PE, market cap, turnover rate (batch)
