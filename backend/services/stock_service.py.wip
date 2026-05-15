@@ -1,0 +1,250 @@
+"""Stock data service using akshare with caching and error handling."""
+import os
+import time
+import asyncio
+import logging
+from typing import Optional, List, Dict
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
+
+# ── Proxy bypass for East Money API ──
+# The user's WSL/Windows environment has a system proxy (localhost:3128) whose
+# allowlist blocks eastmoney.com domains. We monkey-patch requests.Session.send
+# so all HTTP requests to known East Money hosts bypass the proxy entirely.
+
+_EAST_MONEY_DOMAINS = (
+    ".eastmoney.com",
+    "push2.eastmoney.com",
+    "push2ex.eastmoney.com",
+    "datacenter.eastmoney.com",
+    "emquoteserver.eastmoney.com",
+    "82.push2.eastmoney.com",
+)
+
+try:
+    import requests as _requests
+
+    _original_send = _requests.Session.send
+
+    def _bypass_proxy_send(self, request, **kwargs):
+        parsed = urlparse(request.url)
+        host = parsed.hostname or ""
+        if any(host.endswith(d) for d in _EAST_MONEY_DOMAINS):
+            # Force direct connection -- bypass any system proxy
+            kwargs["proxies"] = {"http": "", "https": ""}
+            kwargs.pop("trust_env", None)
+        return _original_send(self, request, **kwargs)
+
+    _requests.Session.send = _bypass_proxy_send
+    logger.info("Proxy bypass installed for eastmoney.com hosts")
+except ImportError:
+    logger.warning("requests not installed -- proxy bypass not applied")
+
+
+# ── Simple in-memory cache ──
+_cache: Dict[str, tuple] = {}
+CACHE_TTL = 30  # seconds
+
+
+def _get_cached(key: str):
+    if key in _cache:
+        val, ts = _cache[key]
+        if time.time() - ts < CACHE_TTL:
+            return val
+        del _cache[key]
+    return None
+
+
+def _set_cache(key: str, val):
+    _cache[key] = (val, time.time())
+    if len(_cache) > 200:
+        oldest = min(_cache.keys(), key=lambda k: _cache[k][1])
+        del _cache[oldest]
+
+
+async def fetch_stock_realtime(stock_code: str, market: str) -> dict:
+    """Fetch realtime stock data via akshare."""
+    cache_key = f"realtime:{market}:{stock_code}"
+    cached = _get_cached(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import akshare as ak
+        result = {"code": stock_code, "market": market}
+
+        if market == "A":
+            df = await asyncio.to_thread(ak.stock_zh_a_spot_em)
+            row = df[df["代码"] == stock_code]
+            if row.empty:
+                raise ValueError(f"Stock {stock_code} not found")
+
+            r = row.iloc[0]
+            result.update({
+                "stock_name": r.get("名称", ""),
+                "price": float(r.get("最新价", 0)),
+                "change": float(r.get("涨跌额", 0)),
+                "change_pct": float(r.get("涨跌幅", 0)),
+                "prev_close": float(r.get("昨收", 0)),
+                "open": float(r.get("今开", 0)),
+                "high": float(r.get("最高", 0)),
+                "low": float(r.get("最低", 0)),
+                "volume": float(r.get("成交量", 0)),
+                "turnover_rate": float(r.get("换手率", 0)) if r.get("换手率") else None,
+                "pe": float(r.get("市盈率-动态", 0)) if r.get("市盈率-动态") else None,
+                "market_cap": float(r.get("总市值", 0)) if r.get("总市值") else None,
+                "amplitude": float(r.get("振幅", 0)) if r.get("振幅") else None,
+            })
+
+        elif market == "HK":
+            df = await asyncio.to_thread(ak.stock_hk_spot_em)
+            code_match = stock_code
+            row = df[df["代码"] == code_match]
+            if row.empty:
+                row = df[df["代码"] == code_match.zfill(5)]
+            if row.empty:
+                raise ValueError(f"HK stock {stock_code} not found")
+
+            r = row.iloc[0]
+            result.update({
+                "stock_name": r.get("名称", ""),
+                "price": float(r.get("最新价", 0)),
+                "change": float(r.get("涨跌额", 0)),
+                "change_pct": float(r.get("涨跌幅", 0)),
+                "prev_close": float(r.get("昨收", 0)),
+                "high": float(r.get("最高", 0)),
+                "low": float(r.get("最低", 0)),
+                "volume": float(r.get("成交量", 0)),
+                "pe": float(r.get("市盈率", 0)) if r.get("市盈率") else None,
+                "market_cap": float(r.get("总市值", 0)) if r.get("总市值") else None,
+                "amplitude": float(r.get("振幅", 0)) if r.get("振幅") else None,
+            })
+
+        elif market == "US":
+            df = await asyncio.to_thread(ak.stock_us_spot_em)
+            row = df[df["代码"] == stock_code]
+            if row.empty:
+                row = df[df["名称"].str.contains(stock_code, case=False, na=False)]
+            if row.empty:
+                raise ValueError(f"US stock {stock_code} not found")
+
+            r = row.iloc[0]
+            result.update({
+                "stock_name": r.get("名称", ""),
+                "price": float(r.get("最新价", 0)),
+                "change": float(r.get("涨跌额", 0)),
+                "change_pct": float(r.get("涨跌幅", 0)),
+                "prev_close": float(r.get("昨收", 0)),
+                "high": float(r.get("最高", 0)),
+                "low": float(r.get("最低", 0)),
+                "volume": float(r.get("成交量", 0)),
+                "pe": float(r.get("市盈率", 0)) if r.get("市盈率") else None,
+                "market_cap": float(r.get("总市值", 0)) if r.get("总市值") else None,
+                "amplitude": float(r.get("振幅", 0)) if r.get("振幅") else None,
+            })
+
+        _set_cache(cache_key, result)
+        return result
+
+    except Exception as e:
+        logger.error(f"fetch_stock_realtime error: {e}")
+        raise
+
+
+async def fetch_stock_news(stock_code: str, market: str) -> list:
+    """Fetch recent news for a stock."""
+    cache_key = f"news:{market}:{stock_code}"
+    cached = _get_cached(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import akshare as ak
+        news_list = []
+
+        if market == "A":
+            df = await asyncio.to_thread(ak.stock_info_em_news, symbol=stock_code)
+            if df is not None and not df.empty:
+                for _, r in df.head(5).iterrows():
+                    news_list.append({
+                        "title": r.get("新闻标题", r.get("title", "")),
+                        "source": r.get("来源", r.get("source", "东方财富")),
+                        "url": r.get("新闻链接", r.get("url", "")),
+                        "time": str(r.get("发布时间", r.get("time", ""))),
+                    })
+
+        _set_cache(cache_key, news_list)
+        return news_list
+
+    except Exception as e:
+        logger.error(f"fetch_stock_news error: {e}")
+        return []
+
+
+async def fetch_chart_data(stock_code: str, market: str) -> list:
+    """Fetch chart data for mini sparkline."""
+    cache_key = f"chart:{market}:{stock_code}"
+    cached = _get_cached(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import akshare as ak
+        chart = []
+
+        if market == "A":
+            df = await asyncio.to_thread(
+                ak.stock_zh_a_hist,
+                symbol=stock_code,
+                period="daily",
+                start_date="20260101",
+                adjust="qfq",
+            )
+            if df is not None and not df.empty:
+                chart = df.tail(30)["收盘"].tolist()
+                chart = [float(v) for v in chart]
+
+        _set_cache(cache_key, chart)
+        return chart
+
+    except Exception as e:
+        logger.error(f"fetch_chart_data error: {e}")
+        return []
+
+
+async def search_stock(keyword: str) -> list:
+    """Search stocks by keyword."""
+    try:
+        import akshare as ak
+        results = []
+
+        df_a = await asyncio.to_thread(ak.stock_zh_a_spot_em)
+        matches = df_a[
+            df_a["代码"].str.contains(keyword)
+            | df_a["名称"].str.contains(keyword, na=False)
+        ]
+        for _, r in matches.head(5).iterrows():
+            results.append({
+                "code": r["代码"], "name": r.get("名称", ""), "market": "A"
+            })
+
+        if len(results) < 3:
+            try:
+                df_hk = await asyncio.to_thread(ak.stock_hk_spot_em)
+                hk_matches = df_hk[
+                    df_hk["代码"].str.contains(keyword)
+                    | df_hk["名称"].str.contains(keyword, na=False)
+                ]
+                for _, r in hk_matches.head(3).iterrows():
+                    results.append({
+                        "code": r["代码"], "name": r.get("名称", ""), "market": "HK"
+                    })
+            except Exception:
+                pass
+
+        return results
+    except Exception as e:
+        logger.error(f"search_stock error: {e}")
+        return []
