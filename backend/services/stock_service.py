@@ -56,6 +56,34 @@ def _sina_symbol(code: str, market: str) -> str:
     return code
 
 
+# Full browser-like headers — cloud server IPs need these to avoid 403 from Sina
+_SINA_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://finance.sina.com.cn/",
+    "Accept": "*/*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
+    "Cache-Control": "no-cache",
+}
+
+# Tencent Finance headers — used when Sina is blocked
+_TENCENT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://gu.qq.com/",
+    "Accept": "*/*",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+}
+
+
 async def _fetch_sina_quotes(symbols: List[str]) -> Dict[str, str]:
     """Fetch raw Sina quote strings for a batch of symbols.
 
@@ -67,10 +95,7 @@ async def _fetch_sina_quotes(symbols: List[str]) -> Dict[str, str]:
     url = f"http://hq.sinajs.cn/list={','.join(symbols)}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers={
-                "Referer": "https://finance.sina.com.cn",
-                "User-Agent": "Mozilla/5.0",
-            })
+            resp = await client.get(url, headers=_SINA_HEADERS)
             resp.raise_for_status()
     except Exception as e:
         logger.warning(f"Sina quote HTTP error: {e}")
@@ -86,6 +111,61 @@ async def _fetch_sina_quotes(symbols: List[str]) -> Dict[str, str]:
             csv = m.group(2)
             if csv and not csv.startswith("FAILED"):
                 result[m.group(1)] = csv
+    return result
+
+
+async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
+    """Fetch quotes from Tencent Finance (qt.gtimg.cn) — fallback when Sina is blocked.
+
+    symbols: Sina-format strings (sh000001, sz399001, gb_aapl …)
+    Returns dict: symbol -> {name, price, prev_close, open, change, change_pct}
+
+    Tencent response format (fields separated by ~):
+      v_sh000001="1~上证指数~000001~price~prev_close~open~volume~..."
+      field[3]=price  field[4]=prev_close  field[5]=open
+    """
+    if not symbols:
+        return {}
+    url = f"https://qt.gtimg.cn/q={','.join(symbols)}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, headers=_TENCENT_HEADERS)
+            resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"Tencent quote HTTP error: {e}")
+        return {}
+
+    result = {}
+    for line in resp.text.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r'v_(\w+)="(.+)"', line)
+        if not m:
+            continue
+        symbol = m.group(1)
+        parts = m.group(2).split("~")
+        if len(parts) < 6:
+            continue
+        try:
+            name = parts[1]
+            price = float(parts[3]) if parts[3] else None
+            prev_close = float(parts[4]) if parts[4] else None
+            open_ = float(parts[5]) if parts[5] else None
+            change, change_pct = None, None
+            if price is not None and prev_close and prev_close != 0:
+                change = round(price - prev_close, 4)
+                change_pct = round(change / prev_close * 100, 2)
+            result[symbol] = {
+                "name": name,
+                "price": price,
+                "prev_close": prev_close,
+                "open": open_,
+                "change": change,
+                "change_pct": change_pct,
+            }
+        except (ValueError, IndexError):
+            continue
     return result
 
 
@@ -276,10 +356,7 @@ async def _fetch_sina_finance(symbols: List[str]) -> Dict[str, dict]:
                     resp = await client.get(
                         SINA_FINANCE_URL,
                         params={"symbol": sym},
-                        headers={
-                            "Referer": "https://finance.sina.com.cn",
-                            "User-Agent": "Mozilla/5.0",
-                        },
+                        headers=_SINA_HEADERS,
                     )
                     resp.raise_for_status()
                     text = resp.text.strip()
@@ -366,10 +443,7 @@ async def _fetch_market_center_data(symbol: str, market: str) -> dict:
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, params=params, headers={
-                "Referer": "https://finance.sina.com.cn",
-                "User-Agent": "Mozilla/5.0",
-            })
+            resp = await client.get(url, params=params, headers=_SINA_HEADERS)
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, list) and len(data) > 0:
@@ -426,10 +500,7 @@ async def _fetch_market_center_data(symbol: str, market: str) -> dict:
 # ── Market_Center API helpers ──
 
 MARKET_CENTER_URL = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
-MC_HEADMC_HEADERS = {
-    "Referer": "https://finance.sina.com.cn",
-    "User-Agent": "Mozilla/5.0",
-}
+MC_HEADERS = _SINA_HEADERS
 
 
 def _extract_code_from_symbol(sym: str, market: str) -> str:
@@ -778,10 +849,7 @@ async def fetch_chart_data(stock_code: str, market: str) -> list:
             resp = await client.get(
                 SINA_KLINE_URL,
                 params={"symbol": symbol, "scale": 240, "ma": 5, "datalen": 30},
-                headers={
-                    "Referer": "https://finance.sina.com.cn",
-                    "User-Agent": "Mozilla/5.0",
-                },
+                headers=_SINA_HEADERS,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -812,10 +880,7 @@ async def compute_ytd_change(stock_code: str, market: str) -> Optional[float]:
             resp = await client.get(
                 SINA_KLINE_URL,
                 params={"symbol": symbol, "scale": 240, "ma": 5, "datalen": 200},
-                headers={
-                    "Referer": "https://finance.sina.com.cn",
-                    "User-Agent": "Mozilla/5.0",
-                },
+                headers=_SINA_HEADERS,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -862,22 +927,40 @@ GOOGLE_CLOUD_BACKLOG = {
 
 
 async def get_aindex_intel() -> list:
-    """Fetch Shanghai / Shenzhen / ChiNext index real-time data from Sina."""
+    """Fetch Shanghai / Shenzhen / ChiNext index real-time data.
+
+    Primary: Sina hq.sinajs.cn
+    Fallback: Tencent qt.gtimg.cn  (used when Sina returns 403 from cloud IPs)
+    """
     index_map = [
         ("sh000001", "上证指数"),
         ("sz399001", "深证成指"),
         ("sz399006", "创业板指"),
     ]
-    quotes = await _fetch_sina_quotes([s for s, _ in index_map])
+    symbols = [s for s, _ in index_map]
+
+    # Try Sina first
+    sina_quotes = await _fetch_sina_quotes(symbols)
+    use_tencent = not sina_quotes
+    tencent_quotes: Dict[str, dict] = {}
+    if use_tencent:
+        logger.info("Sina index blocked, falling back to Tencent Finance")
+        tencent_quotes = await _fetch_tencent_quotes(symbols)
 
     items = []
     for symbol, name in index_map:
-        csv = quotes.get(symbol)
-        if not csv:
-            continue
-        data = _parse_a_quote(csv)
-        price = data.get("price")
-        change_pct = data.get("change_pct")
+        if use_tencent:
+            d = tencent_quotes.get(symbol, {})
+            price = d.get("price")
+            change_pct = d.get("change_pct")
+        else:
+            csv = sina_quotes.get(symbol)
+            if not csv:
+                continue
+            d = _parse_a_quote(csv)
+            price = d.get("price")
+            change_pct = d.get("change_pct")
+
         if price is None:
             continue
         sign = "+" if (change_pct or 0) >= 0 else ""
