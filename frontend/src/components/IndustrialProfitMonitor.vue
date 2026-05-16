@@ -203,8 +203,8 @@ onMounted(load)
   border-bottom: 1px solid #e5e7eb;
 }
 
-.yoy-pos { color: #16a34a; font-weight: 600; }
-.yoy-neg { color: #dc2626; font-weight: 600; }
+.yoy-pos { color: #dc2626; font-weight: 600; }
+.yoy-neg { color: #16a34a; font-weight: 600; }
 .yoy-neutral { color: #6b7280; }
 
 .data-source {
