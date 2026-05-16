@@ -107,6 +107,10 @@ export function refreshMacroData() {
   return api.post('/macro/refresh')
 }
 
+export function fetchIndustrialProfit() {
+  return api.get('/macro/profit')
+}
+
 // ── Admin / User Management ──
 
 export function listUsers(page = 1, pageSize = 20) {

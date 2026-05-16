@@ -1,9 +1,12 @@
-"""Macro economic data service: US/CN Treasury yields, CPI, PPI, PMI.
+"""Macro economic data service: US/CN Treasury yields, CPI, PPI, PMI, industrial profit.
 
 Primary sources (EastMoney datacenter — near real-time):
   RPT_ECONOMY_CPI  → NATIONAL_SAME (yoy%), NATIONAL_SEQUENTIAL (mom%)
   RPT_ECONOMY_PPI  → BASE (price index, yoy% = BASE-100), BASE_ACCUMULATE
   RPT_ECONOMY_PMI  → MAKE_INDEX (mfg PMI), NMAKE_INDEX (non-mfg PMI)
+
+Industrial profit: NBS press releases (www.stats.gov.cn/sj/zxfb/)
+  Sheet 附表3 of each release's Excel attachment.
 
 Fallback sources (akshare, monthly refresh, data may lag 1-2 months):
   bond_zh_us_rate          → US + CN Treasury yields (always used for yields)
@@ -13,6 +16,8 @@ Fallback sources (akshare, monthly refresh, data may lag 1-2 months):
   index_pmi_man_cx         → Caixin manufacturing PMI
   macro_china_non_man_pmi  → Official NBS non-manufacturing PMI
 """
+import re
+import io
 import time
 import asyncio
 import logging
@@ -432,6 +437,169 @@ async def _fetch_pmi_svc() -> Dict[str, Any]:
     except Exception as e:
         logger.debug(f"Services PMI error: {e}")
         return {}
+
+
+# ── Industrial Enterprise Profit (NBS press releases) ───────────────────────
+
+_NBS_BASE = "https://www.stats.gov.cn/sj/zxfb/"
+_NBS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://www.stats.gov.cn/",
+}
+
+
+async def _nbs_find_profit_releases(max_pages: int = 12, count: int = 3) -> list:
+    """Scan NBS listing pages to find the most recent N monthly cumulative profit releases."""
+    found = []
+    seen: set = set()
+
+    async with httpx.AsyncClient(
+        timeout=15, verify=False, headers=_NBS_HEADERS, follow_redirects=True
+    ) as client:
+        for page in range(1, max_pages + 1):
+            url = _NBS_BASE if page == 1 else f"{_NBS_BASE}index_{page}.html"
+            try:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    continue
+                # Match monthly cumulative releases (not annual "全年" titles)
+                matches = re.findall(
+                    r'href="(\./\d{6}/[^"]+\.html)"[^>]*>\s*\d{4}年[\d—\-]+月份全国规模以上工业企业利润',
+                    resp.text,
+                )
+                for rel in matches:
+                    # rel is like ./202604/t20260427_1963403.html
+                    month_dir = re.search(r'\./(\d{6})/', rel)
+                    if not month_dir:
+                        continue
+                    full_url = f"{_NBS_BASE}{month_dir.group(1)}/{rel.split('/')[-1]}"
+                    if full_url not in seen:
+                        seen.add(full_url)
+                        found.append(full_url)
+                    if len(found) >= count:
+                        return found
+            except Exception as e:
+                logger.debug(f"NBS listing page {page} error: {e}")
+
+    return found
+
+
+async def _nbs_parse_profit_release(release_url: str) -> dict:
+    """Fetch the NBS release HTML, download its Excel, parse 附表3 for profit data."""
+    import openpyxl
+
+    m = re.match(r'(https://www\.stats\.gov\.cn/sj/zxfb/\d{6}/)', release_url)
+    if not m:
+        raise ValueError(f"Unexpected NBS URL: {release_url}")
+    base_dir = m.group(1)
+
+    async with httpx.AsyncClient(
+        timeout=30, verify=False, headers=_NBS_HEADERS, follow_redirects=True
+    ) as client:
+        resp = await client.get(release_url)
+        resp.raise_for_status()
+        html = resp.text
+
+        # Extract period label (e.g. "2026年1—3月份")
+        period = ""
+        title_m = re.search(r'<title>([^<]+)</title>', html)
+        if title_m:
+            pm = re.search(r'(\d{4}年[\d—\-]+月份)', title_m.group(1))
+            if pm:
+                period = pm.group(1)
+
+        # Find Excel attachment (relative href like ./P020260427...xlsx)
+        xls_links = re.findall(r'href="(\./[^"]*\.xlsx?)"', html, re.IGNORECASE)
+        if not xls_links:
+            raise ValueError(f"No Excel found at {release_url}")
+
+        xls_url = base_dir + xls_links[0].lstrip('./')
+        xr = await client.get(xls_url)
+        xr.raise_for_status()
+        xlsx_bytes = xr.content
+
+    def _parse(data: bytes) -> dict:
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        if '附表3' not in wb.sheetnames:
+            wb.close()
+            raise ValueError("Sheet 附表3 not found")
+
+        ws = wb['附表3']
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        total_row = elec_row = None
+        for row in rows:
+            if not row[0]:
+                continue
+            name = str(row[0]).strip()
+            if name == '总计':
+                total_row = row
+            elif '计算机' in name and '通信' in name:
+                elec_row = row
+
+        if total_row is None:
+            raise ValueError("总计 row not found in 附表3")
+
+        def _f(v):
+            try:
+                return round(float(v), 1) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        def _prev(cur, yoy_pct):
+            if cur is None or yoy_pct is None:
+                return None
+            try:
+                return round(cur / (1 + yoy_pct / 100), 1)
+            except (TypeError, ZeroDivisionError):
+                return None
+
+        total_profit = _f(total_row[5])
+        total_yoy    = _f(total_row[6])
+        elec_profit  = _f(elec_row[5]) if elec_row else None
+        elec_yoy     = _f(elec_row[6]) if elec_row else None
+
+        return {
+            "total_profit": total_profit,
+            "total_prev":   _prev(total_profit, total_yoy),
+            "total_yoy":    total_yoy,
+            "elec_profit":  elec_profit,
+            "elec_prev":    _prev(elec_profit, elec_yoy),
+            "elec_yoy":     elec_yoy,
+        }
+
+    parsed = await asyncio.to_thread(_parse, xlsx_bytes)
+    parsed["period"] = period
+    logger.info(f"NBS profit parsed: period={period}, total={parsed.get('total_profit')}, elec={parsed.get('elec_profit')}")
+    return parsed
+
+
+async def fetch_industrial_profit() -> list:
+    """
+    Return last 3 monthly cumulative industrial profit releases from NBS.
+    Each item: {period, total_profit, total_prev, total_yoy, elec_profit, elec_prev, elec_yoy}
+    """
+    cache_key = "macro:industrial_profit"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    release_urls = await _nbs_find_profit_releases(max_pages=12, count=3)
+    logger.info(f"NBS profit releases found: {release_urls}")
+
+    results = []
+    for url in release_urls:
+        try:
+            data = await _nbs_parse_profit_release(url)
+            if data:
+                results.append(data)
+        except Exception as e:
+            logger.warning(f"Failed to parse NBS profit release {url}: {e}")
+
+    if results:
+        _set_cache(cache_key, results, CACHE_TTL_MACRO)
+    return results
 
 
 # ── Aggregate ───────────────────────────────────────────────────────────────
