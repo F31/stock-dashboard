@@ -136,7 +136,7 @@ async def add_stock(req: AddStockRequest, request: Request,
     except Exception:
         pass
 
-    max_sort = (db.query(func.max(WatchlistItem.sort_order))
+    min_sort = (db.query(func.min(WatchlistItem.sort_order))
                 .filter(WatchlistItem.user_id == user.id)
                 .scalar())
 
@@ -144,7 +144,7 @@ async def add_stock(req: AddStockRequest, request: Request,
         user_id=user.id, stock_code=req.stock_code,
         market=market, stock_name=stock_name,
         item_type=item_type,
-        sort_order=(max_sort or 0) + 1,
+        sort_order=(min_sort or 0) - 1,
     )
     db.add(stock)
     db.commit()
