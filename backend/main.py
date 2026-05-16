@@ -8,6 +8,7 @@ from routes.auth import router as auth_router
 from routes.stocks import router as stocks_router
 from routes.admin import router as admin_router
 from routes.llm_config import router as llm_config_router
+from routes.macro import router as macro_router
 from database import engine, Base
 from models import User, LLMConfig  # noqa: F401 — ensures table is registered
 from sqlalchemy.orm import Session
@@ -51,6 +52,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(stocks_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(llm_config_router, prefix="/api")
+app.include_router(macro_router, prefix="/api")
 
 # ── Serve built frontend (production / single-port mode) ──
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")

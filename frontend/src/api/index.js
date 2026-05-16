@@ -99,6 +99,14 @@ export function fetchSectorCongestion() {
   return api.get('/sector-congestion')
 }
 
+export function fetchMacroData() {
+  return api.get('/macro')
+}
+
+export function refreshMacroData() {
+  return api.post('/macro/refresh')
+}
+
 // ── Admin / User Management ──
 
 export function listUsers(page = 1, pageSize = 20) {

@@ -84,6 +84,8 @@
       <MarketIntel />
       <!-- Congestion Monitor -->
       <CongestionMonitor />
+      <!-- Macro Data Monitor -->
+      <MacroMonitor />
     </main>
 
     <!-- Empty state -->
@@ -148,6 +150,7 @@ import CongestionMonitor from '../components/CongestionMonitor.vue'
 import UserManagement from '../components/UserManagement.vue'
 import OperationLog from '../components/OperationLog.vue'
 import LLMConfigModal from '../components/LLMConfigModal.vue'
+import MacroMonitor from '../components/MacroMonitor.vue'
 
 const router = useRouter()
 const store = useStockStore()
