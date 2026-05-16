@@ -15,6 +15,7 @@
           <div class="sys-dropdown" v-if="showSysMenu" @click="showSysMenu = false">
             <button class="sys-item" @click="showUserMgmt = true">👥 用户维护</button>
             <button class="sys-item" @click="showOpLogs = true">📋 操作日志</button>
+            <button class="sys-item" @click="showLLMConfig = true">🤖 大模型配置</button>
           </div>
         </div>
 
@@ -126,6 +127,12 @@
       v-if="showOpLogs"
       @close="showOpLogs = false"
     />
+
+    <!-- LLM Config Modal -->
+    <LLMConfigModal
+      v-if="showLLMConfig"
+      @close="showLLMConfig = false"
+    />
   </div>
 </template>
 
@@ -140,6 +147,7 @@ import MarketIntel from '../components/MarketIntel.vue'
 import CongestionMonitor from '../components/CongestionMonitor.vue'
 import UserManagement from '../components/UserManagement.vue'
 import OperationLog from '../components/OperationLog.vue'
+import LLMConfigModal from '../components/LLMConfigModal.vue'
 
 const router = useRouter()
 const store = useStockStore()
@@ -149,6 +157,7 @@ const showAddModal = ref(false)
 const showAllModal = ref(false)
 const showUserMgmt = ref(false)
 const showOpLogs = ref(false)
+const showLLMConfig = ref(false)
 const showSysMenu = ref(false)
 const activeTab = ref('ALL')
 const lastUpdate = ref('')

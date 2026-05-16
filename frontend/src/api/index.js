@@ -117,6 +117,32 @@ export function deleteUser(id) {
   return api.delete(`/admin/users/${id}`)
 }
 
+// ── LLM Config ──
+
+export function listLLMConfigs() {
+  return api.get('/llm-configs')
+}
+
+export function getLLMConfig(id) {
+  return api.get(`/llm-configs/${id}`)
+}
+
+export function createLLMConfig(data) {
+  return api.post('/llm-configs', data)
+}
+
+export function updateLLMConfig(id, data) {
+  return api.put(`/llm-configs/${id}`, data)
+}
+
+export function setDefaultLLMConfig(id) {
+  return api.post(`/llm-configs/${id}/set-default`)
+}
+
+export function deleteLLMConfig(id) {
+  return api.delete(`/llm-configs/${id}`)
+}
+
 // ── Admin / Operation Logs ──
 
 export function listLogs(page = 1, pageSize = 20, filters = {}) {

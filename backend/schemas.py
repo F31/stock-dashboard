@@ -122,3 +122,42 @@ class PaginatedLogs(BaseModel):
     page: int
     page_size: int
     items: List[LogEntry]
+
+
+# ── LLM Config ──
+
+class LLMConfigCreate(BaseModel):
+    name: str
+    provider: str = "custom"
+    base_url: str
+    model_name: str
+    api_key: str = ""
+    description: str = ""
+    is_default: bool = False
+
+
+class LLMConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    base_url: Optional[str] = None
+    model_name: Optional[str] = None
+    api_key: Optional[str] = None
+    description: Optional[str] = None
+    is_default: Optional[bool] = None
+
+
+class LLMConfigResponse(BaseModel):
+    id: int
+    name: str
+    provider: str
+    base_url: str
+    model_name: str
+    api_key_masked: str      # 脱敏展示
+    api_key: Optional[str] = None   # 仅详情接口返回明文
+    description: str
+    is_default: bool
+    created_at: Optional[str] = ""
+    updated_at: Optional[str] = ""
+
+    class Config:
+        from_attributes = True
