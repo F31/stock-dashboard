@@ -44,11 +44,27 @@ def log_action(
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP from request."""
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
     return request.client.host if request.client else "unknown"
+
+
+# ── Debug ──
+
+@router.get("/debug/headers")
+def debug_headers(request: Request):
+    """Temporary: show what headers FastAPI actually receives (remove after debugging)."""
+    return {
+        "client_host": request.client.host if request.client else None,
+        "x_forwarded_for": request.headers.get("X-Forwarded-For"),
+        "x_real_ip": request.headers.get("X-Real-IP"),
+        "all_headers": dict(request.headers),
+        "resolved_ip": get_client_ip(request),
+    }
 
 
 # ── User Management ──
