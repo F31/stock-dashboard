@@ -150,8 +150,9 @@
     <StockDetailModal
       v-if="detailStock"
       :stock="detailStock"
+      :initialTab="detailInitialTab"
       :currentUser="currentUserObj"
-      @close="detailStock = null"
+      @close="detailStock = null; detailInitialTab = 'info'"
       @notes-saved="handleNotesSaved"
     />
   </div>
@@ -365,7 +366,10 @@ function handleRename(id, name) {
   store.renameStock(id, name)
 }
 
-function handleOpenDetail(stock) {
+const detailInitialTab = ref('info')
+
+function handleOpenDetail(stock, tab = 'info') {
+  detailInitialTab.value = tab
   detailStock.value = stock
 }
 

@@ -139,10 +139,11 @@ import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport } f
 const props = defineProps({
   stock: { type: Object, required: true },
   currentUser: { type: Object, default: null },
+  initialTab: { type: String, default: 'info' },
 })
 const emit = defineEmits(['close', 'notes-saved'])
 
-const activeTab = ref('info')
+const activeTab = ref(props.initialTab)
 const tabs = [
   { key: 'info', label: '📊 基本信息' },
   { key: 'notes', label: '📝 研究笔记' },
@@ -262,6 +263,7 @@ async function loadReports() {
 }
 
 watch(activeTab, v => { if (v === 'reports') loadReports() })
+onMounted(() => { if (activeTab.value === 'reports') loadReports() })
 
 function fileIcon(name) {
   if (!name) return '📄'

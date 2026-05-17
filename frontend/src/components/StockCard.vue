@@ -5,6 +5,7 @@
       <div class="card-hdr-l">
         <div v-if="!renamingName" class="sname">
           <span class="sname-text" @click.stop="$emit('open-detail', stock)">{{ stock.data?.stock_name || stock.stock_name || stock.stock_code }}</span>
+          <button class="report-btn" @click.stop="$emit('open-detail', stock, 'reports')" title="查看分析报告">分析报告</button>
           <button v-if="isSector" class="rename-btn" @click.stop="startRename" title="修改名称">✎</button>
         </div>
         <div v-else class="rename-row">
@@ -393,6 +394,23 @@ function updateNotes(e) {
 .sname-text:hover { color: #2563eb; text-decoration: underline; }
 .scode { font-size: 11px; color: #6b7280; margin-top: 1px; }
 
+.report-btn {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 10px;
+  color: #6b7280;
+  padding: 1px 5px;
+  line-height: 1.4;
+  flex-shrink: 0;
+  transition: all .15s;
+}
+.report-btn:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #2563eb;
+}
 .rename-btn {
   background: none; border: none; cursor: pointer;
   font-size: 12px; color: #9ca3af; padding: 0 2px;
