@@ -4,6 +4,7 @@ import {
   listStocks,
   addStock,
   removeStock,
+  showStock,
   updateNotes,
   renameStock,
   reorderStocks,
@@ -51,7 +52,7 @@ export const useStockStore = defineStore('stocks', {
         sort_order: this.stocks.length,
         item_type: market === 'SECTOR' ? 'sector' : 'stock',
       }
-      this.stocks.push(tempItem)
+      this.stocks.unshift(tempItem)
 
       // 2. Save to backend
       try {
@@ -72,13 +73,31 @@ export const useStockStore = defineStore('stocks', {
 
     async removeStock(id) {
       try {
-        await removeStock(id)
-        // Clean realtime cache for the removed stock
-        const item = this.stocks.find((s) => s.id === id)
-        if (item) delete this.realtime[`${item.market}:${item.stock_code}`]
-        this.stocks = this.stocks.filter((s) => s.id !== id)
+        const res = await removeStock(id)
+        if (res.data.action === 'hidden') {
+          // Stock has reports — mark hidden locally instead of removing
+          const item = this.stocks.find((s) => s.id === id)
+          if (item) item.hidden = 1
+          return 'hidden'
+        } else {
+          // Truly deleted — remove from local state
+          const item = this.stocks.find((s) => s.id === id)
+          if (item) delete this.realtime[`${item.market}:${item.stock_code}`]
+          this.stocks = this.stocks.filter((s) => s.id !== id)
+          return 'deleted'
+        }
       } catch (e) {
         this.error = 'Failed to remove stock'
+      }
+    },
+
+    async showStock(id) {
+      try {
+        await showStock(id)
+        const item = this.stocks.find((s) => s.id === id)
+        if (item) item.hidden = 0
+      } catch (e) {
+        this.error = 'Failed to show stock'
       }
     },
 

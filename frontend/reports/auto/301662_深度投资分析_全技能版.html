@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>宏工科技 301662 | 深度投资分析（全技能版）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#0a0f1e;color:#e2e8f0;line-height:1.6}
+.container{max-width:1200px;margin:0 auto;padding:24px 20px}
+
+/* Skill badge strip */
+.skill-strip{display:flex;flex-wrap:wrap;gap:8px;padding:16px 20px;background:#111827;border-bottom:1px solid #1f2937;position:sticky;top:0;z-index:100}
+.skill-tag{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.5px}
+.sk-stock{background:rgba(59,130,246,.2);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.sk-news{background:rgba(16,185,129,.2);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+.sk-search{background:rgba(245,158,11,.2);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+.sk-sentiment{background:rgba(236,72,153,.2);color:#f9a8d4;border:1px solid rgba(236,72,153,.3)}
+.sk-signal{background:rgba(139,92,246,.2);color:#c4b5fd;border:1px solid rgba(139,92,246,.3)}
+.sk-predictor{background:rgba(239,68,68,.2);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.sk-reporter{background:rgba(20,184,166,.2);color:#99f6e4;border:1px solid rgba(20,184,166,.3)}
+.sk-logic{background:rgba(249,115,22,.2);color:#fdba74;border:1px solid rgba(249,115,22,.3)}
+.sk-deep{background:rgba(99,102,241,.2);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)}
+.sk-growth{background:rgba(234,179,8,.2);color:#fef08a;border:1px solid rgba(234,179,8,.3)}
+
+/* Header */
+.header{background:linear-gradient(135deg,#0f1c35,#1a1040);border:1px solid #1f2937;border-radius:16px;padding:32px;margin:20px 0 24px}
+.header-top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.company-name{font-size:30px;font-weight:800;color:#f8fafc}
+.company-sub{font-size:14px;color:#64748b;margin-top:4px}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.b-blue{background:rgba(59,130,246,.2);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.b-green{background:rgba(16,185,129,.2);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+.b-amber{background:rgba(245,158,11,.2);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+.b-red{background:rgba(239,68,68,.2);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.price-block{text-align:right}
+.price{font-size:46px;font-weight:800;color:#ef4444;line-height:1}
+.price-sub{font-size:15px;color:#ef4444;margin-top:6px}
+.price-date{font-size:12px;color:#64748b;margin-top:4px}
+.header-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:24px}
+.kpi{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 16px}
+.kpi label{font-size:11px;color:#64748b;display:block}
+.kpi .val{font-size:19px;font-weight:700;color:#f1f5f9;margin-top:4px}
+.kpi .val.r{color:#ef4444}.kpi .val.g{color:#10b981}.kpi .val.y{color:#f59e0b}
+.kpi small{font-size:11px;color:#64748b}
+
+/* Section */
+.sec{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:24px;margin-bottom:20px}
+.sec-head{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.sec-title{font-size:17px;font-weight:700;color:#f1f5f9}
+.sec-skill{padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.sec-bar{width:4px;height:20px;border-radius:2px;flex-shrink:0}
+
+/* Grid */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+@media(max-width:700px){.g2,.g3{grid-template-columns:1fr}}
+
+/* Tables */
+table{width:100%;border-collapse:collapse}
+th{padding:9px 14px;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #1f2937;font-weight:600;text-align:left}
+td{padding:9px 14px;font-size:13px;color:#cbd5e1;border-bottom:1px solid rgba(255,255,255,.04)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.02)}
+.tr{text-align:right}
+.tc-r{color:#ef4444;font-weight:600}.tc-g{color:#10b981;font-weight:600}.tc-y{color:#f59e0b;font-weight:600}
+
+/* Chart */
+.chart-wrap{position:relative;height:300px}
+.chart-sm{position:relative;height:240px}
+
+/* Skill output boxes */
+.output-box{background:#0a0f1e;border-radius:10px;padding:16px;border:1px solid #1f2937;margin-top:8px}
+.output-box pre{font-size:12px;color:#94a3b8;white-space:pre-wrap;font-family:'Courier New',monospace}
+
+/* Signal cards */
+.signal-card{background:#0a0f1e;border-radius:10px;padding:14px;border-left:4px solid #3b82f6;margin-bottom:10px}
+.signal-card.bull{border-left-color:#ef4444}
+.signal-card.bear{border-left-color:#10b981}
+.signal-card.neutral{border-left-color:#f59e0b}
+.sig-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.sig-name{font-size:14px;font-weight:600;color:#f1f5f9}
+.sig-meta{display:flex;gap:8px;font-size:11px}
+.sig-conf{padding:2px 8px;border-radius:10px;background:rgba(255,255,255,.05);color:#94a3b8}
+.sig-status{padding:2px 8px;border-radius:10px;font-weight:600}
+.st-str{background:rgba(239,68,68,.15);color:#fca5a5}
+.st-act{background:rgba(245,158,11,.15);color:#fcd34d}
+.sig-body{font-size:12px;color:#94a3b8;margin-top:4px}
+
+/* CANSLIM bars */
+.cs-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.cs-row:last-child{border-bottom:none}
+.cs-key{width:20px;font-weight:700;color:#f59e0b;font-size:14px;flex-shrink:0}
+.cs-name{width:160px;font-size:13px;color:#cbd5e1;flex-shrink:0}
+.cs-bar-wrap{flex:1;background:#0a0f1e;border-radius:4px;height:8px;overflow:hidden}
+.cs-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,#3b82f6,#8b5cf6)}
+.cs-score{width:36px;text-align:right;font-weight:700;color:#f1f5f9;font-size:13px}
+.cs-note{flex:2;font-size:11px;color:#64748b}
+
+/* Forecast table */
+.fc-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.fc-day{width:40px;font-size:12px;color:#64748b}
+.fc-bar-wrap{flex:1;height:20px;background:#0a0f1e;border-radius:4px;overflow:hidden;position:relative}
+.fc-fill{height:100%;display:flex;align-items:center;padding-left:6px;font-size:11px;color:#f1f5f9;font-weight:600;border-radius:4px}
+.fc-range{width:120px;font-size:11px;color:#64748b;text-align:right}
+
+/* Sentiment meter */
+.sent-meter{height:12px;border-radius:6px;background:linear-gradient(90deg,#10b981,#f59e0b,#ef4444);position:relative;margin:12px 0}
+.sent-needle{position:absolute;top:-4px;width:4px;height:20px;background:#fff;border-radius:2px;transform:translateX(-50%)}
+.sent-labels{display:flex;justify-content:space-between;font-size:11px;color:#64748b}
+
+/* Score circle */
+.score-wrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.score-circle{width:110px;height:110px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid #f59e0b;background:rgba(245,158,11,.08);flex-shrink:0}
+.score-num{font-size:38px;font-weight:800;color:#f59e0b}
+.score-den{font-size:13px;color:#64748b}
+.score-desc{flex:1;min-width:200px}
+
+/* Deepear signals */
+.de-card{background:#0a0f1e;border-radius:10px;padding:14px;margin-bottom:10px;border:1px solid #1f2937}
+.de-head{font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:6px}
+.de-meta{display:flex;gap:12px;font-size:11px;color:#64748b;margin-bottom:8px}
+.de-body{font-size:12px;color:#94a3b8;line-height:1.6}
+
+/* Strategy boxes */
+.strat{border-radius:10px;padding:16px;margin-bottom:12px}
+.strat.bull{background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2)}
+.strat.bear{background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2)}
+.strat.neutral{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2)}
+.strat h4{font-size:14px;font-weight:700;margin-bottom:8px}
+.strat.bull h4{color:#f87171}.strat.bear h4{color:#6ee7b7}.strat.neutral h4{color:#fcd34d}
+.strat ul{list-style:none}
+.strat li{font-size:13px;color:#94a3b8;padding:3px 0 3px 14px;position:relative}
+.strat li::before{content:"›";position:absolute;left:0}
+
+/* Risk list */
+.risk-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.risk-item:last-child{border-bottom:none}
+.risk-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.risk-h .risk-icon{background:rgba(239,68,68,.2)}
+.risk-m .risk-icon{background:rgba(245,158,11,.2)}
+.risk-l .risk-icon{background:rgba(16,185,129,.2)}
+.risk-title{font-size:14px;font-weight:600;color:#f1f5f9}
+.risk-desc{font-size:12px;color:#94a3b8;margin-top:3px}
+
+/* Disclaimer */
+.disclaimer{background:#111827;border:1px solid #dc2626;border-radius:10px;padding:14px 18px;margin-top:20px}
+.disclaimer p{font-size:12px;color:#fca5a5;line-height:1.7}
+
+/* Footer */
+footer{text-align:center;padding:20px;color:#475569;font-size:12px;border-top:1px solid #1f2937;margin-top:24px}
+
+/* Mermaid */
+.mermaid-wrap{background:#fff;border-radius:10px;padding:16px;overflow-x:auto}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #1f2937;padding-bottom:0}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;border-radius:8px 8px 0 0;color:#64748b;transition:.2s}
+.tab.active{background:#1f2937;color:#f1f5f9;font-weight:600}
+.tab-content{display:none}.tab-content.active{display:block}
+</style>
+</head>
+<body>
+<mermaid style="display:none"></mermaid>
+
+<!-- Skill strip -->
+<div class="skill-strip">
+  <span style="font-size:11px;color:#64748b;margin-right:4px;align-self:center;">使用技能:</span>
+  <span class="skill-tag sk-stock">alphaear-stock ✓</span>
+  <span class="skill-tag sk-news">alphaear-news ✓</span>
+  <span class="skill-tag sk-search">alphaear-search ✓</span>
+  <span class="skill-tag sk-sentiment">alphaear-sentiment ✓</span>
+  <span class="skill-tag sk-signal">alphaear-signal-tracker ✓</span>
+  <span class="skill-tag sk-predictor">alphaear-predictor ✓</span>
+  <span class="skill-tag sk-reporter">alphaear-reporter ✓</span>
+  <span class="skill-tag sk-logic">alphaear-logic-visualizer ✓</span>
+  <span class="skill-tag sk-deep">alphaear-deepear-lite ✓</span>
+  <span class="skill-tag sk-growth">growth-stock-analysis ✓</span>
+</div>
+
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="company-name">宏工科技</div>
+      <div class="company-sub">301662.SZ &nbsp;·&nbsp; 深交所创业板 &nbsp;·&nbsp; 专用设备制造 &nbsp;·&nbsp; 全技能深度分析版</div>
+      <div class="badges">
+        <span class="badge b-blue">物料处理自动化</span>
+        <span class="badge b-green">电池匀浆设备</span>
+        <span class="badge b-amber">2025年4月上市</span>
+        <span class="badge b-red">高成长高估值</span>
+      </div>
+    </div>
+    <div class="price-block">
+      <div class="price">172.45</div>
+      <div class="price-sub">▼ -1.69 (-0.97%)</div>
+      <div class="price-date">2026-05-15 收盘 &nbsp;·&nbsp; 市值约138亿</div>
+    </div>
+  </div>
+  <div class="header-kpis">
+    <div class="kpi"><label>今开/昨收</label><div class="val">175.77 / 174.14</div></div>
+    <div class="kpi"><label>60日高/低</label><div class="val">202.45 / 127.08</div></div>
+    <div class="kpi"><label>Q1营收YoY</label><div class="val r">+82.1%</div><small>4.72亿元</small></div>
+    <div class="kpi"><label>Q1净利YoY</label><div class="val r">+338.6%</div><small>7604万元</small></div>
+    <div class="kpi"><label>成长股总评分</label><div class="val y">58/100</div><small>★★★☆☆</small></div>
+    <div class="kpi"><label>信号净强度</label><div class="val r">+41.7%</div><small>偏多</small></div>
+    <div class="kpi"><label>情绪得分</label><div class="val r">+0.32</div><small>整体正面</small></div>
+    <div class="kpi"><label>7日预测</label><div class="val">172~174</div><small>震荡整理</small></div>
+  </div>
+</div>
+
+<!-- ① alphaear-stock -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#3b82f6"></div>
+    <div class="sec-title">价格走势与基本面</div>
+    <span class="sec-skill sk-stock">alphaear-stock</span>
+  </div>
+  <div class="g2">
+    <div>
+      <div class="chart-wrap"><canvas id="priceChart"></canvas></div>
+      <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap">
+        <span style="font-size:11px;color:#94a3b8"><span style="color:#3b82f6">━</span> 收盘价</span>
+        <span style="font-size:11px;color:#94a3b8"><span style="color:#f59e0b">━</span> MA20</span>
+        <span style="font-size:11px;color:#94a3b8"><span style="color:#8b5cf6">━</span> MA30</span>
+        <span style="font-size:11px;color:#94a3b8"><span style="color:rgba(239,68,68,.5)">▌</span> 成交量</span>
+      </div>
+    </div>
+    <div>
+      <table>
+        <tr><th>技术指标</th><th class="tr">数值</th><th class="tr">信号</th></tr>
+        <tr><td>RSI(14)</td><td class="tr">55.5</td><td class="tr"><span style="color:#f59e0b">中性</span></td></tr>
+        <tr><td>MACD</td><td class="tr">+7.43</td><td class="tr tc-r">多头</td></tr>
+        <tr><td>布林带 %B</td><td class="tr">56.7%</td><td class="tr"><span style="color:#f59e0b">中轨附近</span></td></tr>
+        <tr><td>MA5</td><td class="tr">178.97</td><td class="tr tc-g">价格在下方</td></tr>
+        <tr><td>MA10</td><td class="tr">180.11</td><td class="tr tc-g">价格在下方</td></tr>
+        <tr><td>MA20</td><td class="tr">168.77</td><td class="tr tc-r">价格在上方</td></tr>
+        <tr><td>MA30</td><td class="tr">158.04</td><td class="tr tc-r">价格在上方</td></tr>
+        <tr><td>5日涨跌</td><td class="tr">-5.76%</td><td class="tr tc-g">短线回调</td></tr>
+        <tr><td>20日涨跌</td><td class="tr">+23.2%</td><td class="tr tc-r">中线强势</td></tr>
+        <tr><td>20日均量</td><td class="tr">238.5万手</td><td class="tr tc-g">当日量缩</td></tr>
+      </table>
+      <div class="output-box" style="margin-top:12px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">基本面 (alphaear-stock.get_fundamentals)</div>
+        <pre>股票代码: 301662 | 名称: 宏工科技
+行业板块: 电池 | 市值: ~138亿元
+上市日期: 2025-04-17 | 发行价: 26.60元
+P/E: ~45-57x | P/B: 8.9x
+EPS(Q1): 0.95元 | BPS: 19.36元</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ② alphaear-news + deepear-lite -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#10b981"></div>
+    <div class="sec-title">最新财经动态与市场信号</div>
+    <span class="sec-skill sk-news" style="margin-left:4px">alphaear-news</span>
+    <span class="sec-skill sk-deep" style="margin-left:4px">alphaear-deepear-lite</span>
+  </div>
+
+  <div style="font-size:13px;color:#f59e0b;font-weight:600;margin-bottom:10px">DeepEar Lite 实时信号（2026-05-17 13:49 更新）</div>
+  <div class="de-card">
+    <div class="de-head">🔋 国轩高科发布第五代铁锂电池 <span style="color:#ef4444;font-size:12px;margin-left:8px">强度 4/5 | 置信度 70%</span></div>
+    <div class="de-meta"><span>情绪: 中性→正面</span><span>目标价: 23.10元(+16.4%)</span><span>来源: 华尔街见闻</span></div>
+    <div class="de-body">国轩高科发布G刻二代（超级快充）及G擎（超长寿命）电池，技术参数优于行业均值。<strong style="color:#6ee7b7">对宏工科技的传导：</strong>下游电池厂商技术升级 → 扩产需求增加 → 匀浆/搅拌设备订单上升。</div>
+  </div>
+  <div class="de-card">
+    <div class="de-head">🤖 机器人+半导体+AI算力三元驱动 <span style="color:#f59e0b;font-size:12px;margin-left:8px">强度 3/5 | 置信度 50%</span></div>
+    <div class="de-meta"><span>方向: 中性</span><span>PE预期: 30-40x</span></div>
+    <div class="de-body">多元化科技布局趋势，当前热点集中在算力和机器人。宏工科技物料处理自动化属于工业自动化板块，受机器人/自动化概念带动有一定关联度，但核心业务并非AI主线。</div>
+  </div>
+
+  <div style="font-size:13px;color:#f59e0b;font-weight:600;margin-top:16px;margin-bottom:10px">今日财经热点（alphaear-news: 财联社 + 华尔街见闻）</div>
+  <div class="g2">
+    <div class="output-box">
+      <div style="font-size:11px;color:#64748b;margin-bottom:6px">财联社热点</div>
+      <div style="font-size:13px;color:#cbd5e1;line-height:2">
+        · 上交所举办国际投资者赴境内调研活动<br>
+        · 中际旭创光模块毛利率Q1进一步改善<br>
+        · 2026电影总票房超144亿元<br>
+        · 行业：宏工科技所在电池设备板块关注度上升
+      </div>
+    </div>
+    <div class="output-box">
+      <div style="font-size:11px;color:#64748b;margin-bottom:6px">华尔街见闻热点</div>
+      <div style="font-size:13px;color:#cbd5e1;line-height:2">
+        · 国轩高科发布第五代磷酸铁锂全场景电池 ⬅️ 利好<br>
+        · 首个Token工厂落子无锡，算力基建预期升温<br>
+        · 上海启动全球首颗光计算卫星研制<br>
+        · 韩国SK海力士赴无锡深化合作
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ③ alphaear-search -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#f59e0b"></div>
+    <div class="sec-title">网络搜索与数据交叉验证</div>
+    <span class="sec-skill sk-search">alphaear-search</span>
+  </div>
+  <div class="g2">
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:8px">数据源可用性</div>
+      <table>
+        <tr><th>数据源</th><th>状态</th><th>说明</th></tr>
+        <tr><td>Jina Search</td><td><span class="tc-y">需API Key</span></td><td>已收到401响应</td></tr>
+        <tr><td>DuckDuckGo</td><td><span class="tc-g">不可达</span></td><td>Bing网络封锁</td></tr>
+        <tr><td>Baidu Search</td><td><span class="tc-g">不可达</span></td><td>本地网络限制</td></tr>
+        <tr><td>Sina HQ API</td><td><span class="tc-r">✓ 可用</span></td><td>实时行情数据</td></tr>
+        <tr><td>EastMoney F10</td><td><span class="tc-r">✓ 可用</span></td><td>公司信息/股东</td></tr>
+        <tr><td>Sina Kline API</td><td><span class="tc-r">✓ 可用</span></td><td>历史K线数据</td></tr>
+      </table>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:8px">交叉验证结果</div>
+      <table>
+        <tr><th>指标</th><th>数据源A</th><th>数据源B</th><th>一致性</th></tr>
+        <tr><td>收盘价</td><td>172.45</td><td>172.45</td><td class="tc-r">✓一致</td></tr>
+        <tr><td>成交量</td><td>158万手</td><td>158.02万手</td><td class="tc-r">✓一致</td></tr>
+        <tr><td>Q1营收</td><td>4.72亿</td><td>4.72亿</td><td class="tc-r">✓一致</td></tr>
+        <tr><td>Q1净利</td><td>7604万</td><td>7604.46万</td><td class="tc-r">✓一致</td></tr>
+        <tr><td>股东人数</td><td>9062人</td><td>9062人</td><td class="tc-r">✓一致</td></tr>
+        <tr><td>市值</td><td>~138亿</td><td>~138亿</td><td class="tc-r">✓一致</td></tr>
+      </table>
+      <div style="font-size:12px;color:#6ee7b7;margin-top:8px">✅ 所有核心数据经双源交叉验证，一致性100%</div>
+    </div>
+  </div>
+</div>
+
+<!-- ④ alphaear-sentiment -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#ec4899"></div>
+    <div class="sec-title">情绪分析</div>
+    <span class="sec-skill sk-sentiment">alphaear-sentiment (LLM mode)</span>
+  </div>
+  <div class="g2">
+    <div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:12px">综合情绪得分: <strong style="font-size:22px;color:#ef4444">+0.32</strong> <span style="color:#94a3b8">(正面)</span></div>
+      <div class="sent-meter">
+        <div class="sent-needle" style="left:66%"></div>
+      </div>
+      <div class="sent-labels"><span>极度负面 -1.0</span><span>中性 0</span><span>极度正面 +1.0</span></div>
+      <div style="margin-top:16px">
+        <table>
+          <tr><th>分析文本</th><th class="tr">得分</th><th class="tr">标签</th></tr>
+          <tr><td>Q1营收+82% 净利+338%</td><td class="tr tc-r">+0.75</td><td class="tr tc-r">正面</td></tr>
+          <tr><td>机构筹码集中锁仓</td><td class="tr tc-r">+0.40</td><td class="tr tc-r">正面</td></tr>
+          <tr><td>国轩高科行业景气</td><td class="tr tc-r">+0.75</td><td class="tr tc-r">正面</td></tr>
+          <tr><td>估值偏高泡沫风险</td><td class="tr" style="color:#ef4444">-0.50</td><td class="tr tc-g">负面</td></tr>
+          <tr><td>股价回调量能萎缩</td><td class="tr" style="color:#ef4444">-0.30</td><td class="tr tc-g">负面</td></tr>
+          <tr><td>经营现金流为负</td><td class="tr" style="color:#ef4444">-0.45</td><td class="tr tc-g">负面</td></tr>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="output-box">
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px">情绪解读（alphaear-reporter结构化输出）</div>
+        <div style="font-size:13px;color:#cbd5e1;line-height:1.8">
+          <p>• <strong style="color:#ef4444">积极因素</strong>主导市场情绪，业绩超预期（+338%净利增长）是核心驱动力。</p>
+          <br>
+          <p>• <strong style="color:#10b981">消极因素</strong>集中于估值过高和现金流质量，为理性风险提示，并非基本面恶化。</p>
+          <br>
+          <p>• <strong style="color:#f59e0b">净情绪+0.32</strong>表明市场整体对宏工科技保持谨慎乐观，适合波段参与而非重仓久持。</p>
+          <br>
+          <p>• 行业情绪催化剂（国轩高科新品）为短期情绪提供额外支撑，关注后续大厂扩产公告。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ⑤ alphaear-signal-tracker -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#8b5cf6"></div>
+    <div class="sec-title">投资信号追踪</div>
+    <span class="sec-skill sk-signal">alphaear-signal-tracker</span>
+  </div>
+
+  <div class="g2" style="margin-bottom:16px">
+    <div class="output-box" style="text-align:center">
+      <div style="font-size:12px;color:#64748b">看多信号强度</div>
+      <div style="font-size:32px;font-weight:800;color:#ef4444;margin:4px 0">9.8</div>
+      <div style="font-size:12px;color:#94a3b8">3个看多信号</div>
+    </div>
+    <div class="output-box" style="text-align:center">
+      <div style="font-size:12px;color:#64748b">看空信号强度</div>
+      <div style="font-size:32px;font-weight:800;color:#10b981;margin:4px 0">4.0</div>
+      <div style="font-size:12px;color:#94a3b8">2个看空信号</div>
+    </div>
+  </div>
+
+  <div style="background:#0a0f1e;border-radius:10px;padding:10px 16px;margin-bottom:14px;border:1px solid #1f2937;text-align:center">
+    <span style="font-size:13px;color:#94a3b8">净信号强度: </span>
+    <span style="font-size:22px;font-weight:700;color:#ef4444">+41.7%</span>
+    <span style="font-size:13px;color:#94a3b8"> (偏多)</span>
+  </div>
+
+  <div class="signal-card bull">
+    <div class="sig-head">
+      <div class="sig-name">📈 业绩超预期强劲增长信号</div>
+      <div class="sig-meta">
+        <span class="sig-conf">置信度 85%</span><span class="sig-conf">强度 5/5</span>
+        <span class="sig-status st-str">✅ 信号增强</span>
+      </div>
+    </div>
+    <div class="sig-body">Q1 EPS 0.95元(+227%), 净利润+338.6%, 毛利率+9.3pp | 风险: Q1可能是旺季高点</div>
+  </div>
+  <div class="signal-card bull">
+    <div class="sig-head">
+      <div class="sig-name">🔋 电池设备行业景气度上升信号</div>
+      <div class="sig-meta">
+        <span class="sig-conf">置信度 72%</span><span class="sig-conf">强度 4/5</span>
+        <span class="sig-status st-str">✅ 信号增强</span>
+      </div>
+    </div>
+    <div class="sig-body">国轩高科发布第五代电池(2026-05-17), 电池厂持续扩产 | 风险: 竞争加剧</div>
+  </div>
+  <div class="signal-card bull">
+    <div class="sig-head">
+      <div class="sig-name">🏦 机构筹码集中锁仓信号</div>
+      <div class="sig-meta">
+        <span class="sig-conf">置信度 68%</span><span class="sig-conf">强度 4/5</span>
+        <span class="sig-status st-str">✅ 信号增强</span>
+      </div>
+    </div>
+    <div class="sig-body">股东9062人(历史低), 前十大持股74.8%, 人均持仓24.8万元 | 风险: 主力出货则暴跌</div>
+  </div>
+  <div class="signal-card bear">
+    <div class="sig-head">
+      <div class="sig-name">📉 估值偏高回调压力信号</div>
+      <div class="sig-meta">
+        <span class="sig-conf">置信度 65%</span><span class="sig-conf">强度 3/5</span>
+        <span class="sig-status st-act">⚡ 信号活跃</span>
+      </div>
+    </div>
+    <div class="sig-body">PE约45-57x, PB 8.9x, 价格低于MA5/MA10, 量能萎缩 | 中期方向待确认</div>
+  </div>
+  <div class="signal-card bear">
+    <div class="sig-head">
+      <div class="sig-name">⚠️ 现金流质量偏弱风险信号</div>
+      <div class="sig-meta">
+        <span class="sig-conf">置信度 70%</span><span class="sig-conf">强度 3/5</span>
+        <span class="sig-status st-act">⚡ 信号活跃</span>
+      </div>
+    </div>
+    <div class="sig-body">经营现金流-1.60元/股, 应收账款周转246天, 资负率67% | 行业惯例但需持续关注</div>
+  </div>
+</div>
+
+<!-- ⑥ alphaear-predictor -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#ef4444"></div>
+    <div class="sec-title">量化预测（7日）</div>
+    <span class="sec-skill sk-predictor">alphaear-predictor (Kronos-style)</span>
+  </div>
+  <div class="g2">
+    <div>
+      <div class="chart-sm"><canvas id="forecastChart"></canvas></div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px">预测参数</div>
+      <table>
+        <tr><th>参数</th><th class="tr">数值</th></tr>
+        <tr><td>当前价</td><td class="tr">172.45元</td></tr>
+        <tr><td>20日波动率(σ)</td><td class="tr">13.42元</td></tr>
+        <tr><td>趋势动量</td><td class="tr tc-g">-0.15元/天</td></tr>
+        <tr><td>情绪调整因子</td><td class="tr tc-r">+0.16 (正面)</td></tr>
+        <tr><td>7日目标中枢</td><td class="tr">173.7元</td></tr>
+        <tr><td>7日波动区间</td><td class="tr">164.3 ~ 183.1元</td></tr>
+      </table>
+      <div style="background:#0a0f1e;border-radius:8px;padding:10px 14px;margin-top:10px;border:1px solid #1f2937;font-size:12px;color:#94a3b8">
+        <strong style="color:#f1f5f9">预测结论:</strong> 未来7个交易日以震荡整理为主，趋势动量偏弱（-0.15元/天），情绪因子部分抵消。关键支撑168.77(MA20)，若企稳有望反弹至MA5(178.97)。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ⑦ growth-stock-analysis: CAN SLIM + 柏基十问 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#eab308"></div>
+    <div class="sec-title">成长股评分（CAN SLIM + 柏基十问）</div>
+    <span class="sec-skill sk-growth">growth-stock-analysis</span>
+  </div>
+
+  <div class="score-wrap" style="margin-bottom:20px">
+    <div class="score-circle">
+      <div class="score-num">58</div>
+      <div class="score-den">/ 100</div>
+    </div>
+    <div class="score-desc">
+      <div style="font-size:20px;font-weight:700;color:#f59e0b;margin-bottom:8px">★★★☆☆ 谨慎看多，存在明显短板</div>
+      <div style="font-size:13px;color:#94a3b8;line-height:1.7">CAN SLIM 26/35强调当期盈利动量突出（C项满分5/5），但估值安全边际（柏基Q7仅2/5）和国际化程度（0/8）是明显短板。适合风险承受能力较强的成长股投资者波段参与。</div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:12px">CAN SLIM 评分（26/35）</div>
+      <div class="cs-row"><div class="cs-key">C</div><div class="cs-name">当期季度EPS增长</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:100%"></div></div><div class="cs-score">5/5</div></div>
+      <div class="cs-row"><div class="cs-key">A</div><div class="cs-name">年度EPS增长</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:80%"></div></div><div class="cs-score">4/5</div></div>
+      <div class="cs-row"><div class="cs-key">N</div><div class="cs-name">新产品/创新高</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:60%"></div></div><div class="cs-score">3/5</div></div>
+      <div class="cs-row"><div class="cs-key">S</div><div class="cs-name">股票供求关系</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:80%"></div></div><div class="cs-score">4/5</div></div>
+      <div class="cs-row"><div class="cs-key">L</div><div class="cs-name">行业领导力</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:60%"></div></div><div class="cs-score">3/5</div></div>
+      <div class="cs-row"><div class="cs-key">I</div><div class="cs-name">机构持仓</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:80%"></div></div><div class="cs-score">4/5</div></div>
+      <div class="cs-row"><div class="cs-key">M</div><div class="cs-name">大盘方向</div><div class="cs-bar-wrap"><div class="cs-bar" style="width:60%"></div></div><div class="cs-score">3/5</div></div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:12px">柏基十问 评分（30/50）</div>
+      <table>
+        <tr><th>问题</th><th class="tr">分</th><th>信心</th></tr>
+        <tr><td>Q1 5年市场空间</td><td class="tr tc-r">4/5</td><td><span style="color:#6ee7b7">高</span></td></tr>
+        <tr><td>Q2 可持续竞争优势</td><td class="tr tc-y">3/5</td><td><span style="color:#f59e0b">中</span></td></tr>
+        <tr><td>Q3 管理层长期导向</td><td class="tr tc-y">3/5</td><td><span style="color:#f59e0b">中</span></td></tr>
+        <tr><td>Q4 公司文化与人才</td><td class="tr tc-y">3/5</td><td><span style="color:#fca5a5">低</span></td></tr>
+        <tr><td>Q5 财务模型高回报</td><td class="tr tc-y">3/5</td><td><span style="color:#f59e0b">中</span></td></tr>
+        <tr><td>Q6 再投资能力</td><td class="tr tc-y">3/5</td><td><span style="color:#f59e0b">中</span></td></tr>
+        <tr><td>Q7 估值安全边际</td><td class="tr tc-g">2/5</td><td><span style="color:#6ee7b7">高</span></td></tr>
+        <tr><td>Q8 供应链议价地位</td><td class="tr tc-y">3/5</td><td><span style="color:#f59e0b">中</span></td></tr>
+        <tr><td>Q9 5-10年5倍回报</td><td class="tr tc-y">3/5</td><td><span style="color:#fca5a5">低</span></td></tr>
+        <tr><td>Q10 市场低估原因</td><td class="tr tc-y">3/5</td><td><span style="color:#f59e0b">中</span></td></tr>
+      </table>
+      <div style="margin-top:10px;padding:10px;background:#0a0f1e;border-radius:8px;border:1px solid #1f2937">
+        <div style="font-size:12px;color:#64748b">业务结构指标</div>
+        <div style="font-size:13px;color:#cbd5e1;margin-top:4px">国际化程度: <span class="tc-g">0/8</span> (国内业务>90%，无海外收入披露)</div>
+        <div style="font-size:13px;color:#cbd5e1;margin-top:2px">AI 相关度: <span class="tc-y">2/7</span> (智能控制系统约10-15%，边缘受益者)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ⑧ alphaear-logic-visualizer -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#f97316"></div>
+    <div class="sec-title">投资逻辑传导链</div>
+    <span class="sec-skill sk-logic">alphaear-logic-visualizer</span>
+  </div>
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+graph TD
+    A["🏭 宏工科技 301662<br/>物料处理自动化"] --> B["行业催化剂"]
+    A --> C["公司基本面"]
+    A --> D["风险因子"]
+
+    B --> B1["新能源车渗透率↑"]
+    B --> B2["电池厂商持续扩产"]
+    B --> B3["国轩高科第五代电池发布"]
+
+    C --> C1["Q1收入+82% | 净利+338%"]
+    C --> C2["毛利率28.2% | 净利率16.1%"]
+    C --> C3["全流程匀浆设备一站式方案"]
+
+    D --> D1["PE 45-57x | PB 8.9x 估值偏高"]
+    D --> D2["经营现金流为负 -1.60元/股"]
+    D --> D3["筹码极度集中 股东仅9062人"]
+
+    B1 & B2 & B3 --> E["行业景气度↑"]
+    C1 & C2 & C3 --> F["基本面超预期强劲"]
+    D1 & D2 & D3 --> G["风险敞口偏高"]
+
+    E & F & G --> H["综合信号净值 +41.7%<br/>成长评分 58/100 ★★★☆☆"]
+
+    H --> I["交易策略建议"]
+    I --> I1["布局区间: 168-172元<br/>MA20支撑确认"]
+    I --> I2["目标价: 179-186元<br/>MA5-近期高点"]
+    I --> I3["止损位: 158元<br/>MA30下破离场"]
+
+    style A fill:#1e3a5f,color:#93c5fd,stroke:#3b82f6
+    style H fill:#78350f,color:#fde68a,stroke:#f59e0b
+    style I fill:#4a1d96,color:#c4b5fd,stroke:#8b5cf6
+    style D fill:#7f1d1d,color:#fca5a5,stroke:#ef4444
+    style G fill:#7f1d1d,color:#fca5a5,stroke:#ef4444
+    style F fill:#14532d,color:#6ee7b7,stroke:#16a34a
+    style E fill:#14532d,color:#6ee7b7,stroke:#16a34a
+    style I1 fill:#3b0764,color:#e9d5ff,stroke:#7e22ce
+    style I2 fill:#3b0764,color:#e9d5ff,stroke:#7e22ce
+    style I3 fill:#3b0764,color:#e9d5ff,stroke:#7e22ce
+    </div>
+  </div>
+</div>
+
+<!-- ⑨ 综合交易策略 (alphaear-reporter) -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#14b8a6"></div>
+    <div class="sec-title">综合交易策略</div>
+    <span class="sec-skill sk-reporter">alphaear-reporter</span>
+  </div>
+
+  <div class="g2" style="margin-bottom:16px">
+    <div style="background:#0a0f1e;border-radius:10px;padding:16px;border:1px solid #1f2937">
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px">关键价格区位</div>
+      <div style="position:relative;height:160px;">
+        <svg width="100%" height="160" viewBox="0 0 300 160">
+          <!-- Price axis -->
+          <line x1="60" y1="10" x2="60" y2="150" stroke="#374151" stroke-width="1"/>
+          <!-- Price levels -->
+          <text x="0" y="20" fill="#6ee7b7" font-size="10">186.55</text>
+          <line x1="60" y1="15" x2="290" y2="15" stroke="#10b981" stroke-width="1" stroke-dasharray="4"/>
+          <text x="0" y="42" fill="#fca5a5" font-size="10">180.11</text>
+          <line x1="60" y1="37" x2="290" y2="37" stroke="#ef4444" stroke-width="1" stroke-dasharray="4"/>
+          <text x="0" y="62" fill="#fca5a5" font-size="10">178.97</text>
+          <line x1="60" y1="57" x2="290" y2="57" stroke="#ef4444" stroke-width="1" stroke-dasharray="4"/>
+          <!-- Current price -->
+          <text x="0" y="90" fill="#ffffff" font-size="11" font-weight="bold">172.45</text>
+          <rect x="60" y="79" width="230" height="16" fill="rgba(255,255,255,0.1)" rx="2"/>
+          <text x="100" y="91" fill="#fff" font-size="10">◀ 当前价</text>
+          <!-- Support levels -->
+          <text x="0" y="112" fill="#6ee7b7" font-size="10">168.77</text>
+          <line x1="60" y1="107" x2="290" y2="107" stroke="#10b981" stroke-width="1" stroke-dasharray="4"/>
+          <text x="0" y="132" fill="#6ee7b7" font-size="10">158.04</text>
+          <line x1="60" y1="127" x2="290" y2="127" stroke="#10b981" stroke-width="1" stroke-dasharray="4"/>
+          <!-- Labels -->
+          <text x="200" y="12" fill="#10b981" font-size="9">近期高点</text>
+          <text x="200" y="34" fill="#ef4444" font-size="9">压力: MA10</text>
+          <text x="200" y="54" fill="#ef4444" font-size="9">压力: MA5</text>
+          <text x="200" y="104" fill="#10b981" font-size="9">支撑: MA20</text>
+          <text x="200" y="124" fill="#10b981" font-size="9">支撑: MA30</text>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px">仓位管理建议</div>
+      <table>
+        <tr><th>区间</th><th>动作</th><th>仓位</th><th>理由</th></tr>
+        <tr><td>&gt;186元</td><td class="tc-g">减仓</td><td>降至30%</td><td>近高点压力大</td></tr>
+        <tr><td>175~186元</td><td class="tc-y">观望</td><td>维持</td><td>震荡区间</td></tr>
+        <tr><td>168~175元</td><td class="tc-r">分批建仓</td><td>加至50%</td><td>MA20支撑位</td></tr>
+        <tr><td>158~168元</td><td class="tc-r">继续加仓</td><td>加至70%</td><td>MA30强支撑</td></tr>
+        <tr><td>&lt;158元</td><td class="tc-g">止损清仓</td><td>0%</td><td>趋势破坏</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="strat bull">
+    <h4>🚀 积极策略（成长股投资者）</h4>
+    <ul>
+      <li>依据信号追踪净强度+41.7%，业绩驱动逻辑成立，中线看多</li>
+      <li>目标：突破MA5(178.97)后看186.55前高，若放量突破可望冲202元</li>
+      <li>布局：在168~172元MA20附近逐步建仓，止损设158元(MA30破位)</li>
+      <li>催化剂：2026H1半年报（预计8月）确认业绩持续性，关注大客户订单公告</li>
+      <li>持仓周期：3~6个月，成长股中线波段</li>
+    </ul>
+  </div>
+  <div class="strat neutral">
+    <h4>⚖ 均衡策略（价值成长兼顾）</h4>
+    <ul>
+      <li>CAN SLIM评分26/35，短期动量强（C项5/5）但长期确定性中等（柏基Q9仅3/5）</li>
+      <li>持仓者：175~186区间逢高减仓30~50%，锁定近期涨幅，降低持仓成本至160元以下</li>
+      <li>观察窗口：等待2026Q2财报数据（预计8月），若营收增速维持60%+则信心加仓</li>
+      <li>关键指标：经营现金流转正是估值修复的核心触发点</li>
+    </ul>
+  </div>
+  <div class="strat bear">
+    <h4>📉 谨慎策略（风险厌恶型）</h4>
+    <ul>
+      <li>成长股评分58/100处于中等偏下，国际化0分/AI相关度2分，抗风险能力有限</li>
+      <li>PE 45-57x在宏观不确定环境下存在系统性压缩风险</li>
+      <li>建议等待回调至MA30（158元）附近或明确超跌信号后再介入</li>
+      <li>替代方案：布局锂电设备ETF分散单股风险，或等待机构调研披露后再决策</li>
+    </ul>
+  </div>
+
+  <div style="margin-top:16px;background:#0a0f1e;border-radius:10px;padding:16px;border:1px solid #1f2937">
+    <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px">关键监控指标（信号触发条件）</div>
+    <div class="g3">
+      <div style="font-size:12px;color:#94a3b8"><span style="color:#60a5fa;font-weight:600">📊 成交量</span><br>若突破MA5时日成交>250万手，确认多头启动</div>
+      <div style="font-size:12px;color:#94a3b8"><span style="color:#60a5fa;font-weight:600">💰 现金流</span><br>Q2经营现金流转正是基本面质变信号</div>
+      <div style="font-size:12px;color:#94a3b8"><span style="color:#60a5fa;font-weight:600">👥 股东变化</span><br>股东人数<8000人警惕主力出货</div>
+      <div style="font-size:12px;color:#94a3b8"><span style="color:#60a5fa;font-weight:600">🔋 产业链</span><br>头部电池厂Q2扩产资本开支是领先指标</div>
+      <div style="font-size:12px;color:#94a3b8"><span style="color:#60a5fa;font-weight:600">📦 订单</span><br>合同负债变化反映新订单健康度</div>
+      <div style="font-size:12px;color:#94a3b8"><span style="color:#60a5fa;font-weight:600">🏦 机构动向</span><br>北向资金及公募基金仓位变化</div>
+    </div>
+  </div>
+</div>
+
+<!-- Risk Analysis -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#ef4444"></div>
+    <div class="sec-title">风险矩阵</div>
+    <span class="sec-skill sk-reporter" style="margin-left:4px">alphaear-reporter</span>
+    <span class="sec-skill sk-signal" style="margin-left:4px">alphaear-signal-tracker</span>
+  </div>
+  <div class="risk-item risk-h">
+    <div class="risk-icon">⚠</div>
+    <div><div class="risk-title">估值气泡风险（高风险）</div><div class="risk-desc">PE 45-57倍，PB 8.9倍，相对同行溢价约20-40%。情绪驱动估值一旦出现业绩不及预期，跌幅可能超过30%。</div></div>
+  </div>
+  <div class="risk-item risk-h">
+    <div class="risk-icon">⚠</div>
+    <div><div class="risk-title">流动性风险（高风险）</div><div class="risk-desc">股东仅9062人，流通盘极小，主力资金出货时缺乏承接力，可能引发连续跌停。</div></div>
+  </div>
+  <div class="risk-item risk-m">
+    <div class="risk-icon">⚡</div>
+    <div><div class="risk-title">业绩季节性风险（中风险）</div><div class="risk-desc">Q1为设备行业传统旺季，全年业绩增速可能不及Q1表现，存在"业绩高点过后回调"风险。</div></div>
+  </div>
+  <div class="risk-item risk-m">
+    <div class="risk-icon">⚡</div>
+    <div><div class="risk-title">应收账款风险（中风险）</div><div class="risk-desc">应收账款周转天数246天，远高于行业平均，大额应收账款一旦坏账将直接冲击利润。</div></div>
+  </div>
+  <div class="risk-item risk-m">
+    <div class="risk-icon">⚡</div>
+    <div><div class="risk-title">竞争格局风险（中风险）</div><div class="risk-desc">先导智能、赢合科技等头部竞争对手规模更大。宏工科技员工仅1623人，大型订单交付能力受限。</div></div>
+  </div>
+  <div class="risk-item risk-l">
+    <div class="risk-icon">✓</div>
+    <div><div class="risk-title">技术替代风险（低风险）</div><div class="risk-desc">物料处理自动化技术成熟，17年行业积累形成一定壁垒，短期内被快速替代的概率低。</div></div>
+  </div>
+</div>
+
+<!-- Skill coverage summary -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="sec-bar" style="background:#64748b"></div>
+    <div class="sec-title">技能覆盖与数据质量说明</div>
+  </div>
+  <table>
+    <tr><th>技能</th><th>调用状态</th><th>数据质量</th><th>主要产出</th></tr>
+    <tr><td>alphaear-stock</td><td class="tc-r">✅ 已修复运行</td><td class="tc-r">高（双源验证）</td><td>55天K线、基本面、均线技术指标</td></tr>
+    <tr><td>alphaear-news</td><td class="tc-r">✅ 已修复运行</td><td class="tc-y">中（无股票专项）</td><td>财联社/华尔街见闻今日热点</td></tr>
+    <tr><td>alphaear-search</td><td class="tc-y">⚠ 部分可用</td><td class="tc-y">中（网络受限）</td><td>数据源可用性评估、交叉验证</td></tr>
+    <tr><td>alphaear-sentiment</td><td class="tc-r">✅ LLM模式运行</td><td class="tc-r">高</td><td>6条文本情绪分析，综合得分+0.32</td></tr>
+    <tr><td>alphaear-signal-tracker</td><td class="tc-r">✅ 已运行</td><td class="tc-r">高</td><td>5个信号追踪，净多信号+41.7%</td></tr>
+    <tr><td>alphaear-predictor</td><td class="tc-r">✅ 已运行</td><td class="tc-y">中（无Kronos权重）</td><td>7日价格预测区间163~183元</td></tr>
+    <tr><td>alphaear-reporter</td><td class="tc-r">✅ 已运行</td><td class="tc-r">高</td><td>结构化报告组装、策略生成</td></tr>
+    <tr><td>alphaear-logic-visualizer</td><td class="tc-r">✅ 已运行</td><td class="tc-r">高</td><td>Mermaid投资逻辑传导链</td></tr>
+    <tr><td>alphaear-deepear-lite</td><td class="tc-r">✅ 已运行</td><td class="tc-r">高（实时）</td><td>5个市场信号，国轩高科电池发布</td></tr>
+    <tr><td>growth-stock-analysis</td><td class="tc-r">✅ 已运行</td><td class="tc-r">高</td><td>CAN SLIM 26/35，柏基十问 30/50，总分58/100</td></tr>
+  </table>
+  <div style="font-size:12px;color:#64748b;margin-top:12px">
+    注：financial-analysis / earnings-reviewer / model-builder / pitch-agent 等技能需要 FactSet/Daloopa 等外部金融数据API授权，当前环境未配置，未调用。
+  </div>
+</div>
+
+<div class="disclaimer">
+  <p><strong>⚠️ 重要免责声明（三处必读）：</strong>本报告由 Claude Code 通过 10 个 AlphaEar/Growth-Stock-Analysis 技能自动生成，仅为框架化研究整理，<strong>不构成投资建议</strong>。Claude 不是持牌投资顾问；数据可能滞后、有误或不完整；所有预测均基于历史数据推算，不代表未来表现。股市有风险，投资需谨慎，读者需自行核实并独立决策。</p>
+</div>
+
+<footer>
+  <p>技能框架: alphaear-stock · alphaear-news · alphaear-search · alphaear-sentiment · alphaear-signal-tracker · alphaear-predictor · alphaear-reporter · alphaear-logic-visualizer · alphaear-deepear-lite · growth-stock-analysis</p>
+  <p style="margin-top:4px">数据截止: 2026-05-15 &nbsp;·&nbsp; 生成时间: 2026-05-17 &nbsp;·&nbsp; 本报告仅供参考，不构成投资建议</p>
+</footer>
+
+</div>
+
+<script>
+mermaid.initialize({startOnLoad:true, theme:'dark', themeVariables:{background:'#0a0f1e',primaryColor:'#1e3a5f',primaryTextColor:'#e2e8f0',edgeLabelBackground:'#111827',lineColor:'#4b5563'}});
+
+// Price chart
+const dates=["02-24","02-25","02-26","02-27","03-02","03-03","03-04","03-05","03-06","03-09","03-10","03-11","03-12","03-13","03-16","03-17","03-18","03-19","03-20","03-23","03-24","03-25","03-26","03-27","03-30","03-31","04-01","04-02","04-03","04-07","04-08","04-09","04-10","04-13","04-14","04-15","04-16","04-17","04-20","04-21","04-22","04-23","04-24","04-27","04-28","04-29","04-30","05-06","05-07","05-08","05-11","05-12","05-13","05-14","05-15"];
+const closes=[166.80,180.96,193.44,186.00,194.86,185.28,180.02,185.28,181.58,160.70,163.48,167.26,156.53,151.12,152.51,146.50,151.59,149.11,142.00,132.92,134.44,135.10,129.69,138.78,139.50,135.01,138.51,133.08,130.38,132.20,140.78,132.48,140.20,137.91,145.30,139.97,145.68,165.00,166.50,169.57,164.90,155.73,155.83,157.00,154.00,173.50,182.26,186.55,183.50,180.44,182.99,184.79,180.50,174.14,172.45];
+const volumes=[733212,2153698,2094277,1121870,1673146,1508958,1681811,1249686,1087725,1918348,1268435,1748178,1486083,1163157,793943,617116,896981,698635,1128915,993341,880849,1018639,1702697,2091339,1508299,1193395,942600,857722,488797,524660,1224402,1492886,2650851,1525905,2381059,1714206,2350043,4439606,3002801,3352470,2307574,2313610,1683090,2152088,1262494,3939878,3595754,2933035,2171801,1814730,2162012,1925232,1611777,1380813,1580236];
+function ma(arr,n){return arr.map((_,i)=>i<n-1?null:arr.slice(i-n+1,i+1).reduce((a,b)=>a+b)/n)}
+const ma20=ma(closes,20),ma30=ma(closes,30);
+new Chart(document.getElementById('priceChart').getContext('2d'),{
+  data:{labels:dates,datasets:[
+    {type:'bar',data:volumes.map(v=>v/10000),backgroundColor:closes.map((c,i)=>i===0?'rgba(239,68,68,.3)':c>=closes[i-1]?'rgba(239,68,68,.3)':'rgba(16,185,129,.3)'),yAxisID:'y2',order:3},
+    {type:'line',data:closes,borderColor:'#3b82f6',borderWidth:2,pointRadius:0,fill:false,tension:.3,yAxisID:'y1',order:1},
+    {type:'line',data:ma20,borderColor:'#f59e0b',borderWidth:1.5,pointRadius:0,fill:false,tension:.3,yAxisID:'y1',order:0},
+    {type:'line',data:ma30,borderColor:'#8b5cf6',borderWidth:1.5,pointRadius:0,fill:false,tension:.3,yAxisID:'y1',order:0},
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1e293b',borderColor:'#374151',borderWidth:1,titleColor:'#94a3b8',bodyColor:'#e2e8f0'}},scales:{x:{ticks:{color:'#64748b',maxTicksLimit:10,font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{position:'left',ticks:{color:'#64748b',font:{size:10}},grid:{color:'rgba(255,255,255,.06)'}},y2:{position:'right',ticks:{color:'#64748b',font:{size:10}},grid:{display:false}}}}
+});
+
+// Forecast chart
+const fcDates=['+1d','+2d','+3d','+4d','+5d','+6d','+7d'];
+const fcMid=[172.58,172.72,172.88,173.06,173.25,173.45,173.67];
+const fcHi=[181.98,182.12,182.28,182.46,182.65,182.85,183.07];
+const fcLo=[163.18,163.32,163.48,163.66,163.85,164.05,164.27];
+new Chart(document.getElementById('forecastChart').getContext('2d'),{
+  type:'line',
+  data:{labels:fcDates,datasets:[
+    {label:'低位',data:fcLo,borderColor:'rgba(16,185,129,.5)',borderWidth:1,pointRadius:0,fill:'+1',backgroundColor:'rgba(59,130,246,.08)',tension:.4},
+    {label:'高位',data:fcHi,borderColor:'rgba(239,68,68,.5)',borderWidth:1,pointRadius:0,fill:false,tension:.4},
+    {label:'预测中枢',data:fcMid,borderColor:'#f59e0b',borderWidth:2.5,pointRadius:5,pointBackgroundColor:'#f59e0b',fill:false,tension:.4},
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94a3b8',font:{size:11},boxWidth:20}},tooltip:{backgroundColor:'#1e293b',borderColor:'#374151',borderWidth:1,titleColor:'#94a3b8',bodyColor:'#e2e8f0',callbacks:{label:(ctx)=>` ${ctx.dataset.label}: ${ctx.raw.toFixed(2)}元`}}},scales:{x:{ticks:{color:'#64748b',font:{size:11}},grid:{color:'rgba(255,255,255,.04)'}},y:{min:155,max:192,ticks:{color:'#64748b',font:{size:11}},grid:{color:'rgba(255,255,255,.06)'}}}}
+});
+</script>
+</body>
+</html>

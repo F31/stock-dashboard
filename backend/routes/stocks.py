@@ -23,7 +23,7 @@ from services.sector_service import (
     lookup_board_name,
 )
 from database import get_db
-from models import WatchlistItem
+from models import WatchlistItem, StockReport
 from schemas import AddStockRequest, UpdateNotesRequest, UpdateNameRequest, StockDataResponse
 from routes.auth import get_current_user
 from routes.admin import log_action, get_client_ip
@@ -75,6 +75,7 @@ def list_stocks(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "id": s.id, "stock_code": s.stock_code, "market": s.market,
         "stock_name": s.stock_name, "notes": s.notes, "sort_order": s.sort_order,
         "item_type": s.item_type or "stock",
+        "hidden": s.hidden or 0,
     } for s in stocks]
 
 
@@ -168,14 +169,45 @@ def remove_stock(stock_id: int, request: Request,
     if not stock:
         raise HTTPException(404, "Stock not found")
 
+    # If the stock has reports, hide it instead of deleting
+    has_reports = (db.query(StockReport)
+                   .filter(StockReport.stock_code == stock.stock_code,
+                           StockReport.market == stock.market)
+                   .count()) > 0
+    if has_reports:
+        stock.hidden = 1
+        db.commit()
+        log_action(db, user.id, user.username, "hide_stock",
+                   target=f"{stock.stock_code} ({stock.market})",
+                   detail=f"name={stock.stock_name}, has_reports=True",
+                   ip_address=get_client_ip(request))
+        return {"action": "hidden", "id": stock_id}
+
     log_action(db, user.id, user.username, "remove_stock",
                target=f"{stock.stock_code} ({stock.market})",
                detail=f"name={stock.stock_name}",
                ip_address=get_client_ip(request))
-
     db.delete(stock)
     db.commit()
-    return {"msg": "Stock removed"}
+    return {"action": "deleted", "id": stock_id}
+
+
+@router.patch("/stocks/{stock_id}/show")
+def show_stock(stock_id: int, request: Request,
+               db: Session = Depends(get_db),
+               user=Depends(get_current_user)):
+    """Unhide a previously hidden stock."""
+    stock = (db.query(WatchlistItem)
+             .filter(WatchlistItem.id == stock_id, WatchlistItem.user_id == user.id)
+             .first())
+    if not stock:
+        raise HTTPException(404, "Stock not found")
+    stock.hidden = 0
+    db.commit()
+    log_action(db, user.id, user.username, "show_stock",
+               target=f"{stock.stock_code} ({stock.market})",
+               ip_address=get_client_ip(request))
+    return {"action": "shown", "id": stock_id}
 
 
 @router.patch("/stocks/{stock_id}/notes")

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>沪电股份(002463.SZ) 成长股深度分析报告</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+            color: #333; background: #f5f7fa; line-height: 1.7;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+
+        /* Cover */
+        .cover {
+            background: linear-gradient(135deg, #1F4E79 0%, #2E75B6 100%);
+            border-radius: 12px; padding: 60px 40px; text-align: center;
+            color: white; margin-bottom: 30px; box-shadow: 0 4px 20px rgba(31,78,121,0.3);
+        }
+        .cover h1 { font-size: 32px; margin-bottom: 8px; }
+        .cover .subtitle { font-size: 20px; opacity: 0.9; margin-bottom: 20px; }
+        .cover .frameworks { font-size: 14px; opacity: 0.75; margin-bottom: 25px; }
+        .cover .score {
+            font-size: 56px; font-weight: bold; color: #FFD700;
+            margin: 15px 0; text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        .cover .rating {
+            display: inline-block; background: rgba(255,255,255,0.15);
+            padding: 8px 24px; border-radius: 20px; font-size: 14px;
+            margin-bottom: 30px;
+        }
+        .cover .meta { font-size: 13px; opacity: 0.7; }
+        .warning-banner {
+            background: #FFF3CD; border: 1px solid #FFEAA7; border-radius: 8px;
+            color: #856404; padding: 12px 18px; font-size: 13px;
+            text-align: center; margin-top: 20px;
+        }
+
+        /* Sections */
+        .section {
+            background: white; border-radius: 10px; padding: 28px 32px;
+            margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        }
+        .section h2 {
+            font-size: 20px; color: #1F4E79; border-left: 4px solid #2E75B6;
+            padding-left: 14px; margin-bottom: 18px;
+        }
+        .section h3 {
+            font-size: 16px; color: #2E75B6; margin: 16px 0 10px;
+        }
+        .section p { font-size: 14px; margin-bottom: 10px; text-align: justify; }
+        .section ul { margin: 8px 0 12px 20px; }
+        .section li { font-size: 14px; margin-bottom: 6px; }
+
+        /* Summary cards */
+        .summary-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0;
+        }
+        .summary-card {
+            border-radius: 8px; padding: 16px; text-align: center;
+        }
+        .summary-card.blue { background: #DAEEF3; }
+        .summary-card.gray { background: #F2F7FB; }
+        .summary-card.yellow { background: #FFF2CC; }
+        .summary-card.green { background: #E2EFDA; }
+        .summary-card .label { font-size: 13px; color: #555; margin-bottom: 4px; }
+        .summary-card .value { font-size: 24px; font-weight: bold; color: #1F4E79; }
+        .summary-card .sub { font-size: 12px; color: #888; margin-top: 2px; }
+
+        /* Tables */
+        table.data {
+            width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px;
+        }
+        table.data th {
+            background: #1F4E79; color: white; padding: 8px 10px;
+            text-align: center; font-weight: 600;
+        }
+        table.data td {
+            padding: 7px 10px; border-bottom: 1px solid #e0e0e0; text-align: center;
+        }
+        table.data tr:nth-child(even) td { background: #f8f9fb; }
+        table.data tr:hover td { background: #eef3f8; }
+        table.data .left { text-align: left; }
+        table.data .score-cell { font-weight: bold; color: #1F4E79; }
+
+        /* Tags */
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .tag.green { background: #d4edda; color: #155724; }
+        .tag.orange { background: #fff3cd; color: #856404; }
+        .tag.red { background: #f8d7da; color: #721c24; }
+        .tag.gray { background: #e2e3e5; color: #383d41; }
+
+        /* Fisher */
+        .fisher-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+        .fisher-item {
+            padding: 8px 10px; border-radius: 6px; font-size: 13px;
+            border: 1px solid #e8e8e8;
+        }
+        .fisher-item.pass { background: #f0faf0; }
+        .fisher-item.warn { background: #fffdf0; }
+        .fisher-item.na { background: #f5f5f5; color: #888; }
+
+        /* Q&A */
+        .qa-block { margin: 12px 0; }
+        .qa-q { font-weight: 600; color: #1F4E79; margin-bottom: 4px; font-size: 14px; }
+        .qa-a { padding-left: 16px; border-left: 3px solid #DAEEF3; margin-bottom: 10px; font-size: 13px; color: #555; }
+        .qa-insight { font-size: 13px; color: #2E75B6; padding-left: 16px; margin-bottom: 12px; }
+
+        /* Risk chips */
+        .risk-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+        .risk-chip {
+            padding: 6px 14px; border-radius: 16px; font-size: 13px;
+            border: 1px solid #e0e0e0;
+        }
+        .risk-chip.red { background: #fff5f5; border-color: #fcc; color: #a33; }
+        .risk-chip.orange { background: #fffbf0; border-color: #fde9b3; color: #8a6d3b; }
+        .risk-chip.blue { background: #f0f5ff; border-color: #b8d4f0; color: #1a5276; }
+
+        /* Score bar */
+        .score-bar-wrap { margin: 6px 0; }
+        .score-bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 2px; }
+        .score-bar { height: 8px; background: #e8e8e8; border-radius: 4px; overflow: hidden; }
+        .score-bar-fill { height: 100%; border-radius: 4px; }
+        .score-bar-fill.blue { background: #2E75B6; }
+        .score-bar-fill.green { background: #28a745; }
+        .score-bar-fill.orange { background: #e67e22; }
+
+        hr { border: none; border-top: 1px solid #e0e0e0; margin: 16px 0; }
+
+        @media (max-width: 700px) {
+            .summary-grid { grid-template-columns: 1fr; }
+            .fisher-grid { grid-template-columns: 1fr; }
+            .section { padding: 18px 16px; }
+            .cover { padding: 30px 20px; }
+            .cover h1 { font-size: 24px; }
+            .cover .score { font-size: 40px; }
+            .container { padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- Cover -->
+    <div class="cover">
+        <h1>沪电股份 (002463.SZ)</h1>
+        <div class="subtitle">成长股深度分析报告</div>
+        <div class="frameworks">基于 CAN SLIM + 柏基十问 + 费雪15要点 三套框架</div>
+        <div class="score">72.5 / 100</div>
+        <div class="rating">评级区间：65-79 · 整体不错，关注弱项</div>
+        <div class="meta">报告日期：2026年5月11日 | 数据截止日：2026年5月11日</div>
+        <div class="warning-banner">
+            ⚠ 本报告仅为框架化的研究整理，不构成投资建议。数据可能存在滞后或不完整，读者需自行核实并独立决策。
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="section">
+        <h2>总评分摘要</h2>
+        <div class="summary-grid">
+            <div class="summary-card blue">
+                <div class="label">CAN SLIM</div>
+                <div class="value">25</div>
+                <div class="sub">/ 35 (71.4%)</div>
+            </div>
+            <div class="summary-card gray">
+                <div class="label">柏基十问</div>
+                <div class="value">36</div>
+                <div class="sub">/ 50 (72.0%)</div>
+            </div>
+            <div class="summary-card yellow">
+                <div class="label">费雪15要点</div>
+                <div class="value">11.5</div>
+                <div class="sub">/ 15 (76.7%)</div>
+            </div>
+            <div class="summary-card green" style="grid-column: 1 / -1; max-width: 300px; margin: 0 auto;">
+                <div class="label">总分</div>
+                <div class="value">72.5</div>
+                <div class="sub">/ 100</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1. Company Overview -->
+    <div class="section">
+        <h2>一、公司概况</h2>
+        <p>沪士电子股份有限公司（简称：沪电股份，股票代码：002463.SZ）是全球领先的高端印制电路板（PCB）制造商，成立于1992年，2010年在深圳证券交易所上市。公司总部位于江苏省昆山市，实际控制人为吴氏家族（WUS Group）。公司连续多年入选CPCA、Prismark等机构发布的PCB百强企业，在多个高端PCB细分领域位居全球第一。</p>
+
+        <h3>核心业务板块</h3>
+        <p>产品主要分为三大板块：(1) <b>数据通讯板</b>（2025年营收146.56亿元，占比77.4%），涵盖AI服务器/HPC、高速网络交换机、通用服务器、无线通讯等；(2) <b>智能汽车板</b>（30.45亿元，占比16.1%），涵盖自动驾驶、智能座舱等；(3) <b>工业控制及其他</b>（4.42亿元，占比2.3%）。</p>
+
+        <h3>全球市场地位</h3>
+        <p>2025年公司在四大核心细分领域均位列全球第一：</p>
+        <table class="data">
+            <tr><th>细分领域</th><th>全球市占率</th><th>排名</th></tr>
+            <tr><td class="left">数据中心领域PCB</td><td>10.3%</td><td><span class="tag green">全球第一</span></td></tr>
+            <tr><td class="left">22层及以上高端多层板（HLC）</td><td>25.3%</td><td><span class="tag green">全球第一</span></td></tr>
+            <tr><td class="left">交换机及路由器用PCB</td><td>12.5%</td><td><span class="tag green">全球第一</span></td></tr>
+            <tr><td class="left">L2+自动驾驶域控制器高阶HDI PCB</td><td>15.2%</td><td><span class="tag green">全球第一</span></td></tr>
+        </table>
+    </div>
+
+    <!-- 2. Recent Developments -->
+    <div class="section">
+        <h2>二、最近业务进展（投资者关系活动）</h2>
+
+        <h3>2026年5月7日特定对象调研（玖石投资等10家机构）</h3>
+        <div class="qa-block">
+            <div class="qa-q">Q：2026年一季度经营业绩如何？</div>
+            <div class="qa-a">A：营收62.14亿元(+53.91%)，净利润12.42亿元(+62.90%)。出售黄石沪士供应链股权产生非经常性损益约0.47亿元，汇率波动产生汇兑损失约1.48亿元。</div>
+            <div class="qa-insight">→ 业绩增速进一步加快，AI驱动增长势头强劲。汇率风险需持续关注。</div>
+
+            <div class="qa-q">Q：泰国生产基地运营情况？</div>
+            <div class="qa-a">A：2026年Q1营收2.95亿元（超2025全年2.89亿元），产能利用率超90%，超70%海外客户已完成认证。汽车事业部2026年已进入量产阶段。</div>
+            <div class="qa-insight">→ 泰国工厂爬坡顺利，产能利用率超预期。</div>
+
+            <div class="qa-q">Q：如何看待数据通讯市场竞争格局？</div>
+            <div class="qa-a">A：大量同行向数据通讯领域倾斜资源，成熟技术平台准入门槛将被摊薄，行业将呈现"入场者多、通关者少"格局。公司不盲从同质化扩张，全面深化差异化产品竞争战略。</div>
+            <div class="qa-insight">→ 管理层对竞争加剧有清醒认知，战略定位清晰。</div>
+
+            <div class="qa-q">Q：研发创新方面有何计划？</div>
+            <div class="qa-a">A：持续加大研发投入，在常州搭建CoWoP等前沿技术与mSAP等先进工艺孵化平台，布局光铜融合等下一代技术。</div>
+            <div class="qa-insight">→ 前瞻性技术布局，但产业化转化需时日。</div>
+        </div>
+
+        <h3>2025年4月25日业绩说明会</h3>
+        <p>管理层披露2024年企业通讯市场板收入结构：AI服务器和HPC相关PCB约29.48%，高速网络交换机及路由约38.56%。公司直接出口至美国的营收占比低于5%，美国加税影响有限。800G交换机市场需求依然强劲。</p>
+    </div>
+
+    <!-- 3. Financial Analysis -->
+    <div class="section">
+        <h2>三、财务分析</h2>
+        <table class="data">
+            <tr><th class="left">财务指标</th><th>2024年</th><th>2025年</th><th>2026Q1</th><th>趋势</th></tr>
+            <tr><td class="left">营业收入</td><td>133.42亿</td><td>189.45亿</td><td>62.14亿</td><td><span class="tag green">↑ +42%/+54%</span></td></tr>
+            <tr><td class="left">归母净利润</td><td>25.87亿</td><td>38.22亿</td><td>12.42亿</td><td><span class="tag green">↑ +48%/+63%</span></td></tr>
+            <tr><td class="left">扣非归母净利润</td><td>—</td><td>—</td><td>11.63亿</td><td><span class="tag green">↑ +56%</span></td></tr>
+            <tr><td class="left">毛利率</td><td>34.58%</td><td>35.48%</td><td>35.63%</td><td><span class="tag green">↑ 持续改善</span></td></tr>
+            <tr><td class="left">净利率</td><td>19.39%</td><td>20.16%</td><td>—</td><td><span class="tag green">↑ 提升</span></td></tr>
+            <tr><td class="left">ROE(加权)</td><td>21.4%</td><td>28.57%</td><td>7.81%</td><td><span class="tag green">↑ 高位运行</span></td></tr>
+            <tr><td class="left">经营现金流</td><td>—</td><td>—</td><td>5.11亿</td><td><span class="tag red">↓ -64%</span></td></tr>
+            <tr><td class="left">资产负债率</td><td>—</td><td>46.46%</td><td>48.64%</td><td><span class="tag orange">↑ 略增</span></td></tr>
+        </table>
+        <p><small>2026年一季度经营现金流5.11亿元，同比大幅下降64%，主因原材料采购支出同比增加约15.21亿元，系扩产备货的阶段性影响。整体财务基本面稳健，ROE持续处于高位。</small></p>
+
+        <h3>机构盈利预测（23家一致预期）</h3>
+        <table class="data">
+            <tr><th>年份</th><th>营收预测</th><th>净利润预测</th><th>EPS预测</th><th>前瞻PE</th></tr>
+            <tr><td>2026E</td><td>255.8亿</td><td>56.63亿</td><td>2.94元</td><td>~17.4x</td></tr>
+            <tr><td>2027E</td><td>396.4亿</td><td>84.72亿</td><td>4.39元</td><td>~13.7x</td></tr>
+            <tr><td>2028E</td><td>535.2亿</td><td>128.9亿</td><td>6.67元</td><td>~9.1x</td></tr>
+        </table>
+        <p><small>来源：招商证券2026年3月研报及23家机构一致预期。前瞻PE基于当前股价108.68元计算。</small></p>
+
+        <h3>估值数据</h3>
+        <table class="data">
+            <tr><th class="left">指标</th><th>数值</th></tr>
+            <tr><td class="left">最新收盘价（2026-05-11）</td><td>108.68元</td></tr>
+            <tr><td class="left">总市值</td><td>约2,091亿元</td></tr>
+            <tr><td class="left">52周涨幅</td><td><span class="tag green">约+300%</span></td></tr>
+            <tr><td class="left">动态市盈率</td><td>42.09x</td></tr>
+            <tr><td class="left">市净率</td><td>~12.5x</td></tr>
+        </table>
+    </div>
+
+    <!-- 4. CAN SLIM -->
+    <div class="section">
+        <h2>四、CAN SLIM 七要素评分（25/35分）</h2>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>C - 当期每股收益</span><span>4/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>2025年EPS 1.99元(+47.74%)，2026Q1 EPS 0.6455元(+62.64%)。盈利增速持续加快，AI驱动高端PCB需求旺盛。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>A - 年度每股收益</span><span>4/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>2024年EPS增71%，2025年增47.74%，连续两年高增长。绝对增速仍十分优异。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>N - 新产品/新管理</span><span>4/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>1.6T交换机PCB量产、108层高多层板量产、P2Pack全球唯一量产、CoWoP前瞻布局。百亿扩产。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>S - 供需关系</span><span>3/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>高端PCB结构性紧缺，HLC 2026年增长62.4%。但胜宏科技等竞争对手加速扩产，竞争白热化。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>L - 行业龙头</span><span>4/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>22层以上HLC全球第一(25.3%)。但整体营收已被胜宏科技反超。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>I - 机构认同度</span><span>3/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>369家机构持股59.41%，社保基金稳定持有。但Q3有超110家机构减仓。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>M - 大盘方向</span><span>3/5</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>A股整体震荡偏弱，但AI算力板块为当前市场核心热点。宏观不确定性仍存。</small></p>
+    </div>
+
+    <!-- 5. BG 10Q -->
+    <div class="section">
+        <h2>五、柏基尽调十问评分（36/50分）</h2>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q1: 清晰且有吸引力的业务故事？</span><span>4/5 · 信心:高</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>高端PCB龙头，AI算力+高速交换机+汽车电子三线驱动。故事清晰且为市场核心主线。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q2: 目标市场是否足够大？</span><span>5/5 · 信心:高</span></div>
+            <div class="score-bar"><div class="score-bar-fill green" style="width:100%"></div></div>
+        </div>
+        <p><small>全球PCB市场2030年超1230亿美元，HLC细分2026年增长62.4%。市场空间充分。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q3: 可防御的竞争优势？</span><span>4/5 · 信心:高</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>技术壁垒(108层、1.6T、P2Pack)+认证壁垒(18-36月)+全球化壁垒。但胜宏在AI服务器已反超。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q4: 商业模式可重复可预测？</span><span>3/5 · 信心:中</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>头部客户粘性强，但前五大客户占比>45%(2024年50.9%)，经营现金流波动大。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q5: 增长的可选择性？</span><span>4/5 · 信心:高</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>AI服务器+高速交换机+汽车电子三条曲线；CoWoP、光铜融合前瞻布局；H股上市。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q6: 管理层远见与执行力？</span><span>4/5 · 信心:高</span></div>
+            <div class="score-bar"><div class="score-bar-fill blue" style="width:80%"></div></div>
+        </div>
+        <p><small>战略聚焦高端差异化，百亿扩产果断。投资者关系记录显示对竞争格局有清醒认知。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q7: 文化与激励机制？</span><span>3/5 · 信心:中</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>股权激励实施中，管理层稳定，信息披露透明。无突出亮点但无重大隐患。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q8: 资本配置效率？</span><span>3/5 · 信心:中</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>超百亿扩产聚焦主业，出售非核心资产。负债率46%-48%合理。但投资规模巨大需观察回报率。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q9: 增长可持续5-10年？</span><span>3/5 · 信心:中</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>AI算力需求早期，PCB行业CAGR 7.7%到2030年。但竞争加剧，需持续高强度投入。</small></p>
+
+        <div class="score-bar-wrap">
+            <div class="score-bar-label"><span>Q10: 市场为何低估？</span><span>3/5 · 信心:中</span></div>
+            <div class="score-bar"><div class="score-bar-fill orange" style="width:60%"></div></div>
+        </div>
+        <p><small>市场可能忽略交换机PCB绝对优势和1.6T升级拉动。但PE 42倍已不算便宜。</small></p>
+    </div>
+
+    <!-- 6. Fisher 15 -->
+    <div class="section">
+        <h2>六、费雪15要点评分（11.5/15分）</h2>
+        <div class="fisher-grid">
+            <div class="fisher-item pass">✅ 1. 市场潜力足够大（1/1）</div>
+            <div class="fisher-item pass">✅ 2. 持续增长决心（1/1）</div>
+            <div class="fisher-item pass">✅ 3. 研发投入有效（1/1）</div>
+            <div class="fisher-item warn">⚠️ 4. 销售组织优势（0.5/1）</div>
+            <div class="fisher-item pass">✅ 5. 利润率够高（1/1）</div>
+            <div class="fisher-item pass">✅ 6. 维持利润率（1/1）</div>
+            <div class="fisher-item na">— 7. 劳资关系（0.5/1 N/A）</div>
+            <div class="fisher-item warn">⚠️ 8. 管理层关系（0.5/1）</div>
+            <div class="fisher-item warn">⚠️ 9. 管理层深度（0.5/1）</div>
+            <div class="fisher-item pass">✅ 10. 成本/会计控制（1/1）</div>
+            <div class="fisher-item pass">✅ 11. 独到竞争力（1/1）</div>
+            <div class="fisher-item warn">⚠️ 12. 短期/长期视角（0.5/1）</div>
+            <div class="fisher-item warn">⚠️ 13. 股权融资（0.5/1）</div>
+            <div class="fisher-item pass">✅ 14. 管理层如实交流（1/1）</div>
+            <div class="fisher-item warn">⚠️ 15. 管理层诚信（0.5/1）</div>
+        </div>
+    </div>
+
+    <!-- 7. Synthesis -->
+    <div class="section">
+        <h2>七、综合判断与总评分</h2>
+        <p style="font-size: 18px; font-weight: bold; color: #1F4E79; text-align: center; margin: 16px 0;">
+            总分：72.5 / 100（评级区间：65-79 · 整体不错，关注弱项）
+        </p>
+
+        <h3>评分分布形态分析</h3>
+        <p>CAN SLIM(71.4%)和柏基十问(72.0%)得分率接近，费雪15要点(76.7%)略高。三个框架未出现方向性冲突，均指向公司具备较强的成长属性。但CAN SLIM中S(供需)和M(大盘方向)得分偏低，柏基中Q4(商业模式可预测性)、Q8(资本配置效率)、Q9(长期持续性)均只有3分，反映出竞争加剧、资本支出巨大带来的不确定性。</p>
+
+        <h3>交叉信号</h3>
+        <ul>
+            <li><b>CAN SLIM C + 柏基 Q1/Q2 — 共振向上</b>：当期盈利加速增长，目标市场足够大且持续扩张。</li>
+            <li><b>CAN SLIM S + 柏基 Q9 — 预警信号</b>：供需关系面临竞争加剧冲击，长期增长需持续投入。</li>
+            <li><b>CAN SLIM L + 费雪 #11 — 核心护城河</b>：细分赛道龙头地位和多重竞争壁垒是核心投资逻辑。</li>
+            <li><b>CAN SLIM M + 柏基 Q10 — 谨慎因素</b>：大盘方向偏弱，当前估值已不便宜(PE 42x)。</li>
+        </ul>
+    </div>
+
+    <!-- 8. Risk -->
+    <div class="section">
+        <h2>八、风险清单</h2>
+
+        <h3>公司层面</h3>
+        <div class="risk-chips">
+            <span class="risk-chip red">客户集中度 >45%</span>
+            <span class="risk-chip red">泰厂持续亏损</span>
+            <span class="risk-chip orange">经营现金流降64%</span>
+            <span class="risk-chip orange">汇率损失1.48亿</span>
+            <span class="risk-chip blue">H股上市稀释</span>
+        </div>
+        <ul>
+            <li>客户集中度偏高——前五大客户收入占比>45%，单一客户流失影响大</li>
+            <li>泰国工厂2025年亏损约1.4亿元，产能爬坡尚需时日</li>
+            <li>2026年Q1经营现金流同比降64%，受备货采购增加影响</li>
+            <li>境外销售占比超80%，2026年Q1汇兑损失约1.48亿元</li>
+            <li>H股上市可能稀释现有股东权益</li>
+        </ul>
+
+        <h3>行业/市场层面</h3>
+        <div class="risk-chips">
+            <span class="risk-chip red">胜宏科技反超</span>
+            <span class="risk-chip orange">产能过剩风险</span>
+            <span class="risk-chip orange">原材料涨价</span>
+            <span class="risk-chip blue">技术迭代</span>
+            <span class="risk-chip red">地缘政治</span>
+        </div>
+        <ul>
+            <li>竞争加剧：胜宏科技2025年在营收和利润上反超，AI服务器PCB市占率飙升</li>
+            <li>2026年后高端PCB产能集中释放，若AI需求放缓可能供过于求</li>
+            <li>覆铜板占生产成本约30%，价格每上涨10%推高成本5-7%</li>
+            <li>境外销售占比超80%，地缘政治风险持续存在</li>
+        </ul>
+
+        <h3>估值风险</h3>
+        <p>当前股价108.68元，对应动态PE 42倍、PB约12.5倍。股价从52周低点27元已上涨约300%，积累了较大获利盘。若业绩增长不及预期，高估值可能面临较大回调压力。</p>
+    </div>
+
+    <!-- 9. Verify -->
+    <div class="section">
+        <h2>九、需要进一步验证的关键问题</h2>
+        <ul>
+            <li>胜宏科技在AI服务器PCB领域的市占率提升趋势是否会对沪电的核心交换机业务产生溢出竞争？</li>
+            <li>2026年下半年43亿AI芯片配套高端PCB扩产项目能否如期投产？良率和产能爬坡速度如何？</li>
+            <li>泰国工厂何时实现单季盈亏平衡？（2026年Q1已超2025全年营收，转盈节点值得关注）</li>
+            <li>2026年全年经营现金流能否随着营收增长而改善？原材料采购压力是否持续？</li>
+            <li>高速网络交换机PCB的增长持续性——1.6T交换机大规模部署的时间表是否清晰？</li>
+            <li>H股上市的具体时间表和融资规模，以及对A股现有股东权益的影响程度？</li>
+        </ul>
+    </div>
+
+    <!-- 10. Attachments -->
+    <div class="section">
+        <h2>十、配套文件</h2>
+        <p>本报告配套以下两份文件（存放于同一目录）：</p>
+        <ul>
+            <li><b>Excel评分表</b>：沪电股份_成长股评分表_20260511.xlsx — 含完整32项打分、公式自动计算</li>
+            <li><b>PDF研究报告</b>：沪电股份_成长股分析_20260511.pdf — 12页完整报告</li>
+        </ul>
+    </div>
+
+    <!-- Disclaimer -->
+    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 20px 24px; margin-bottom: 20px; color: #991b1b; font-size: 13px; text-align: center;">
+        <b>⚠ 免责声明</b><br><br>
+        本报告仅为框架化的研究整理，<b>不构成投资建议</b>。Claude不是持牌投资顾问。数据来源包括公司公告、券商研报、东方财富、同花顺、富途等公开信息。数据可能有滞后、误差或不完整，读者需自行核实并独立决策。报告中的评分和结论基于三套标准化分析框架，不代表对未来股价走势的任何预测或保证。<br><br>
+        <span style="color: #666;">报告生成日期：2026年5月11日 | 数据截止日：2026年5月11日</span>
+    </div>
+
+</div>
+</body>
+</html>

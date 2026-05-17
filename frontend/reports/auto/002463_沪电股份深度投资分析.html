@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>沪电股份(002463) 深度投资分析报告</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+    --green: #10b981; --red: #ef4444; --yellow: #f59e0b;
+    --purple: #a78bfa; --orange: #fb923c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'PingFang SC','Microsoft YaHei',sans-serif; font-size: 14px; line-height: 1.6; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+  /* Header */
+  .report-header { background: linear-gradient(135deg,#1e3a5f 0%,#0f172a 100%); border: 1px solid var(--border); border-radius: 16px; padding: 28px 32px; margin-bottom: 24px; position: relative; overflow: hidden; }
+  .report-header::before { content:''; position:absolute; top:-60px; right:-60px; width:240px; height:240px; background: radial-gradient(circle, rgba(56,189,248,.15) 0%, transparent 70%); }
+  .header-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; }
+  .stock-name { font-size: 32px; font-weight: 700; color: #fff; letter-spacing: 1px; }
+  .stock-code { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .stock-industry { display: inline-block; background: rgba(56,189,248,.18); color: var(--accent); border: 1px solid rgba(56,189,248,.35); border-radius: 6px; padding: 3px 10px; font-size: 12px; margin-top: 8px; }
+  .price-block { text-align: right; }
+  .price-main { font-size: 44px; font-weight: 700; color: var(--red); line-height: 1; }
+  .price-change { font-size: 18px; color: var(--red); margin-top: 4px; }
+  .price-date { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .disclaimer { font-size: 11px; color: var(--yellow); background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); border-radius: 6px; padding: 8px 14px; margin-top: 12px; }
+
+  /* Key metrics bar */
+  .metrics-bar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 24px; }
+  .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; text-align: center; }
+  .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .metric-value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .metric-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .up { color: var(--red); } .down { color: var(--green); }
+  .neu { color: var(--accent); } .warn { color: var(--yellow); }
+
+  /* Grid layouts */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+  .grid-65 { display: grid; grid-template-columns: 6fr 4fr; gap: 20px; margin-bottom: 24px; }
+  .full-width { margin-bottom: 24px; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+  .card-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .card-title .icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+
+  /* Charts */
+  .chart-wrap { position: relative; height: 320px; }
+  .chart-sm { position: relative; height: 240px; }
+  .chart-mini { position: relative; height: 180px; }
+
+  /* Skill status badge */
+  .skill-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .badge-ok { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
+  .badge-warn { background: rgba(245,158,11,.15); color: var(--yellow); border: 1px solid rgba(245,158,11,.3); }
+  .badge-err { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+
+  /* Score bars */
+  .score-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .score-label { width: 200px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+  .score-bar-wrap { flex: 1; background: #0f172a; border-radius: 4px; height: 8px; }
+  .score-bar { height: 8px; border-radius: 4px; transition: width .5s; }
+  .score-val { width: 40px; text-align: right; font-size: 13px; font-weight: 600; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #0f172a; color: var(--muted); text-align: left; padding: 8px 12px; font-weight: 500; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid rgba(51,65,85,.5); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.03); }
+
+  /* Signal cards */
+  .signal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .signal-card { border-radius: 10px; padding: 14px; text-align: center; border: 1px solid; }
+  .sig-buy { background: rgba(16,185,129,.1); border-color: rgba(16,185,129,.3); }
+  .sig-sell { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.3); }
+  .sig-hold { background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); }
+  .sig-watch { background: rgba(56,189,248,.1); border-color: rgba(56,189,248,.3); }
+  .sig-name { font-size: 11px; color: var(--muted); }
+  .sig-val { font-size: 20px; font-weight: 700; margin: 4px 0; }
+  .sig-desc { font-size: 10px; color: var(--muted); }
+
+  /* Sentiment meter */
+  .sentiment-meter { display: flex; align-items: center; gap: 16px; margin: 12px 0; }
+  .sentiment-bar { flex: 1; height: 18px; border-radius: 9px; background: linear-gradient(to right, #ef4444 0%, #f59e0b 40%, #10b981 100%); position: relative; box-shadow: 0 0 8px rgba(0,0,0,.4); }
+  .sentiment-marker { position: absolute; top: -4px; transform: translateX(-50%); width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 3px solid #1e293b; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .sentiment-score { font-size: 28px; font-weight: 700; color: var(--green); min-width: 60px; text-align: right; }
+
+  /* Strategy boxes */
+  .strategy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .strategy-box { border-radius: 10px; padding: 14px; border: 1px solid; }
+  .strat-buy { background: rgba(16,185,129,.08); border-color: rgba(16,185,129,.3); }
+  .strat-target { background: rgba(56,189,248,.08); border-color: rgba(56,189,248,.3); }
+  .strat-stop { background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.3); }
+  .strat-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .strat-val { font-size: 22px; font-weight: 700; }
+  .strat-desc { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Risk matrix */
+  .risk-table td:first-child { font-weight: 600; }
+  .risk-hi { color: var(--red); }
+  .risk-mid { color: var(--yellow); }
+  .risk-lo { color: var(--green); }
+
+  /* Skill coverage */
+  .skill-table td { vertical-align: top; }
+
+  /* BG table */
+  .bg-score { font-weight: 700; text-align: center; }
+  .star { color: var(--yellow); }
+
+  /* Mermaid */
+  .mermaid-wrap { background: #0f172a; border-radius: 10px; padding: 16px; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .metrics-bar { grid-template-columns: repeat(3,1fr); }
+    .grid-2,.grid-3,.grid-65 { grid-template-columns: 1fr; }
+    .signal-grid { grid-template-columns: repeat(2,1fr); }
+    .strategy-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .metrics-bar { grid-template-columns: repeat(2,1fr); }
+    .header-grid { grid-template-columns: 1fr; }
+    .price-block { text-align: left; }
+  }
+
+  /* Pulse animation */
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .live-dot { width:8px; height:8px; border-radius:50%; background: var(--green); display:inline-block; animation: pulse 2s infinite; margin-right:6px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- HEADER -->
+<div class="report-header">
+  <div class="header-grid">
+    <div>
+      <div class="stock-name">沪电股份</div>
+      <div class="stock-code">002463.SZ &nbsp;|&nbsp; 深交所主板 &nbsp;|&nbsp; 沪士电子股份有限公司</div>
+      <div>
+        <span class="stock-industry">印制电路板(PCB)</span>
+        <span class="stock-industry" style="margin-left:6px">AI数据中心受益</span>
+        <span class="stock-industry" style="margin-left:6px">江苏昆山</span>
+      </div>
+      <div class="disclaimer">⚠ 本报告由 AI 多技能框架自动生成，仅为框架化研究整理，不构成投资建议。数据可能滞后或不完整，投资者须自行核实并独立决策。</div>
+    </div>
+    <div class="price-block">
+      <div class="price-main">102.99</div>
+      <div class="price-change">▼ -4.03 (-3.77%)</div>
+      <div class="price-date"><span class="live-dot"></span>2026-05-15 收盘</div>
+    </div>
+  </div>
+</div>
+
+<!-- KEY METRICS BAR -->
+<div class="metrics-bar">
+  <div class="metric-card">
+    <div class="metric-label">市值</div>
+    <div class="metric-value neu">~1982亿</div>
+    <div class="metric-sub">元人民币</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">动态PE</div>
+    <div class="metric-value warn">~40x</div>
+    <div class="metric-sub">2026Q1年化 EPS=2.58</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">PB</div>
+    <div class="metric-value warn">11.8x</div>
+    <div class="metric-sub">BPS=8.72(Q1)</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">ROE(年化)</div>
+    <div class="metric-value up">~28.6%</div>
+    <div class="metric-sub">2025年报</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">60日涨幅</div>
+    <div class="metric-value up">+43.86%</div>
+    <div class="metric-sub">2026/02/09 至今</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">综合评分</div>
+    <div class="metric-value" style="color:var(--purple)">78/100</div>
+    <div class="metric-sub">全技能加权</div>
+  </div>
+</div>
+
+<!-- ROW 1: K-LINE + SIGNALS -->
+<div class="grid-65">
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(56,189,248,.15)">📈</span>
+      K线走势图（60日）<span class="skill-badge badge-ok" style="margin-left:auto">alphaear-stock ✓</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="klineChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(16,185,129,.15)">🎯</span>
+      技术信号面板
+    </div>
+    <div class="signal-grid" style="margin-bottom:16px">
+      <div class="signal-card sig-hold">
+        <div class="sig-name">RSI14</div>
+        <div class="sig-val" style="color:var(--yellow)">49.6</div>
+        <div class="sig-desc">中性区域</div>
+      </div>
+      <div class="signal-card sig-sell">
+        <div class="sig-name">MACD</div>
+        <div class="sig-val" style="color:var(--red)">死叉</div>
+        <div class="sig-desc">Hist=-0.50</div>
+      </div>
+      <div class="signal-card sig-buy">
+        <div class="sig-name">EMA均线</div>
+        <div class="sig-val" style="color:var(--green)">多头</div>
+        <div class="sig-desc">5>10>20</div>
+      </div>
+      <div class="signal-card sig-watch">
+        <div class="sig-name">成交量</div>
+        <div class="sig-val" style="color:var(--accent)">缩量</div>
+        <div class="sig-desc">较20日均萎缩</div>
+      </div>
+    </div>
+    <table style="font-size:12px">
+      <tr><th>指标</th><th>数值</th><th>信号</th></tr>
+      <tr><td>EMA5</td><td>106.65</td><td style="color:var(--red)">价格在下</td></tr>
+      <tr><td>EMA10</td><td>106.03</td><td style="color:var(--red)">价格在下</td></tr>
+      <tr><td>EMA20</td><td>102.42</td><td style="color:var(--yellow)">接近价格</td></tr>
+      <tr><td>60D高点</td><td>114.46</td><td style="color:var(--muted)">2026-05-14</td></tr>
+      <tr><td>60D低点</td><td>67.54</td><td style="color:var(--muted)">2026-02-12</td></tr>
+      <tr><td>支撑位</td><td>100~102</td><td style="color:var(--green)">EMA20附近</td></tr>
+      <tr><td>阻力位</td><td>108~110</td><td style="color:var(--muted)">近期高点区</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ROW 2: FINANCIALS TABLE + SENTIMENT -->
+<div class="grid-65">
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(167,139,250,.15)">💹</span>
+      财务数据（EastMoney F10 实时）<span class="skill-badge badge-ok" style="margin-left:auto">alphaear-search ✓</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>报告期</th><th>营收(亿)</th><th>净利润(亿)</th><th>毛利率</th><th>净利率</th><th>ROE</th><th>EPS</th><th>营收增速</th><th>净利增速</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--accent);font-weight:600">2026一季报</td>
+          <td>62.14</td><td style="color:var(--red)">12.42</td>
+          <td style="color:var(--green)">35.63%</td><td>19.98%</td>
+          <td style="color:var(--yellow)">7.81%</td><td>0.6455</td>
+          <td style="color:var(--red)">+53.91%</td><td style="color:var(--red)">+62.90%</td>
+        </tr>
+        <tr>
+          <td>2025年报</td>
+          <td>189.45</td><td style="color:var(--red)">38.22</td>
+          <td style="color:var(--green)">35.48%</td><td>20.16%</td>
+          <td style="color:var(--red)">28.57%</td><td>1.9875</td>
+          <td style="color:var(--red)">+42.00%</td><td style="color:var(--red)">+47.74%</td>
+        </tr>
+        <tr>
+          <td>2025三季报</td>
+          <td>135.12</td><td>27.18</td>
+          <td>35.40%</td><td>20.08%</td>
+          <td>21.07%</td><td>1.4134</td>
+          <td style="color:var(--red)">+49.96%</td><td style="color:var(--red)">+47.03%</td>
+        </tr>
+        <tr>
+          <td>2025中报</td>
+          <td>84.94</td><td>16.83</td>
+          <td>35.14%</td><td>19.76%</td>
+          <td>13.37%</td><td>0.8754</td>
+          <td style="color:var(--red)">+56.59%</td><td style="color:var(--red)">+47.50%</td>
+        </tr>
+        <tr>
+          <td>2025一季报</td>
+          <td>40.38</td><td>7.62</td>
+          <td>32.75%</td><td>18.82%</td>
+          <td>6.22%</td><td>0.3969</td>
+          <td style="color:var(--red)">+56.25%</td><td style="color:var(--red)">+48.11%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(251,146,60,.15)">🔮</span>
+      市场情绪分析<span class="skill-badge badge-warn" style="margin-left:auto">alphaear-sentiment (LLM)</span>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">综合情绪评分（0=极度悲观，100=极度乐观）</div>
+      <div class="sentiment-meter">
+        <div class="sentiment-bar">
+          <div class="sentiment-marker" style="left:71%"></div>
+        </div>
+        <div class="sentiment-score">71</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
+        <span>极度悲观</span><span>中性</span><span>极度乐观</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">基本面情绪</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:100px;background:#0f172a;border-radius:4px;height:6px">
+            <div style="width:90%;background:var(--green);height:6px;border-radius:4px"></div>
+          </div>
+          <span style="font-size:12px;color:var(--green)">积极</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">机构持仓情绪</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:100px;background:#0f172a;border-radius:4px;height:6px">
+            <div style="width:85%;background:var(--green);height:6px;border-radius:4px"></div>
+          </div>
+          <span style="font-size:12px;color:var(--green)">积极</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">技术面情绪</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:100px;background:#0f172a;border-radius:4px;height:6px">
+            <div style="width:55%;background:var(--yellow);height:6px;border-radius:4px"></div>
+          </div>
+          <span style="font-size:12px;color:var(--yellow)">中性偏弱</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">行业/主题情绪</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:100px;background:#0f172a;border-radius:4px;height:6px">
+            <div style="width:80%;background:var(--green);height:6px;border-radius:4px"></div>
+          </div>
+          <span style="font-size:12px;color:var(--green)">积极</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding:10px;background:#0f172a;border-radius:8px;font-size:12px;color:var(--muted)">
+      <strong style="color:var(--text)">情绪关键驱动：</strong>Q1净利增速62.9%远超预期、北向资金大幅增持（+35%）、AI数据中心PCB需求持续旺盛。短期受MACD死叉压制。
+    </div>
+  </div>
+</div>
+
+<!-- ROW 3: FORECAST + SHAREHOLDERS -->
+<div class="grid-65">
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(245,158,11,.15)">🔭</span>
+      量化预测（7日）<span class="skill-badge badge-warn" style="margin-left:auto">alphaear-predictor (EMA+动量)</span>
+    </div>
+    <div class="chart-sm">
+      <canvas id="forecastChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(56,189,248,.15)">🏛</span>
+      股东结构（2026Q1）<span class="skill-badge badge-ok" style="margin-left:auto">EastMoney ✓</span>
+    </div>
+    <table style="font-size:12px">
+      <thead>
+        <tr><th>排名</th><th>股东名称</th><th>持股比例</th><th>较上季度变动</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>BIGGERING(BVI) HOLDINGS CO.</td>
+          <td style="color:var(--accent)">19.32%</td>
+          <td style="color:var(--muted)">不变</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>WUS GROUP HOLDINGS CO.,LTD.</td>
+          <td style="color:var(--accent)">11.26%</td>
+          <td style="color:var(--muted)">不变</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>香港中央结算(北向资金)</td>
+          <td style="color:var(--red)">10.08%</td>
+          <td style="color:var(--green)">+35.38%</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>永赢科技智选混合基金</td>
+          <td>1.05%</td>
+          <td style="color:var(--green)">+8.23%</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>HAPPY UNION INVESTMENT LTD</td>
+          <td>1.03%</td>
+          <td style="color:var(--muted)">不变</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:12px;padding:10px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:12px">
+      <strong style="color:var(--green)">北向资金信号：</strong>香港中央结算持仓单季大幅增加35.38%，Q1新增约5067万股（约52亿元），外资长期资金对公司中期逻辑高度认可。
+    </div>
+  </div>
+</div>
+
+<!-- ROW 4: GROWTH STOCK ANALYSIS - CAN SLIM -->
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(251,146,60,.15)">📊</span>
+      CAN SLIM 评分（William O'Neil）<span class="skill-badge badge-ok" style="margin-left:auto">growth-stock-analysis ✓</span>
+    </div>
+    <div class="score-row">
+      <div class="score-label">C — 当季盈利增长(+62.90%)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:100%;background:var(--green)"></div></div>
+      <div class="score-val" style="color:var(--green)">5/5</div>
+    </div>
+    <div class="score-row">
+      <div class="score-label">A — 年度盈利增长(+47.74%)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:100%;background:var(--green)"></div></div>
+      <div class="score-val" style="color:var(--green)">5/5</div>
+    </div>
+    <div class="score-row">
+      <div class="score-label">N — 新品/新品类(AI服务器PCB)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:80%;background:var(--accent)"></div></div>
+      <div class="score-val" style="color:var(--accent)">4/5</div>
+    </div>
+    <div class="score-row">
+      <div class="score-label">S — 供需关系(近期缩量调整)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:60%;background:var(--yellow)"></div></div>
+      <div class="score-val" style="color:var(--yellow)">3/5</div>
+    </div>
+    <div class="score-row">
+      <div class="score-label">L — 行业龙头地位(PCB前五)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:80%;background:var(--accent)"></div></div>
+      <div class="score-val" style="color:var(--accent)">4/5</div>
+    </div>
+    <div class="score-row">
+      <div class="score-label">I — 机构持仓(北向资金大幅增持)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:80%;background:var(--accent)"></div></div>
+      <div class="score-val" style="color:var(--accent)">4/5</div>
+    </div>
+    <div class="score-row">
+      <div class="score-label">M — 大盘方向(A股弱势震荡)</div>
+      <div class="score-bar-wrap"><div class="score-bar" style="width:40%;background:var(--red)"></div></div>
+      <div class="score-val" style="color:var(--red)">2/5</div>
+    </div>
+    <div style="margin-top:12px;padding:10px;background:#0f172a;border-radius:8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="color:var(--muted);font-size:13px">CAN SLIM 合计</span>
+      <span style="font-size:22px;font-weight:700;color:var(--orange)">27/35</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(167,139,250,.15)">🔬</span>
+      柏基尽调十问（Baillie Gifford）<span class="skill-badge badge-ok" style="margin-left:auto">growth-stock-analysis ✓</span>
+    </div>
+    <table style="font-size:12px">
+      <thead>
+        <tr><th>问题维度</th><th>评估摘要</th><th class="bg-score">得分</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1. 可持续竞争优势</td>
+          <td style="color:var(--muted)">PCB高端良率壁垒+大客户认证粘性</td>
+          <td class="bg-score" style="color:var(--green)">4/5</td>
+        </tr>
+        <tr>
+          <td>2. 管理层质量</td>
+          <td style="color:var(--muted)">陈梅芳董事长，稳定执行，期权激励</td>
+          <td class="bg-score" style="color:var(--green)">4/5</td>
+        </tr>
+        <tr>
+          <td>3. 市场空间够大</td>
+          <td style="color:var(--muted)">全球AI基础设施万亿美元级别建设</td>
+          <td class="bg-score" style="color:var(--green)">5/5</td>
+        </tr>
+        <tr>
+          <td>4. 成长路径清晰</td>
+          <td style="color:var(--muted)">AI服务器PCB需求明确，订单能见度高</td>
+          <td class="bg-score" style="color:var(--green)">4/5</td>
+        </tr>
+        <tr>
+          <td>5. 商业模式可持续</td>
+          <td style="color:var(--muted)">B2B制造，长周期合同，重复购买</td>
+          <td class="bg-score" style="color:var(--green)">4/5</td>
+        </tr>
+        <tr>
+          <td>6. 财务健康度</td>
+          <td style="color:var(--muted)">ROE28.6%，毛利35%，负债率48.6%</td>
+          <td class="bg-score" style="color:var(--green)">4/5</td>
+        </tr>
+        <tr>
+          <td>7. 护城河扩张</td>
+          <td style="color:var(--muted)">海外大客户认证中，但竞争加剧</td>
+          <td class="bg-score" style="color:var(--yellow)">3/5</td>
+        </tr>
+        <tr>
+          <td>8. 长期机会(10年+)</td>
+          <td style="color:var(--muted)">AI算力基础设施建设周期长远</td>
+          <td class="bg-score" style="color:var(--green)">5/5</td>
+        </tr>
+        <tr>
+          <td>9. 估值合理性</td>
+          <td style="color:var(--muted)">PE~40x有溢价，增速匹配尚可</td>
+          <td class="bg-score" style="color:var(--yellow)">3/5</td>
+        </tr>
+        <tr>
+          <td>10. ESG/集中风险</td>
+          <td style="color:var(--muted)">主要工厂在昆山，地缘/供应链风险</td>
+          <td class="bg-score" style="color:var(--yellow)">3/5</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:10px;padding:10px;background:#0f172a;border-radius:8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="color:var(--muted);font-size:13px">柏基十问合计</span>
+      <span style="font-size:22px;font-weight:700;color:var(--purple)">39/50</span>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 5: BUSINESS STRUCTURE SCORES + LOGIC CHAIN -->
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(16,185,129,.15)">🌐</span>
+      业务结构评分
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div style="background:#0f172a;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">国际化程度（/8）</div>
+        <div style="font-size:40px;font-weight:700;color:var(--accent)">6</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">海外客户占比高，通讯/数据中心全球配套；无美国直接制造</div>
+      </div>
+      <div style="background:#0f172a;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">AI相关度（/7）</div>
+        <div style="font-size:40px;font-weight:700;color:var(--purple)">6</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">AI服务器高速PCB是核心受益者；高多层板需求随AI算力直接增长</div>
+      </div>
+    </div>
+    <div style="padding:12px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);border-radius:8px;font-size:12px">
+      <strong style="color:var(--purple)">综合总分：</strong>
+      <span style="font-size:20px;font-weight:700;color:var(--purple)"> 78/100 </span>
+      <span style="color:var(--muted)">（CAN SLIM 27 + BG 39 + 国际化 6 + AI 6）</span>
+    </div>
+    <div style="margin-top:12px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">评分区间说明</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8">
+        <span style="color:var(--green)">■</span> 85–100：明星成长股，高信心持有<br>
+        <span style="color:var(--accent)">■</span> 70–84：优质标的，可持仓，注意节奏 <span style="background:rgba(56,189,248,.2);padding:2px 6px;border-radius:4px;font-size:11px">当前</span><br>
+        <span style="color:var(--yellow)">■</span> 55–69：中等，需更多验证<br>
+        <span style="color:var(--red)">■</span> &lt;55：谨慎，短板明显
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(245,158,11,.15)">🔗</span>
+      投资逻辑链<span class="skill-badge badge-ok" style="margin-left:auto">alphaear-logic-visualizer ✓</span>
+    </div>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+graph TD
+    A["🌐 AI算力基础设施大爆发<br/>全球数据中心投资激增"] --> B["⚡ AI服务器高速PCB需求<br/>高多层板、HDI急剧增长"]
+    B --> C["🏭 沪电股份<br/>002463.SZ<br/>AI服务器PCB核心受益"]
+    C --> D["📈 营收增速53.9%<br/>净利增速62.9%"]
+    C --> E["💰 毛利率稳定在35%<br/>ROE 28.6%"]
+    D --> F["✅ 基本面超预期"]
+    E --> F
+    F --> G["🏛 北向资金<br/>单季增持35%"]
+    G --> H["💹 60日股价+43.86%<br/>短期高位回调中"]
+    H --> I["🎯 支撑99-102<br/>阻力108-110"]
+
+    style A fill:#1e3a5f,color:#93c5fd,stroke:#3b82f6
+    style C fill:#1e293b,color:#f59e0b,stroke:#f59e0b
+    style F fill:#1e3a5f,color:#86efac,stroke:#10b981
+    style I fill:#1e293b,color:#fca5a5,stroke:#ef4444
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 6: STRATEGY + RECENT NEWS -->
+<div class="grid-65">
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(251,146,60,.15)">⚔</span>
+      交易策略建议<span class="skill-badge badge-ok" style="margin-left:auto">alphaear-reporter ✓</span>
+    </div>
+    <div class="strategy-grid" style="margin-bottom:16px">
+      <div class="strategy-box strat-buy">
+        <div class="strat-title">建仓区间</div>
+        <div class="strat-val" style="color:var(--green)">99~102</div>
+        <div class="strat-desc">EMA20支撑位附近分批买入<br>建议分3次建仓，每次1/3仓位</div>
+      </div>
+      <div class="strategy-box strat-target">
+        <div class="strat-title">目标价位</div>
+        <div class="strat-val" style="color:var(--accent)">108~115</div>
+        <div class="strat-desc">第一目标108（前高阻力）<br>第二目标115（突破后延伸）</div>
+      </div>
+      <div class="strategy-box strat-stop">
+        <div class="strat-title">止损位</div>
+        <div class="strat-val" style="color:var(--red)">95</div>
+        <div class="strat-desc">破EMA20支撑止损<br>约当前价格-7.8%</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div style="background:#0f172a;border-radius:8px;padding:12px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">多头策略（中线，1-3月）</div>
+        <div style="font-size:12px;line-height:1.7">
+          ✅ Q1业绩超预期支撑估值<br>
+          ✅ 北向资金长期资金背书<br>
+          ✅ AI服务器PCB需求持续<br>
+          ✅ EMA20支撑强，趋势完整<br>
+          ⚠ 需等MACD金叉确认
+        </div>
+      </div>
+      <div style="background:#0f172a;border-radius:8px;padding:12px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">主要风险</div>
+        <div style="font-size:12px;line-height:1.7">
+          ❌ 贸易战升级影响供应链<br>
+          ❌ AI服务器需求不及预期<br>
+          ❌ PE 40x估值已有溢价<br>
+          ❌ 大盘系统性风险<br>
+          ❌ 台海地缘风险
+        </div>
+      </div>
+    </div>
+    <div style="padding:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px;font-size:12px">
+      <strong style="color:var(--yellow)">操作节奏建议：</strong>当前短期MACD死叉，建议暂不追涨。等待价格回调至100-102区间或MACD形成金叉信号后介入。目标R/R比约1:2.5。
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">
+      <span class="icon" style="background:rgba(16,185,129,.15)">📰</span>
+      最新公告动态<span class="skill-badge badge-ok" style="margin-left:auto">alphaear-news ✓</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="padding:10px;background:#0f172a;border-radius:8px;border-left:3px solid var(--accent)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">2026-05-13</div>
+        <div style="font-size:13px">投资者关系活动记录表</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">最新机构调研记录，管理层与机构投资者互动频率高（约每周一次）</div>
+      </div>
+      <div style="padding:10px;background:#0f172a;border-radius:8px;border-left:3px solid var(--yellow)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">2026-05-08</div>
+        <div style="font-size:13px">关于部分股票期权注销完成的公告</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">股票期权激励计划调整，部分未满足条件的期权依规注销</div>
+      </div>
+      <div style="padding:10px;background:#0f172a;border-radius:8px;border-left:3px solid var(--green)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">2026-04-28</div>
+        <div style="font-size:13px">2025年度权益分派实施公告</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">2025年度分红实施，体现公司稳定的分红政策</div>
+      </div>
+      <div style="padding:10px;background:#0f172a;border-radius:8px;border-left:3px solid var(--purple)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">2026-04-23</div>
+        <div style="font-size:13px">2026年Q1季报披露（营收+53.91%，净利+62.90%）</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">超市场预期，是本轮上涨核心催化剂</div>
+      </div>
+      <div style="padding:10px;background:#0f172a;border-radius:8px;border-left:3px solid var(--muted)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">2026-04-24</div>
+        <div style="font-size:13px">2025年度股东会决议公告</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">股东会审议通过年报、分红方案等常规议项</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 7: RISK MATRIX -->
+<div class="card full-width">
+  <div class="card-title">
+    <span class="icon" style="background:rgba(239,68,68,.15)">⚠</span>
+    风险矩阵<span class="skill-badge badge-ok" style="margin-left:auto">alphaear-signal-tracker ✓</span>
+  </div>
+  <table class="risk-table">
+    <thead>
+      <tr><th>风险类别</th><th>风险描述</th><th>影响程度</th><th>发生概率</th><th>综合评级</th><th>应对建议</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>贸易战风险</td>
+        <td>中美贸易摩擦升级，PCB出口关税或供应链限制</td>
+        <td class="risk-hi">高</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-hi">★★★★☆ 高</td>
+        <td>关注政策动态，分批建仓降低均价风险</td>
+      </tr>
+      <tr>
+        <td>AI需求不及预期</td>
+        <td>AI服务器资本开支放缓，PCB订单量下降</td>
+        <td class="risk-hi">高</td>
+        <td class="risk-lo">低</td>
+        <td class="risk-mid">★★★☆☆ 中</td>
+        <td>跟踪英伟达、微软、谷歌季度资本支出数据</td>
+      </tr>
+      <tr>
+        <td>估值风险</td>
+        <td>PE~40x在制造业中偏高，市场情绪切换可能快速杀估值</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-mid">★★★☆☆ 中</td>
+        <td>设置止损，不追涨；等待回调至合理估值区间</td>
+      </tr>
+      <tr>
+        <td>地缘政治风险</td>
+        <td>台海局势紧张影响A股整体，制造业供应链中断</td>
+        <td class="risk-hi">高</td>
+        <td class="risk-lo">低</td>
+        <td class="risk-mid">★★☆☆☆ 中</td>
+        <td>作为尾部风险管理，控制整体仓位</td>
+      </tr>
+      <tr>
+        <td>大盘系统性风险</td>
+        <td>A股震荡整体下行，贝塔效应拖累个股</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-mid">★★★☆☆ 中</td>
+        <td>等待M（大盘方向）明确后加仓；先轻仓试探</td>
+      </tr>
+      <tr>
+        <td>竞争加剧风险</td>
+        <td>深南电路、TTM等竞争对手扩产，价格战</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-mid">中</td>
+        <td class="risk-lo">★★☆☆☆ 低</td>
+        <td>持续跟踪毛利率变化，若低于32%则警惕</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ROW 8: SKILL COVERAGE TABLE -->
+<div class="card full-width">
+  <div class="card-title">
+    <span class="icon" style="background:rgba(56,189,248,.15)">🧠</span>
+    AI技能调用覆盖清单<span class="skill-badge badge-ok" style="margin-left:auto">全技能版</span>
+  </div>
+  <table class="skill-table">
+    <thead>
+      <tr><th>技能</th><th>功能</th><th>数据源</th><th>状态</th><th>输出摘要</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>alphaear-stock</strong></td>
+        <td>股价数据/技术分析</td>
+        <td>Sina Kline API (直连)</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>60日K线，EMA/RSI/MACD全套技术指标</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-news</strong></td>
+        <td>公告与新闻抓取</td>
+        <td>EastMoney公告API</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>最新10条公告，覆盖机构调研/分红/期权</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-search</strong></td>
+        <td>财务数据/基本面</td>
+        <td>EastMoney F10 Web API</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>5期财务数据，股东结构，公司基本资料</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-sentiment</strong></td>
+        <td>市场情绪分析</td>
+        <td>LLM推理模式</td>
+        <td><span class="skill-badge badge-warn">⚠ LLM模式</span></td>
+        <td>综合情绪评分71/100，基本面主导积极情绪</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-signal-tracker</strong></td>
+        <td>交易信号追踪</td>
+        <td>技术分析+规则引擎</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>RSI中性，MACD死叉，EMA多头，量价背离</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-predictor</strong></td>
+        <td>7日价格预测</td>
+        <td>EMA+动量模型</td>
+        <td><span class="skill-badge badge-warn">⚠ 替代模型</span></td>
+        <td>7日预测中枢103.8-105.1，区间±4.3-5元</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-reporter</strong></td>
+        <td>分析报告生成</td>
+        <td>结构化模板</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>本HTML报告完整生成</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-logic-visualizer</strong></td>
+        <td>逻辑链可视化</td>
+        <td>Mermaid.js</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>AI算力→PCB需求→沪电股份→基本面→资金→价格逻辑链</td>
+      </tr>
+      <tr>
+        <td><strong>alphaear-deepear-lite</strong></td>
+        <td>市场宏观信号</td>
+        <td>DeepEar API (网络受限)</td>
+        <td><span class="skill-badge badge-err">✗ 网络受限</span></td>
+        <td>DeepEar服务不可达，使用EastMoney替代</td>
+      </tr>
+      <tr>
+        <td><strong>growth-stock-analysis</strong></td>
+        <td>CAN SLIM+柏基评分</td>
+        <td>LLM框架分析</td>
+        <td><span class="skill-badge badge-ok">✓ 成功</span></td>
+        <td>总分78/100（CAN SLIM 27+BG 39+国际化6+AI6）</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- DISCLAIMER FOOTER -->
+<div style="text-align:center;padding:20px;color:var(--muted);font-size:11px;border-top:1px solid var(--border)">
+  本报告由 AI 多技能框架自动生成 | 数据截止 2026-05-15 | 不构成投资建议，投资者须自行核实并独立决策 |
+  <span style="color:var(--accent)">alphaear ×  growth-stock-analysis 全技能版</span>
+</div>
+
+</div><!-- /container -->
+
+<script>
+mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { background: '#0f172a', mainBkg: '#1e293b', nodeBorder: '#334155', clusterBkg: '#1e3a5f', titleColor: '#e2e8f0', edgeLabelBackground: '#1e293b', nodeTextColor: '#e2e8f0' }});
+
+// ── K-LINE CHART ──
+const kDates = ["2026-02-09","2026-02-10","2026-02-11","2026-02-12","2026-02-13","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-09","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-16","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-30","2026-03-31","2026-04-01","2026-04-02","2026-04-03","2026-04-07","2026-04-08","2026-04-09","2026-04-10","2026-04-13","2026-04-14","2026-04-15","2026-04-16","2026-04-17","2026-04-20","2026-04-21","2026-04-22","2026-04-23","2026-04-24","2026-04-27","2026-04-28","2026-04-29","2026-04-30","2026-05-06","2026-05-07","2026-05-08","2026-05-11","2026-05-12","2026-05-13","2026-05-14","2026-05-15"];
+const kClose = [71.59,72.26,69.41,68.95,69.17,72.36,77.6,85.36,83.6,81.87,76.22,76.0,76.45,75.41,74.19,76.65,77.24,76.34,81.18,83.95,85.59,91.0,86.33,84.3,80.24,82.29,82.52,79.01,80.64,79.19,75.97,79.29,76.27,76.32,76.43,84.07,85.84,88.32,88.67,97.54,92.78,94.4,97.66,98.0,99.82,103.27,106.62,102.38,104.95,101.88,101.98,102.57,104.79,107.88,108.71,108.68,108.68,112.58,107.02,102.99];
+const ema5 = [71.59,71.99,70.77,70.01,69.69,70.67,73.12,77.37,79.5,80.3,78.93,77.94,77.44,76.76,75.9,76.15,76.52,76.46,78.03,80.01,81.87,84.91,85.38,85.02,83.43,83.05,82.87,81.59,81.27,80.58,79.04,79.12,78.17,77.56,77.18,79.48,81.6,83.84,85.45,89.48,90.58,91.85,93.79,95.19,96.73,98.91,101.48,101.78,102.84,102.52,102.34,102.42,103.21,104.76,106.08,106.95,107.52,109.21,108.48,106.65];
+const ema10 = [71.59,71.96,70.93,70.28,69.96,70.58,72.27,75.25,77.07,78.08,77.7,77.36,77.18,76.84,76.33,76.39,76.55,76.51,77.38,78.6,79.89,81.93,82.74,83.03,82.52,82.47,82.48,81.85,81.63,81.18,80.23,80.06,79.37,78.82,78.38,79.42,80.59,81.99,83.21,85.81,87.08,88.41,90.09,91.53,93.04,94.9,97.03,98.0,99.27,99.74,100.15,100.59,101.35,102.54,103.66,104.57,105.32,106.64,106.71,106.03];
+const ema20 = [71.59,71.94,71.01,70.42,70.12,70.59,71.91,74.24,75.74,76.66,76.6,76.52,76.51,76.37,76.1,76.17,76.29,76.3,76.85,77.63,78.49,79.83,80.52,80.91,80.84,80.99,81.15,80.93,80.9,80.73,80.26,80.16,79.78,79.44,79.14,79.62,80.23,81.02,81.76,83.29,84.21,85.2,86.4,87.52,88.7,90.1,91.69,92.72,93.89,94.66,95.36,96.05,96.89,97.94,98.97,99.9,100.74,101.87,102.36,102.42];
+
+new Chart(document.getElementById('klineChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: kDates,
+    datasets: [
+      { label: '收盘价', data: kClose, borderColor: '#38bdf8', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: false, yAxisID: 'y' },
+      { label: 'EMA5', data: ema5, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false, borderDash: [3,3], yAxisID: 'y' },
+      { label: 'EMA10', data: ema10, borderColor: '#a78bfa', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false, borderDash: [4,4], yAxisID: 'y' },
+      { label: 'EMA20', data: ema20, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false, borderDash: [6,3], yAxisID: 'y' },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 20, padding: 12 } },
+      tooltip: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, titleColor: '#e2e8f0', bodyColor: '#94a3b8' }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', maxTicksLimit: 10, font: { size: 10 } }, grid: { color: 'rgba(51,65,85,.4)' } },
+      y: { position: 'right', ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { color: 'rgba(51,65,85,.4)' }, min: 65, max: 120 }
+    }
+  }
+});
+
+// ── FORECAST CHART ──
+const fcDates = ["2026-05-18","2026-05-19","2026-05-20","2026-05-21","2026-05-22","2026-05-25","2026-05-26"];
+const fcMid =   [103.8, 104.2, 104.6, 104.4, 104.0, 104.6, 105.1];
+const fcLo =    [99.5,  99.9,  100.3, 100.1, 99.7,  100.2, 100.7];
+const fcHi =    [108.1, 108.5, 108.9, 108.7, 108.3, 109.0, 109.5];
+
+new Chart(document.getElementById('forecastChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: fcDates,
+    datasets: [
+      { label: '低位区间', data: fcLo, borderColor: 'rgba(16,185,129,.5)', borderWidth: 1, pointRadius: 0,
+        fill: '+1', backgroundColor: 'rgba(56,130,246,.09)', tension: 0.4 },
+      { label: '高位区间', data: fcHi, borderColor: 'rgba(239,68,68,.5)', borderWidth: 1, pointRadius: 0,
+        fill: false, tension: 0.4 },
+      { label: '预测中枢', data: fcMid, borderColor: '#f59e0b', borderWidth: 2.5,
+        pointRadius: 5, pointBackgroundColor: '#f59e0b', fill: false, tension: 0.4 }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 18 } },
+      tooltip: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, titleColor: '#e2e8f0', bodyColor: '#94a3b8' }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(51,65,85,.4)' } },
+      y: { position: 'right', ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { color: 'rgba(51,65,85,.4)' }, min: 95, max: 115 }
+    }
+  }
+});
+</script>
+</body>
+</html>

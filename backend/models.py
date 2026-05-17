@@ -23,6 +23,7 @@ class WatchlistItem(Base):
     stock_name = Column(String(100), default="")
     notes = Column(Text, default="")
     sort_order = Column(Integer, default=0)
+    hidden = Column(Integer, default=0)  # 1 = hidden (has reports, soft-deleted)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 

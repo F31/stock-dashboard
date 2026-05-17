@@ -64,6 +64,10 @@ export function reorderStocks(order) {
   return api.post('/stocks/reorder', order)
 }
 
+export function showStock(id) {
+  return api.patch(`/stocks/${id}/show`)
+}
+
 // ── Data ──
 
 export function getStockDetail(id) {

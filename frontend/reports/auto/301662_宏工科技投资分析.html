@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>宏工科技 (301662) 投资分析报告</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; background: #0f1117; color: #e2e8f0; line-height: 1.6; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+  /* Header */
+  .header { background: linear-gradient(135deg, #1e293b 0%, #0f1c35 100%); border: 1px solid #2d3748; border-radius: 16px; padding: 32px; margin-bottom: 24px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; top: -50%; right: -10%; width: 300px; height: 300px; background: radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%); border-radius: 50%; }
+  .header-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+  .company-info h1 { font-size: 28px; font-weight: 700; color: #f1f5f9; }
+  .company-info .code { font-size: 15px; color: #64748b; margin-top: 4px; }
+  .company-info .badges { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-blue { background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+  .badge-green { background: rgba(16,185,129,0.2); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .badge-amber { background: rgba(245,158,11,0.2); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-purple { background: rgba(139,92,246,0.2); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); }
+  .price-block { text-align: right; }
+  .price-block .price { font-size: 40px; font-weight: 700; color: #ef4444; }
+  .price-block .change { font-size: 16px; color: #ef4444; margin-top: 2px; }
+  .price-block .date { font-size: 12px; color: #64748b; margin-top: 4px; }
+  .header-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 24px; }
+  .stat-item { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 16px; }
+  .stat-item .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-item .value { font-size: 18px; font-weight: 700; color: #f1f5f9; margin-top: 4px; }
+  .stat-item .value.up { color: #ef4444; }
+  .stat-item .value.down { color: #10b981; }
+  .stat-item .sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+  /* Sections */
+  .section { background: #1e293b; border: 1px solid #2d3748; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  .section-title { font-size: 17px; font-weight: 700; color: #f1f5f9; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+  .section-title .icon { width: 6px; height: 20px; background: #3b82f6; border-radius: 3px; display: inline-block; }
+
+  /* Grid layout */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* KPI cards */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .kpi-card { background: #0f1117; border: 1px solid #2d3748; border-radius: 10px; padding: 16px; }
+  .kpi-card .kpi-label { font-size: 12px; color: #64748b; }
+  .kpi-card .kpi-value { font-size: 22px; font-weight: 700; color: #f1f5f9; margin: 6px 0 2px; }
+  .kpi-card .kpi-yoy { font-size: 12px; }
+  .kpi-card .kpi-yoy.pos { color: #ef4444; }
+  .kpi-card .kpi-yoy.neg { color: #10b981; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 10px 14px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #2d3748; font-weight: 600; }
+  td { padding: 10px 14px; font-size: 14px; color: #cbd5e1; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .td-right { text-align: right; }
+  .td-red { color: #ef4444; font-weight: 600; }
+  .td-green { color: #10b981; font-weight: 600; }
+  .td-yellow { color: #f59e0b; font-weight: 600; }
+
+  /* Technical indicator */
+  .tech-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .tech-card { background: #0f1117; border: 1px solid #2d3748; border-radius: 10px; padding: 16px; }
+  .tech-card .t-name { font-size: 13px; color: #64748b; margin-bottom: 8px; }
+  .tech-card .t-value { font-size: 20px; font-weight: 700; }
+  .tech-card .t-signal { font-size: 12px; margin-top: 6px; padding: 3px 10px; border-radius: 20px; display: inline-block; }
+  .sig-bull { background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .sig-bear { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+  .sig-neutral { background: rgba(100,116,139,0.2); color: #94a3b8; }
+
+  /* Chart */
+  .chart-wrap { position: relative; height: 280px; }
+
+  /* Progress bar */
+  .progress-bar { background: #0f1117; border-radius: 4px; height: 8px; margin: 6px 0; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+
+  /* Rating */
+  .rating-section { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .rating-circle { width: 100px; height: 100px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 3px solid #f59e0b; background: rgba(245,158,11,0.1); flex-shrink: 0; }
+  .rating-circle .score { font-size: 32px; font-weight: 800; color: #f59e0b; }
+  .rating-circle .out-of { font-size: 12px; color: #64748b; }
+  .rating-desc { flex: 1; min-width: 200px; }
+  .rating-desc h3 { font-size: 20px; color: #f59e0b; font-weight: 700; margin-bottom: 8px; }
+  .rating-desc p { color: #94a3b8; font-size: 14px; line-height: 1.7; }
+
+  /* Risk items */
+  .risk-list { list-style: none; }
+  .risk-list li { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .risk-list li:last-child { border-bottom: none; }
+  .risk-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .risk-high .risk-icon { background: rgba(239,68,68,0.2); }
+  .risk-med .risk-icon { background: rgba(245,158,11,0.2); }
+  .risk-low .risk-icon { background: rgba(16,185,129,0.2); }
+  .risk-content .risk-title { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+  .risk-content .risk-desc { font-size: 13px; color: #94a3b8; margin-top: 3px; }
+
+  /* Strategy boxes */
+  .strategy-box { border-radius: 10px; padding: 16px 20px; margin-bottom: 12px; }
+  .strategy-box.bull { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); }
+  .strategy-box.bear { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); }
+  .strategy-box.neutral { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); }
+  .strategy-box h4 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+  .strategy-box.bull h4 { color: #f87171; }
+  .strategy-box.bear h4 { color: #6ee7b7; }
+  .strategy-box.neutral h4 { color: #fcd34d; }
+  .strategy-box ul { list-style: none; }
+  .strategy-box ul li { font-size: 13px; color: #94a3b8; padding: 3px 0; padding-left: 14px; position: relative; }
+  .strategy-box ul li::before { content: '›'; position: absolute; left: 0; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 20px; color: #475569; font-size: 12px; border-top: 1px solid #2d3748; margin-top: 24px; }
+
+  /* Highlight box */
+  .highlight-box { background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+  .highlight-box p { font-size: 14px; color: #93c5fd; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div class="company-info">
+      <h1>宏工科技</h1>
+      <div class="code">301662.SZ &nbsp;·&nbsp; 深交所创业板 &nbsp;·&nbsp; 专用设备制造</div>
+      <div class="badges">
+        <span class="badge badge-blue">物料自动化</span>
+        <span class="badge badge-green">电池设备</span>
+        <span class="badge badge-amber">2025年新股</span>
+        <span class="badge badge-purple">高成长</span>
+      </div>
+    </div>
+    <div class="price-block">
+      <div class="price">172.45</div>
+      <div class="change">▼ -1.69 (-0.97%)</div>
+      <div class="date">2026-05-15 &nbsp;·&nbsp; 收盘价</div>
+    </div>
+  </div>
+  <div class="header-stats">
+    <div class="stat-item">
+      <div class="label">今日开盘</div>
+      <div class="value">175.77</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">今日最高</div>
+      <div class="value up">176.61</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">今日最低</div>
+      <div class="value down">170.94</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">成交量</div>
+      <div class="value">158.0万手</div>
+      <div class="sub">约2.74亿元</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">60日高/低</div>
+      <div class="value">202.45 / 127.08</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">较IPO发行价</div>
+      <div class="value up">+548%</div>
+      <div class="sub">发行价26.60元</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">估算市值</div>
+      <div class="value">~138亿</div>
+      <div class="sub">约8000万股</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">上市日期</div>
+      <div class="value" style="font-size:15px">2025-04-17</div>
+      <div class="sub">创业板新股</div>
+    </div>
+  </div>
+</div>
+
+<!-- Company Overview -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>公司概况</div>
+  <div class="highlight-box">
+    <p>宏工科技股份有限公司（英文名：Ongoal Technology Co., Ltd.）成立于2008年，是一家专注于<strong>物料处理自动化</strong>的国家高新技术企业，总部位于广东省东莞市桥头镇，员工约1,623人。公司为客户提供成套工程设计与交付、核心设备与配件、自动控制软件及技术服务。核心产品覆盖：解包投料、储存破拱、气力输送、计量配料、混合干燥、搅拌制浆、分散研磨、除尘清洁、成品包装、智能控制等全流程工艺解决方案。</p>
+  </div>
+  <div class="grid-2">
+    <div>
+      <table>
+        <tr><th>项目</th><th>内容</th></tr>
+        <tr><td>全称</td><td>宏工科技股份有限公司</td></tr>
+        <tr><td>英文名</td><td>Ongoal Technology Co., Ltd.</td></tr>
+        <tr><td>成立日期</td><td>2008年08月14日</td></tr>
+        <tr><td>上市日期</td><td>2025年04月17日</td></tr>
+        <tr><td>上市地点</td><td>深交所创业板（301662）</td></tr>
+        <tr><td>注册资本</td><td>8,000万元</td></tr>
+        <tr><td>员工人数</td><td>约1,623人</td></tr>
+        <tr><td>董事长/总裁</td><td>罗才华</td></tr>
+        <tr><td>总部地址</td><td>广东省东莞市桥头镇</td></tr>
+      </table>
+    </div>
+    <div>
+      <table>
+        <tr><th>项目</th><th>内容</th></tr>
+        <tr><td>行业分类（证监会）</td><td>制造业-专用设备制造业</td></tr>
+        <tr><td>行业分类（东财）</td><td>机械设备-专用设备-其他专用机械</td></tr>
+        <tr><td>主要市场</td><td>电池匀浆、电池材料</td></tr>
+        <tr><td>拓展市场</td><td>精细化工、食品医药、橡胶塑料</td></tr>
+        <tr><td>审计机构</td><td>天健会计师事务所</td></tr>
+        <tr><td>IPO发行价</td><td>26.60元（市盈率7.05倍）</td></tr>
+        <tr><td>IPO募资净额</td><td>4.74亿元</td></tr>
+        <tr><td>首日开盘价</td><td>72.20元（溢价171%）</td></tr>
+        <tr><td>公司网站</td><td>www.ongoaltech.com</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Financial Performance -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>财务表现（2026年一季报）</div>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">营业收入</div>
+      <div class="kpi-value">4.72亿</div>
+      <div class="kpi-yoy pos">↑ YoY +82.1%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">归母净利润</div>
+      <div class="kpi-value">7,604万</div>
+      <div class="kpi-yoy pos">↑ YoY +338.6%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">扣非净利润</div>
+      <div class="kpi-value">7,367万</div>
+      <div class="kpi-yoy pos">↑ YoY +325.2%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">毛利率</div>
+      <div class="kpi-value">28.2%</div>
+      <div class="kpi-yoy pos">↑ YoY +9.3pp</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">净利率</div>
+      <div class="kpi-value">16.1%</div>
+      <div class="kpi-yoy pos">同比大幅改善</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">每股收益</div>
+      <div class="kpi-value">0.95元</div>
+      <div class="kpi-yoy pos">↑ YoY +227.6%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">每股净资产</div>
+      <div class="kpi-value">19.36元</div>
+      <div class="kpi-yoy pos">↑ YoY +12.2%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">季度ROE</div>
+      <div class="kpi-value">5.03%</div>
+      <div class="kpi-yoy pos">↑ YoY +3.36pp</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <table>
+        <tr><th>财务指标</th><th class="td-right">数值</th><th class="td-right">同比</th></tr>
+        <tr>
+          <td>营业收入</td>
+          <td class="td-right">4.72亿元</td>
+          <td class="td-right td-red">+82.1%</td>
+        </tr>
+        <tr>
+          <td>毛利润</td>
+          <td class="td-right">1.33亿元</td>
+          <td class="td-right td-red">强劲增长</td>
+        </tr>
+        <tr>
+          <td>归母净利润</td>
+          <td class="td-right">7,604万元</td>
+          <td class="td-right td-red">+338.6%</td>
+        </tr>
+        <tr>
+          <td>扣非归母净利润</td>
+          <td class="td-right">7,367万元</td>
+          <td class="td-right td-red">+325.2%</td>
+        </tr>
+        <tr>
+          <td>毛利率</td>
+          <td class="td-right">28.22%</td>
+          <td class="td-right td-red">+9.3pp</td>
+        </tr>
+        <tr>
+          <td>净利率</td>
+          <td class="td-right">16.11%</td>
+          <td class="td-right td-red">大幅改善</td>
+        </tr>
+      </table>
+    </div>
+    <div>
+      <table>
+        <tr><th>资产负债指标</th><th class="td-right">数值</th><th class="td-right">评价</th></tr>
+        <tr>
+          <td>资产负债率</td>
+          <td class="td-right">67.0%</td>
+          <td class="td-right td-yellow">偏高</td>
+        </tr>
+        <tr>
+          <td>流动比率</td>
+          <td class="td-right">1.32</td>
+          <td class="td-right td-yellow">尚可</td>
+        </tr>
+        <tr>
+          <td>速动比率</td>
+          <td class="td-right">0.86</td>
+          <td class="td-right td-yellow">偏低</td>
+        </tr>
+        <tr>
+          <td>每股经营现金流</td>
+          <td class="td-right">-1.60元</td>
+          <td class="td-right td-green">需关注</td>
+        </tr>
+        <tr>
+          <td>季度ROE</td>
+          <td class="td-right">5.03%</td>
+          <td class="td-right td-red">+3.36pp</td>
+        </tr>
+        <tr>
+          <td>ROIC</td>
+          <td class="td-right">3.89%</td>
+          <td class="td-right td-red">+237.9%</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:16px; padding:14px 16px; background:#0f1117; border-radius:10px; border:1px solid #2d3748;">
+    <p style="font-size:13px; color:#94a3b8; line-height:1.7;">
+      <strong style="color:#f1f5f9;">⚠ 现金流警示：</strong>2026Q1每股经营现金流为-1.60元，尽管利润大幅增长，但经营活动现金流为负，表明公司存在较大的<strong style="color:#fcd34d;">应收账款/合同资产积压</strong>问题（应收账款周转天数约246天），这在大型设备制造行业较为常见，但仍需关注账期管理与坏账风险。
+    </p>
+  </div>
+</div>
+
+<!-- Valuation -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>估值分析</div>
+  <div class="grid-2">
+    <div>
+      <table>
+        <tr><th>估值指标</th><th class="td-right">数值</th><th class="td-right">评价</th></tr>
+        <tr>
+          <td>当前股价</td>
+          <td class="td-right">172.45元</td>
+          <td class="td-right">—</td>
+        </tr>
+        <tr>
+          <td>TTM估算P/E</td>
+          <td class="td-right">~45–57x</td>
+          <td class="td-right td-yellow">较高</td>
+        </tr>
+        <tr>
+          <td>市净率（P/B）</td>
+          <td class="td-right">8.91x</td>
+          <td class="td-right td-yellow">偏高</td>
+        </tr>
+        <tr>
+          <td>IPO发行P/E</td>
+          <td class="td-right">7.05x</td>
+          <td class="td-right td-green">IPO极低</td>
+        </tr>
+        <tr>
+          <td>较IPO发行价涨幅</td>
+          <td class="td-right">+548%</td>
+          <td class="td-right td-red">上涨显著</td>
+        </tr>
+        <tr>
+          <td>估算市值</td>
+          <td class="td-right">~138亿元</td>
+          <td class="td-right td-yellow">中小盘</td>
+        </tr>
+      </table>
+    </div>
+    <div>
+      <div style="padding:16px; background:#0f1117; border-radius:10px; border:1px solid #2d3748; height:100%;">
+        <div style="font-size:13px; color:#94a3b8; line-height:1.8;">
+          <div style="font-size:14px; font-weight:600; color:#f1f5f9; margin-bottom:10px;">估值合理性判断</div>
+          <p>以2026Q1净利润7,604万元年化约3.0亿元计算，PE约45倍；若Q1为全年最强季度（设备行业惯例），全年实际净利润可能在1.8~2.5亿之间，对应PE 55~77倍。</p>
+          <br>
+          <p>当前估值已充分反映高成长预期，但相较同类锂电设备企业（行业平均PE 30~50x），宏工科技估值溢价明显，主要由以下因素支撑：① 营收利润爆发式增长；② 创业板新股稀缺性溢价；③ 机构筹码高度集中带来的流通性溢价。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;">
+    <div style="font-size:13px; color:#64748b; margin-bottom:8px;">价格区间定位（60日）</div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span style="font-size:12px; color:#94a3b8; width:60px;">127.08</span>
+      <div style="flex:1; background:#0f1117; border-radius:4px; height:10px; overflow:hidden; border:1px solid #2d3748;">
+        <div style="width:60.2%; height:100%; background:linear-gradient(90deg,#3b82f6,#8b5cf6); border-radius:4px;"></div>
+      </div>
+      <span style="font-size:12px; color:#94a3b8; width:60px; text-align:right;">202.45</span>
+    </div>
+    <div style="text-align:center; font-size:12px; color:#64748b; margin-top:4px;">当前172.45（处于60日区间60.2%位置）</div>
+  </div>
+</div>
+
+<!-- Price Chart -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>K线走势（近60个交易日）</div>
+  <div class="chart-wrap">
+    <canvas id="priceChart"></canvas>
+  </div>
+  <div style="display:flex; gap:20px; margin-top:12px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#94a3b8;"><span style="width:24px; height:2px; background:#3b82f6; display:inline-block;"></span>收盘价</div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#94a3b8;"><span style="width:24px; height:2px; background:#f59e0b; display:inline-block;"></span>MA20</div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#94a3b8;"><span style="width:24px; height:2px; background:#8b5cf6; display:inline-block;"></span>MA30</div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#94a3b8;"><span style="width:24px; height:2px; background:rgba(255,255,255,0.2); border-top:2px dashed rgba(255,255,255,0.2);"></span>成交量</div>
+  </div>
+</div>
+
+<!-- Technical Analysis -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>技术分析</div>
+  <div class="tech-grid">
+    <div class="tech-card">
+      <div class="t-name">RSI (14)</div>
+      <div class="t-value" style="color:#f59e0b;">55.5</div>
+      <div class="t-signal sig-neutral">中性偏多</div>
+      <div style="font-size:12px; color:#64748b; margin-top:6px;">未超买(70)亦未超卖(30)，属于健康区间</div>
+    </div>
+    <div class="tech-card">
+      <div class="t-name">MACD（DIF-DEA）</div>
+      <div class="t-value" style="color:#ef4444;">+7.43</div>
+      <div class="t-signal sig-bull">多头信号</div>
+      <div style="font-size:12px; color:#64748b; margin-top:6px;">EMA12(174.38) &gt; EMA26(166.95)，金叉成立</div>
+    </div>
+    <div class="tech-card">
+      <div class="t-name">布林带 %B</div>
+      <div class="t-value" style="color:#f59e0b;">56.7%</div>
+      <div class="t-signal sig-neutral">中轨附近</div>
+      <div style="font-size:12px; color:#64748b; margin-top:6px;">上轨196.31 · 中轨168.77 · 下轨141.22</div>
+    </div>
+    <div class="tech-card">
+      <div class="t-name">均线系统</div>
+      <div class="t-value" style="color:#ef4444; font-size:15px;">多空分化</div>
+      <div class="t-signal sig-bear">短线偏弱</div>
+      <div style="font-size:12px; color:#64748b; margin-top:6px;">价格低于MA5/MA10，高于MA20/MA30</div>
+    </div>
+    <div class="tech-card">
+      <div class="t-name">短期动量</div>
+      <div class="t-value" style="color:#10b981;">-5.76%</div>
+      <div class="t-signal sig-bear">5日回调</div>
+      <div style="font-size:12px; color:#64748b; margin-top:6px;">近5日调整，20日仍涨+23.2%</div>
+    </div>
+    <div class="tech-card">
+      <div class="t-name">底部弹升空间</div>
+      <div class="t-value" style="color:#ef4444;">+35.7%</div>
+      <div class="t-signal sig-bull">3月低点以来</div>
+      <div style="font-size:12px; color:#64748b; margin-top:6px;">从127.08低点累计反弹35.7%</div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;">
+    <table>
+      <tr><th>均线</th><th class="td-right">数值</th><th class="td-right">相对当前价</th><th class="td-right">信号</th></tr>
+      <tr>
+        <td>MA5</td>
+        <td class="td-right">178.97</td>
+        <td class="td-right td-green">-3.68%（价格在下方）</td>
+        <td class="td-right"><span class="t-signal sig-bear" style="padding:2px 8px; border-radius:10px;">空头</span></td>
+      </tr>
+      <tr>
+        <td>MA10</td>
+        <td class="td-right">180.11</td>
+        <td class="td-right td-green">-4.26%（价格在下方）</td>
+        <td class="td-right"><span class="t-signal sig-bear" style="padding:2px 8px; border-radius:10px;">空头</span></td>
+      </tr>
+      <tr>
+        <td>MA20</td>
+        <td class="td-right">168.77</td>
+        <td class="td-right td-red">+2.18%（价格在上方）</td>
+        <td class="td-right"><span class="t-signal sig-bull" style="padding:2px 8px; border-radius:10px;">多头</span></td>
+      </tr>
+      <tr>
+        <td>MA30</td>
+        <td class="td-right">158.04</td>
+        <td class="td-right td-red">+9.12%（价格在上方）</td>
+        <td class="td-right"><span class="t-signal sig-bull" style="padding:2px 8px; border-radius:10px;">多头</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="margin-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+    <div style="background:#0f1117; border-radius:10px; padding:14px 16px; border:1px solid #2d3748;">
+      <div style="font-size:13px; color:#64748b; margin-bottom:8px;">关键支撑位</div>
+      <div style="font-size:14px; color:#6ee7b7;">168.77（MA20）</div>
+      <div style="font-size:14px; color:#6ee7b7; margin-top:4px;">158.04（MA30）</div>
+      <div style="font-size:14px; color:#6ee7b7; margin-top:4px;">141.22（布林下轨）</div>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:14px 16px; border:1px solid #2d3748;">
+      <div style="font-size:13px; color:#64748b; margin-bottom:8px;">关键压力位</div>
+      <div style="font-size:14px; color:#f87171;">178.97 – 180.11（MA5/MA10）</div>
+      <div style="font-size:14px; color:#f87171; margin-top:4px;">186.55（近期高点）</div>
+      <div style="font-size:14px; color:#f87171; margin-top:4px;">196.31（布林上轨）</div>
+    </div>
+  </div>
+</div>
+
+<!-- Shareholder Structure -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>股东结构与筹码分析</div>
+  <div class="grid-2">
+    <div>
+      <table>
+        <tr><th>统计时间</th><th class="td-right">股东人数</th><th class="td-right">均持市值</th><th class="td-right">集中度</th></tr>
+        <tr>
+          <td>2025-04-17（上市首日）</td>
+          <td class="td-right">21,195</td>
+          <td class="td-right">5.18万元</td>
+          <td class="td-right td-yellow">较集中</td>
+        </tr>
+        <tr>
+          <td>2025-06-30</td>
+          <td class="td-right">13,347</td>
+          <td class="td-right">12.51万元</td>
+          <td class="td-right td-yellow">较集中</td>
+        </tr>
+        <tr>
+          <td>2025-09-30</td>
+          <td class="td-right">14,830</td>
+          <td class="td-right">13.73万元</td>
+          <td class="td-right td-yellow">较集中</td>
+        </tr>
+        <tr>
+          <td>2025-12-31</td>
+          <td class="td-right">10,265</td>
+          <td class="td-right">19.48万元</td>
+          <td class="td-right td-red">非常集中</td>
+        </tr>
+        <tr>
+          <td><strong>2026-03-31（最新）</strong></td>
+          <td class="td-right td-red"><strong>9,062</strong></td>
+          <td class="td-right td-red"><strong>24.77万元</strong></td>
+          <td class="td-right td-red"><strong>非常集中</strong></td>
+        </tr>
+      </table>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:16px; border:1px solid #2d3748;">
+      <div style="font-size:14px; font-weight:600; color:#f1f5f9; margin-bottom:12px;">筹码解读</div>
+      <ul style="list-style:none; font-size:13px; color:#94a3b8; line-height:2;">
+        <li>📉 股东人数从IPO的2.4万降至9,062人，减少62%</li>
+        <li>💰 人均持仓市值从4.4万涨至24.8万，增长约5.6倍</li>
+        <li>🔒 前十大股东持股比例约74.8%（非常集中）</li>
+        <li>🏦 流通股东持股比例仅26.5%（机构筹码锁仓）</li>
+        <li>✅ 筹码高度集中，散户离场，机构/大户主导</li>
+        <li>⚠ 流通盘小，股价易受大资金影响，波动放大</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- IPO Events -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>重要事件时间线</div>
+  <div style="position:relative; padding-left:24px;">
+    <div style="position:absolute; left:8px; top:0; bottom:0; width:2px; background:linear-gradient(#3b82f6,#8b5cf6);"></div>
+
+    <div style="position:relative; margin-bottom:20px;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#3b82f6;"></div>
+      <div style="font-size:12px; color:#64748b;">2025-04-08</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">网上发行上市</div>
+      <div style="font-size:13px; color:#94a3b8;">发行价26.60元，发行市盈率7.05倍，募集资金5.32亿元</div>
+    </div>
+
+    <div style="position:relative; margin-bottom:20px;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#3b82f6;"></div>
+      <div style="font-size:12px; color:#64748b;">2025-04-17</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">深交所创业板挂牌上市</div>
+      <div style="font-size:13px; color:#94a3b8;">开盘价72.20元，首日最高83.80元，换手率81.1%，资金热情极高</div>
+    </div>
+
+    <div style="position:relative; margin-bottom:20px;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#8b5cf6;"></div>
+      <div style="font-size:12px; color:#64748b;">2026-02-09</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">阶段高点202.45元</div>
+      <div style="font-size:13px; color:#94a3b8;">距IPO发行价涨幅约660%，进入高估值区间</div>
+    </div>
+
+    <div style="position:relative; margin-bottom:20px;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#ef4444;"></div>
+      <div style="font-size:12px; color:#64748b;">2026-03-09 ~ 03-27</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">急速回调至127.08元（跌37%）</div>
+      <div style="font-size:13px; color:#94a3b8;">市场系统性调整叠加获利了结，量价齐跌探底</div>
+    </div>
+
+    <div style="position:relative; margin-bottom:20px;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#10b981;"></div>
+      <div style="font-size:12px; color:#64748b;">2026-03-27 ~ 04-17</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">触底强势反弹，4月17日放量大涨至165元</div>
+      <div style="font-size:13px; color:#94a3b8;">4月17日单日成交443.96万手，创历史天量，主力资金强势介入</div>
+    </div>
+
+    <div style="position:relative; margin-bottom:20px;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#10b981;"></div>
+      <div style="font-size:12px; color:#64748b;">2026-04-29 ~ 05-06</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">业绩催化大涨，最高触及186.55元</div>
+      <div style="font-size:13px; color:#94a3b8;">Q1业绩超预期（净利润同比+338%），业绩驱动主升浪</div>
+    </div>
+
+    <div style="position:relative;">
+      <div style="position:absolute; left:-20px; top:4px; width:10px; height:10px; border-radius:50%; background:#f59e0b;"></div>
+      <div style="font-size:12px; color:#64748b;">2026-05-15</div>
+      <div style="font-size:14px; color:#f1f5f9; font-weight:600;">当前价172.45元，短线调整中</div>
+      <div style="font-size:13px; color:#94a3b8;">较近期高点186.55回调7.6%，技术面整固待方向选择</div>
+    </div>
+  </div>
+</div>
+
+<!-- Investment Strategy -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>投资策略</div>
+
+  <div class="strategy-box bull">
+    <h4>🚀 积极看多策略（适合成长型投资者）</h4>
+    <ul>
+      <li>目标价位：突破186.55后看196~202元（前高区间）</li>
+      <li>核心逻辑：Q1净利润同比+338%，电池匀浆设备需求持续放量，公司具备电池全流程设备供应能力</li>
+      <li>布局时机：价格回踩MA20（168.77）或MA30（158.04）附近，可分批建仓</li>
+      <li>止损设定：跌破MA30（158元）以下可止损，控制风险</li>
+      <li>持仓周期：中线3~6个月，等待下一季度业绩验证或行业催化剂</li>
+    </ul>
+  </div>
+
+  <div class="strategy-box neutral">
+    <h4>⚖ 均衡持有策略（适合价值型投资者）</h4>
+    <ul>
+      <li>当前PE估值（~45x）已充分反映成长预期，安全边际有限</li>
+      <li>持有者：可在175~185区间逢高减仓部分，降低持仓成本</li>
+      <li>观察点：待2026H1半年报公布（预计8月），确认业绩持续性后再决定加仓</li>
+      <li>估值目标：若全年EPS达3元，合理PE 40x对应目标价120元；若维持高增长EPS 4元，PE 50x目标200元</li>
+    </ul>
+  </div>
+
+  <div class="strategy-box bear">
+    <h4>📉 谨慎策略（适合风险厌恶型投资者）</h4>
+    <ul>
+      <li>估值较高（P/B达8.9倍），经营现金流为负，不适合价值型投资者</li>
+      <li>股东人数仅9,062人，筹码高度集中，一旦主力出货，跌幅可能较大</li>
+      <li>建议等待股价回调至MA30（158元）以下，或出现明显超跌信号后再考虑介入</li>
+      <li>可用ETF代替：布局锂电池设备板块ETF以分散风险</li>
+    </ul>
+  </div>
+
+  <div style="margin-top:16px; background:#0f1117; border-radius:10px; padding:16px; border:1px solid #2d3748;">
+    <div style="font-size:14px; font-weight:600; color:#f1f5f9; margin-bottom:10px;">关键观察指标</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px;">
+      <div style="font-size:13px; color:#94a3b8;"><span style="color:#60a5fa;">📊 季度营收</span><br>持续跟踪YoY增速是否维持60%+</div>
+      <div style="font-size:13px; color:#94a3b8;"><span style="color:#60a5fa;">💵 现金流</span><br>经营现金流转正是关键信号</div>
+      <div style="font-size:13px; color:#94a3b8;"><span style="color:#60a5fa;">👥 股东变化</span><br>股东人数低于8,000则警惕出货</div>
+      <div style="font-size:13px; color:#94a3b8;"><span style="color:#60a5fa;">🔋 行业需求</span><br>新能源车产销数据与电池产能扩张</div>
+      <div style="font-size:13px; color:#94a3b8;"><span style="color:#60a5fa;">📦 订单情况</span><br>合同负债/预收款项变化反映新订单</div>
+      <div style="font-size:13px; color:#94a3b8;"><span style="color:#60a5fa;">🏦 机构持仓</span><br>关注季报机构进出变化</div>
+    </div>
+  </div>
+</div>
+
+<!-- Risk Analysis -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>风险因素</div>
+  <ul class="risk-list">
+    <li class="risk-high">
+      <div class="risk-icon">⚠</div>
+      <div class="risk-content">
+        <div class="risk-title">估值风险（高风险）</div>
+        <div class="risk-desc">当前PE约45~57倍，P/B达8.9倍，较同行溢价明显。若业绩增速不及预期，将面临估值压缩风险。2026Q1经营现金流为负，盈利质量有待提升。</div>
+      </div>
+    </li>
+    <li class="risk-high">
+      <div class="risk-icon">⚠</div>
+      <div class="risk-content">
+        <div class="risk-title">集中度风险（高风险）</div>
+        <div class="risk-desc">仅9,062名股东持股，前十大股东合计74.8%，流通盘极小。主力资金一旦减仓，股价可能剧烈波动，缺乏承接力。</div>
+      </div>
+    </li>
+    <li class="risk-med">
+      <div class="risk-icon">⚡</div>
+      <div class="risk-content">
+        <div class="risk-title">行业竞争风险（中风险）</div>
+        <div class="risk-desc">锂电设备行业竞争激烈，先导智能、赢合科技等大型竞争对手实力雄厚。宏工科技规模相对较小（员工约1,623人），需持续投入研发保持差异化优势。</div>
+      </div>
+    </li>
+    <li class="risk-med">
+      <div class="risk-icon">⚡</div>
+      <div class="risk-content">
+        <div class="risk-title">下游景气度风险（中风险）</div>
+        <div class="risk-desc">公司业绩高度依赖锂电池产业链扩张。若新能源车销量增速放缓、电池厂资本开支收缩，公司订单和收入可能受到显著影响。</div>
+      </div>
+    </li>
+    <li class="risk-med">
+      <div class="risk-icon">⚡</div>
+      <div class="risk-content">
+        <div class="risk-title">应收账款风险（中风险）</div>
+        <div class="risk-desc">应收账款周转天数约246天，远高于制造业平均水平，表明公司对下游客户议价能力一般，存在应收账款坏账风险，需关注账龄结构。</div>
+      </div>
+    </li>
+    <li class="risk-low">
+      <div class="risk-icon">✓</div>
+      <div class="risk-content">
+        <div class="risk-title">技术风险（低风险）</div>
+        <div class="risk-desc">公司为国家高新技术企业，在物料处理自动化领域积累了17年经验（2008年成立），核心技术壁垒相对稳固，短期内技术被快速替代的风险较低。</div>
+      </div>
+    </li>
+  </ul>
+</div>
+
+<!-- Investment Rating -->
+<div class="section">
+  <div class="section-title"><span class="icon"></span>综合投资评级</div>
+  <div class="rating-section">
+    <div class="rating-circle">
+      <div class="score">72</div>
+      <div class="out-of">/ 100</div>
+    </div>
+    <div class="rating-desc">
+      <h3>★★★☆☆ 谨慎看多（积极关注）</h3>
+      <p>宏工科技是一家专注物料处理自动化的优质成长股，深度受益于锂电池产业扩张浪潮。2026Q1业绩验证了其强劲成长性（收入+82%，净利润+338%）。然而当前估值较高（PE约45~57倍），加之经营现金流为负、股东高度集中，风险收益比处于中性偏积极区间。</p>
+      <p style="margin-top:8px;">建议：<strong style="color:#fcd34d;">波段操作为主</strong>，在MA20（168元）附近逢低关注，设置好止损后轻仓参与，等待半年报业绩进一步确认成长持续性。</p>
+    </div>
+  </div>
+
+  <div style="margin-top:20px; display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px;">
+    <div style="background:#0f1117; border-radius:10px; padding:14px; border:1px solid #2d3748; text-align:center;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">成长性评分</div>
+      <div style="font-size:24px; font-weight:700; color:#ef4444;">92</div>
+      <div style="font-size:11px; color:#94a3b8;">收入利润爆发式增长</div>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:14px; border:1px solid #2d3748; text-align:center;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">估值性价比</div>
+      <div style="font-size:24px; font-weight:700; color:#f59e0b;">45</div>
+      <div style="font-size:11px; color:#94a3b8;">高PE需业绩持续验证</div>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:14px; border:1px solid #2d3748; text-align:center;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">财务健康度</div>
+      <div style="font-size:24px; font-weight:700; color:#f59e0b;">60</div>
+      <div style="font-size:11px; color:#94a3b8;">资产负债率偏高，现金流需改善</div>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:14px; border:1px solid #2d3748; text-align:center;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">技术面评分</div>
+      <div style="font-size:24px; font-weight:700; color:#f59e0b;">65</div>
+      <div style="font-size:11px; color:#94a3b8;">短线调整，中期趋势向好</div>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:14px; border:1px solid #2d3748; text-align:center;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">行业前景</div>
+      <div style="font-size:24px; font-weight:700; color:#ef4444;">85</div>
+      <div style="font-size:11px; color:#94a3b8;">电池/新能源需求长期向好</div>
+    </div>
+    <div style="background:#0f1117; border-radius:10px; padding:14px; border:1px solid #2d3748; text-align:center;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">筹码结构</div>
+      <div style="font-size:24px; font-weight:700; color:#f59e0b;">58</div>
+      <div style="font-size:11px; color:#94a3b8;">集中度极高，波动风险大</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>本报告由股票仪表盘系统自动生成 &nbsp;·&nbsp; 数据截止：2026-05-15 &nbsp;·&nbsp; 生成时间：2026-05-17</p>
+  <p style="margin-top:4px;">⚠ 本报告仅供参考，不构成投资建议。股市有风险，投资需谨慎。</p>
+</div>
+
+</div>
+
+<script>
+// Price chart data
+const dates = ["02-09","02-10","02-11","02-12","02-13","02-24","02-25","02-26","02-27","03-02","03-03","03-04","03-05","03-06","03-09","03-10","03-11","03-12","03-13","03-16","03-17","03-18","03-19","03-20","03-23","03-24","03-25","03-26","03-27","03-30","03-31","04-01","04-02","04-03","04-07","04-08","04-09","04-10","04-13","04-14","04-15","04-16","04-17","04-20","04-21","04-22","04-23","04-24","04-27","04-28","04-29","04-30","05-06","05-07","05-08","05-11","05-12","05-13","05-14","05-15"];
+const closes = [191.3,178.64,172.61,167.81,166.52,166.8,180.96,193.44,186.0,194.86,185.28,180.02,185.28,181.58,160.7,163.48,167.26,156.53,151.12,152.51,146.5,151.59,149.11,142.0,132.92,134.44,135.1,129.69,138.78,139.5,135.01,138.51,133.08,130.38,132.2,140.78,132.48,140.2,137.91,145.3,139.97,145.68,165.0,166.5,169.57,164.9,155.73,155.83,157.0,154.0,173.5,182.26,186.55,183.5,180.44,182.99,184.79,180.5,174.14,172.45];
+const volumes = [2316645,1619846,1169740,1391825,1058911,733212,2153698,2094277,1121870,1673146,1508958,1681811,1249686,1087725,1918348,1268435,1748178,1486083,1163157,793943,617116,896981,698635,1128915,993341,880849,1018639,1702697,2091339,1508299,1193395,942600,857722,488797,524660,1224402,1492886,2650851,1525905,2381059,1714206,2350043,4439606,3002801,3352470,2307574,2313610,1683090,2152088,1262494,3939878,3595754,2933035,2171801,1814730,2162012,1925232,1611777,1380813,1580236];
+
+// MA calculations
+function calcMA(data, period) {
+  return data.map((_, i) => {
+    if (i < period - 1) return null;
+    return data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period;
+  });
+}
+const ma20 = calcMA(closes, 20);
+const ma30 = calcMA(closes, 30);
+
+const ctx = document.getElementById('priceChart').getContext('2d');
+new Chart(ctx, {
+  data: {
+    labels: dates,
+    datasets: [
+      {
+        type: 'bar',
+        label: '成交量',
+        data: volumes.map(v => v / 10000),
+        backgroundColor: closes.map((c, i) => i === 0 ? 'rgba(239,68,68,0.3)' : c >= closes[i-1] ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'),
+        yAxisID: 'y2',
+        order: 2,
+      },
+      {
+        type: 'line',
+        label: '收盘价',
+        data: closes,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.05)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.3,
+        yAxisID: 'y1',
+        order: 1,
+      },
+      {
+        type: 'line',
+        label: 'MA20',
+        data: ma20,
+        borderColor: '#f59e0b',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        borderDash: [],
+        fill: false,
+        tension: 0.3,
+        yAxisID: 'y1',
+        order: 0,
+      },
+      {
+        type: 'line',
+        label: 'MA30',
+        data: ma30,
+        borderColor: '#8b5cf6',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.3,
+        yAxisID: 'y1',
+        order: 0,
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1e293b',
+        borderColor: '#2d3748',
+        borderWidth: 1,
+        titleColor: '#94a3b8',
+        bodyColor: '#e2e8f0',
+        callbacks: {
+          label: (ctx) => {
+            if (ctx.dataset.label === '成交量') return ` 成交量: ${ctx.raw.toFixed(0)}万手`;
+            if (ctx.raw === null) return null;
+            return ` ${ctx.dataset.label}: ${ctx.raw.toFixed(2)}元`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#64748b', maxTicksLimit: 10, font: { size: 11 } },
+        grid: { color: 'rgba(255,255,255,0.04)' }
+      },
+      y1: {
+        position: 'left',
+        ticks: { color: '#64748b', font: { size: 11 } },
+        grid: { color: 'rgba(255,255,255,0.06)' },
+        title: { display: true, text: '价格（元）', color: '#64748b', font: { size: 11 } }
+      },
+      y2: {
+        position: 'right',
+        ticks: { color: '#64748b', font: { size: 11 } },
+        grid: { display: false },
+        title: { display: true, text: '成交量（万手）', color: '#64748b', font: { size: 11 } }
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>

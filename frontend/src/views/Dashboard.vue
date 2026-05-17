@@ -33,8 +33,13 @@
       <div v-if="error" class="error-toast">{{ error }}</div>
     </transition>
 
+    <!-- Hide-instead-of-delete Toast -->
+    <transition name="toast">
+      <div v-if="hideToast" class="hide-toast">{{ hideToast }}</div>
+    </transition>
+
     <!-- Main Content -->
-    <main class="main" v-if="watchlist.length > 0">
+    <main class="main" v-if="visibleWatchlist.length > 0 || watchlist.length > 0">
       <!-- Tab Bar -->
       <div class="tab-bar-wrap">
         <div class="tab-bar">
@@ -116,9 +121,10 @@
     <!-- All Stocks Modal -->
     <AllStocksModal
       v-if="showAllModal"
-      :stocks="currentStocks"
+      :stocks="allStocksForModal"
       @close="showAllModal = false"
       @remove="handleRemove"
+      @show-stock="handleShowStock"
       @open-detail="handleOpenDetail"
     />
 
@@ -218,27 +224,43 @@ const visibleStocks = computed(() =>
 )
 
 const watchlist = computed(() => store.watchlistWithData)
+// Only non-hidden items for display in the grid and counts
+const visibleWatchlist = computed(() => watchlist.value.filter(s => !s.hidden))
 const loading = computed(() => store.loading)
 const error = computed(() => store.error)
 
-const stockCount = computed(() => watchlist.value.length)
+const stockCount = computed(() => visibleWatchlist.value.length)
 const marketCount = computed(() => {
-  const markets = new Set(watchlist.value.map(s => s.market))
+  const markets = new Set(visibleWatchlist.value.map(s => s.market))
   return markets.size
 })
 
-const aStocks = computed(() => watchlist.value.filter(s => s.market === 'A'))
-const hkStocks = computed(() => watchlist.value.filter(s => s.market === 'HK'))
-const usStocks = computed(() => watchlist.value.filter(s => s.market === 'US'))
-const sectorStocks = computed(() => watchlist.value.filter(s => s.item_type === 'sector' || s.data?.item_type === 'sector'))
+const aStocks = computed(() => visibleWatchlist.value.filter(s => s.market === 'A'))
+const hkStocks = computed(() => visibleWatchlist.value.filter(s => s.market === 'HK'))
+const usStocks = computed(() => visibleWatchlist.value.filter(s => s.market === 'US'))
+const sectorStocks = computed(() => visibleWatchlist.value.filter(s => s.item_type === 'sector' || s.data?.item_type === 'sector'))
 
+// Used for the grid — non-hidden only
 const currentStocks = computed(() => {
-  if (activeTab.value === 'ALL') return watchlist.value
+  if (activeTab.value === 'ALL') return visibleWatchlist.value
   if (activeTab.value === 'A') return aStocks.value
   if (activeTab.value === 'HK') return hkStocks.value
   if (activeTab.value === 'US') return usStocks.value
   if (activeTab.value === 'SECTOR') return sectorStocks.value
   return []
+})
+
+// Used for AllStocksModal — full list including hidden (modal sorts hidden to bottom)
+const allStocksForModal = computed(() => {
+  const visible = currentStocks.value
+  const hidden = watchlist.value.filter(s => s.hidden && (
+    activeTab.value === 'ALL' ||
+    (activeTab.value === 'A' && s.market === 'A') ||
+    (activeTab.value === 'HK' && s.market === 'HK') ||
+    (activeTab.value === 'US' && s.market === 'US') ||
+    (activeTab.value === 'SECTOR' && (s.item_type === 'sector' || s.data?.item_type === 'sector'))
+  ))
+  return [...visible, ...hidden]
 })
 
 const tabs = computed(() => {
@@ -319,8 +341,20 @@ async function refresh() {
   lastUpdate.value = fmtTime()
 }
 
-function handleRemove(id) {
-  store.removeStock(id)
+const hideToast = ref('')
+let hideToastTimer = null
+
+async function handleRemove(id) {
+  const result = await store.removeStock(id)
+  if (result === 'hidden') {
+    if (hideToastTimer) clearTimeout(hideToastTimer)
+    hideToast.value = '该股票已有分析报告，已隐藏而非删除，可在「更多」列表中恢复显示'
+    hideToastTimer = setTimeout(() => { hideToast.value = '' }, 4000)
+  }
+}
+
+function handleShowStock(id) {
+  store.showStock(id)
 }
 
 function handleUpdateNotes(id, notes) {
@@ -534,6 +568,22 @@ onUnmounted(() => {
 }
 .toast-enter-active, .toast-leave-active { transition: all 0.3s; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+
+.hide-toast {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #92400e;
+  color: #fef3c7;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 200;
+  max-width: 480px;
+  text-align: center;
+}
 
 /* ── Main ── */
 .main {
