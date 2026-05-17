@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "alphaear-deepear-lite": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-deepear-lite/SKILL.md",
+      "computedHash": "129a9be193be059d38eca3c65160c2ce99f597f2a6ebee6302f8542aeda5ce9c"
+    },
+    "alphaear-logic-visualizer": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-logic-visualizer/SKILL.md",
+      "computedHash": "a752472109369d4f612459c817745cf6fd323a3f20ea37619d24a2f5cbf0c11e"
+    },
+    "alphaear-news": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-news/SKILL.md",
+      "computedHash": "2bd01a4f262942841d0d88a03102debff14188af2d849ee8f8684ddc63013089"
+    },
+    "alphaear-predictor": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-predictor/SKILL.md",
+      "computedHash": "bcc07288e928e8aa9295616db4c5b2b5627bb09733b7f2e29b005fdee15e8a09"
+    },
+    "alphaear-reporter": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-reporter/SKILL.md",
+      "computedHash": "4a658feda6cc9872ef6e52deb1e1701b6c7cb571dbb5ea7c3e0deaaa3923f8ab"
+    },
+    "alphaear-search": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-search/SKILL.md",
+      "computedHash": "a2d6bb479dfdc119340c0901d4edc3a84ab45b76e82986bb81d38e28cfb95102"
+    },
+    "alphaear-sentiment": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-sentiment/SKILL.md",
+      "computedHash": "7612195ad01c74f7579f2356f08f7526a7d663251a0c89082a0cd65bea749c9e"
+    },
+    "alphaear-signal-tracker": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-signal-tracker/SKILL.md",
+      "computedHash": "9722b51cb41b5057035f2b13c31f5cb562b98d184fb417847884de7728c01282"
+    },
+    "alphaear-stock": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/alphaear-stock/SKILL.md",
+      "computedHash": "39f65061ab7ea18b2a7f32977f4e186363ec5da69fd069f3f5587b43ece517d2"
+    },
+    "skill-creator": {
+      "source": "RKiding/Awesome-finance-skills",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
+      "computedHash": "9dd7db3f56e36005be8044adcf8f2578f6ac3991fb440a6d23cb8eb2d3a0e523"
+    }
+  }
+}

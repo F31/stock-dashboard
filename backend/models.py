@@ -40,6 +40,20 @@ class LLMConfig(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class StockReport(Base):
+    __tablename__ = "stock_reports"
+    id = Column(Integer, primary_key=True, index=True)
+    stock_code = Column(String(20), nullable=False, index=True)
+    market = Column(String(10), nullable=False)
+    title = Column(String(200), nullable=False)
+    report_type = Column(String(10), nullable=False)   # "file" | "link"
+    file_name = Column(String(300), default="")        # saved filename (for file type)
+    url = Column(String(1000), default="")             # link URL or served path
+    uploader_id = Column(Integer, nullable=False)
+    uploader_name = Column(String(50), default="")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class OperationLog(Base):
     __tablename__ = "operation_logs"
     id = Column(Integer, primary_key=True, index=True)

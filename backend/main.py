@@ -9,8 +9,9 @@ from routes.stocks import router as stocks_router
 from routes.admin import router as admin_router
 from routes.llm_config import router as llm_config_router
 from routes.macro import router as macro_router
+from routes.reports import router as reports_router
 from database import engine, Base
-from models import User, LLMConfig  # noqa: F401 — ensures table is registered
+from models import User, LLMConfig, StockReport  # noqa: F401 — ensures table is registered
 from sqlalchemy.orm import Session
 
 logging.basicConfig(
@@ -53,6 +54,12 @@ app.include_router(stocks_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(llm_config_router, prefix="/api")
 app.include_router(macro_router, prefix="/api")
+app.include_router(reports_router, prefix="/api")
+
+# ── Serve reports directory ──
+reports_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "reports")
+os.makedirs(reports_dir, exist_ok=True)
+app.mount("/reports", StaticFiles(directory=reports_dir, html=True), name="reports")
 
 # ── Serve built frontend (production / single-port mode) ──
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")

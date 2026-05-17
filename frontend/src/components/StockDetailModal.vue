@@ -1,0 +1,489 @@
+<template>
+  <Teleport to="body">
+    <div class="modal-overlay" @click.self="$emit('close')">
+      <div class="modal">
+
+        <!-- Header -->
+        <div class="modal-hdr">
+          <div class="hdr-left">
+            <span class="stock-name">{{ displayName }}</span>
+            <span class="stock-code">{{ stock.stock_code }}</span>
+            <span :class="['badge', badgeClass]">{{ marketLabel }}</span>
+          </div>
+          <button class="close-btn" @click="$emit('close')">×</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tab-bar">
+          <button
+            v-for="tab in tabs" :key="tab.key"
+            :class="['tab-btn', { active: activeTab === tab.key }]"
+            @click="activeTab = tab.key"
+          >{{ tab.label }}</button>
+        </div>
+
+        <!-- Tab: 基本信息 -->
+        <div v-if="activeTab === 'info'" class="tab-body">
+          <div v-if="data" class="info-grid">
+            <div class="info-price-row">
+              <span :class="['big-price', trend]">
+                {{ market === 'US' ? '$' : '¥' }}{{ data.price?.toFixed(2) ?? '--' }}
+              </span>
+              <span :class="['price-tag', trend]">
+                {{ data.change_pct != null ? (data.change_pct >= 0 ? '+' : '') + data.change_pct.toFixed(2) + '%' : '--' }}
+              </span>
+              <span :class="['price-abs', trend]" v-if="data.change != null">
+                {{ data.change >= 0 ? '+' : '' }}{{ data.change.toFixed(2) }}
+              </span>
+            </div>
+            <div class="metrics-grid">
+              <div class="mg-item" v-for="m in metricsList" :key="m.label">
+                <div class="mg-label">{{ m.label }}</div>
+                <div class="mg-value">{{ m.value }}</div>
+              </div>
+            </div>
+            <!-- Sparkline -->
+            <div class="sparkline-wrap" v-if="data.chart_data?.length >= 2">
+              <svg :viewBox="`0 0 500 80`" class="sparkline">
+                <polyline :points="chartPoints" :fill="chartColor + '22'" :stroke="chartColor" stroke-width="2"/>
+              </svg>
+            </div>
+            <!-- News -->
+            <div v-if="data.news?.length" class="news-section">
+              <div class="sec-ttl">📰 最新资讯</div>
+              <div class="ni" v-for="(n, i) in data.news.slice(0, 6)" :key="i">
+                <a :href="n.url" target="_blank" class="ni-title">{{ n.title }}</a>
+                <span class="ni-meta">{{ n.source }} · {{ n.time }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-tip">行情数据加载中...</div>
+        </div>
+
+        <!-- Tab: 研究笔记 -->
+        <div v-if="activeTab === 'notes'" class="tab-body notes-body">
+          <textarea
+            class="notes-ta"
+            v-model="editingNotes"
+            placeholder="记录研究笔记、投资逻辑、目标价位..."
+          ></textarea>
+          <div class="notes-ftr">
+            <span class="char-count">{{ editingNotes.length }} 字</span>
+            <button class="btn btn-primary" @click="saveNotes" :disabled="savingNotes">
+              {{ savingNotes ? '保存中...' : '保存笔记' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab: 分析报告 -->
+        <div v-if="activeTab === 'reports'" class="tab-body reports-body">
+          <!-- Action bar -->
+          <div class="report-actions">
+            <label class="btn btn-outline upload-label">
+              <span>📎 上传文件</span>
+              <input type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.html,.htm" @change="handleFileUpload" hidden>
+            </label>
+            <button class="btn btn-outline" @click="showLinkDialog = true">🔗 添加链接</button>
+          </div>
+
+          <!-- Link dialog -->
+          <div class="link-dialog" v-if="showLinkDialog">
+            <div class="ld-title">添加外部链接</div>
+            <input class="ld-input" v-model="linkTitle" placeholder="报告标题" />
+            <input class="ld-input" v-model="linkUrl" placeholder="https://..." />
+            <div class="ld-actions">
+              <button class="btn btn-ghost" @click="showLinkDialog = false">取消</button>
+              <button class="btn btn-primary" @click="submitLink" :disabled="submittingLink">
+                {{ submittingLink ? '添加中...' : '确认添加' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Upload progress -->
+          <div class="upload-progress" v-if="uploading">
+            <span>上传中...</span>
+          </div>
+
+          <!-- Reports list -->
+          <div v-if="reportsLoading" class="empty-tip">加载中...</div>
+          <div v-else-if="!reports.length" class="empty-tip">暂无分析报告，点击上方按钮添加</div>
+          <div v-else class="report-list">
+            <div class="report-item" v-for="r in reports" :key="r.id">
+              <div class="ri-icon">{{ r.report_type === 'auto' ? fileIcon(r.file_name) : r.report_type === 'file' ? fileIcon(r.file_name) : '🔗' }}</div>
+              <div class="ri-main">
+                <a class="ri-title" :href="r.url" target="_blank" rel="noopener">{{ r.title }}</a>
+                <div class="ri-meta">
+                  <span v-if="r.report_type === 'auto'" class="badge-auto">AUTO</span>
+                  {{ r.uploader_name }} · {{ r.created_at }}
+                </div>
+              </div>
+              <button
+                v-if="r.report_type !== 'auto' && canDelete(r)"
+                class="ri-del"
+                @click="removeReport(r)"
+                title="删除"
+              >×</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </Teleport>
+</template>
+
+<script setup>
+import { ref, computed, watch, onMounted } from 'vue'
+import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport } from '../api/index.js'
+
+const props = defineProps({
+  stock: { type: Object, required: true },
+  currentUser: { type: Object, default: null },
+})
+const emit = defineEmits(['close', 'notes-saved'])
+
+const activeTab = ref('info')
+const tabs = [
+  { key: 'info', label: '📊 基本信息' },
+  { key: 'notes', label: '📝 研究笔记' },
+  { key: 'reports', label: '📁 分析报告' },
+]
+
+// ── Derived ──
+const data = computed(() => props.stock.data)
+const market = computed(() => props.stock.market)
+const displayName = computed(() =>
+  data.value?.stock_name || props.stock.stock_name || props.stock.stock_code
+)
+const marketLabel = computed(() => ({ A: 'A股', HK: '港股', US: '美股', SECTOR: '板块' }[market.value] ?? market.value))
+const badgeClass = computed(() => ({ A: 'ba', HK: 'bh', US: 'bu', SECTOR: 'bs' }[market.value] ?? ''))
+const trend = computed(() => {
+  const v = data.value?.change ?? data.value?.change_pct
+  if (v == null) return 'flat'
+  return v >= 0 ? 'up' : 'down'
+})
+
+function fmt(v, digits = 2, suffix = '') {
+  return v != null ? v.toFixed(digits) + suffix : '--'
+}
+function fmtCap(v) {
+  if (v == null) return '--'
+  if (v >= 1e12) return (v / 1e12).toFixed(2) + '万亿'
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
+  return (v / 1e4).toFixed(2) + '万'
+}
+function fmtVol(v) {
+  if (v == null) return '--'
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
+  if (v >= 1e4) return (v / 1e4).toFixed(2) + '万'
+  return v.toFixed(0)
+}
+
+const metricsList = computed(() => {
+  const d = data.value
+  if (!d) return []
+  const isSector = props.stock.item_type === 'sector'
+  if (isSector) return [
+    { label: '昨收', value: fmt(d.prev_close) },
+    { label: '今开', value: fmt(d.open) },
+    { label: '最高', value: fmt(d.high) },
+    { label: '最低', value: fmt(d.low) },
+    { label: '总市值', value: fmtCap(d.market_cap) },
+    { label: '成交额', value: fmtCap(d.amount) },
+    { label: '上涨家数', value: d.up_count ?? '--' },
+    { label: '下跌家数', value: d.down_count ?? '--' },
+    { label: '换手率', value: fmt(d.turnover_rate, 2, '%') },
+    { label: '振幅', value: fmt(d.amplitude, 2, '%') },
+  ]
+  return [
+    { label: '昨收', value: fmt(d.prev_close) },
+    { label: '今开', value: fmt(d.open) },
+    { label: '最高', value: fmt(d.high) },
+    { label: '最低', value: fmt(d.low) },
+    { label: '总市值', value: fmtCap(d.market_cap) },
+    { label: '流通市值', value: fmtCap(d.float_market_cap) },
+    { label: '市盈率 PE', value: fmt(d.pe, 1, '×') },
+    { label: '换手率', value: fmt(d.turnover_rate, 2, '%') },
+    { label: '成交量', value: fmtVol(d.volume) },
+    { label: '成交额', value: fmtCap(d.amount) },
+    { label: '振幅', value: fmt(d.amplitude, 2, '%') },
+  ]
+})
+
+// Sparkline
+const chartColor = computed(() => trend.value === 'up' ? '#dc2626' : trend.value === 'down' ? '#16a34a' : '#6b7280')
+const chartPoints = computed(() => {
+  const cd = data.value?.chart_data
+  if (!cd || cd.length < 2) return ''
+  const min = Math.min(...cd), max = Math.max(...cd)
+  const range = max - min || 1
+  return cd.map((v, i) => {
+    const x = (i / (cd.length - 1)) * 500
+    const y = 80 - ((v - min) / range) * 72 - 4
+    return `${x},${y}`
+  }).join(' ')
+})
+
+// ── Notes ──
+const editingNotes = ref(props.stock.notes || '')
+const savingNotes = ref(false)
+
+watch(() => props.stock.notes, v => { editingNotes.value = v || '' })
+
+async function saveNotes() {
+  savingNotes.value = true
+  try {
+    await updateNotes(props.stock.id, editingNotes.value)
+    emit('notes-saved', props.stock.id, editingNotes.value)
+  } finally {
+    savingNotes.value = false
+  }
+}
+
+// ── Reports ──
+const reports = ref([])
+const reportsLoading = ref(false)
+const uploading = ref(false)
+const showLinkDialog = ref(false)
+const linkTitle = ref('')
+const linkUrl = ref('')
+const submittingLink = ref(false)
+
+async function loadReports() {
+  reportsLoading.value = true
+  try {
+    const res = await listReports(props.stock.stock_code, props.stock.market)
+    reports.value = res.data
+  } catch (e) {
+    reports.value = []
+  } finally {
+    reportsLoading.value = false
+  }
+}
+
+watch(activeTab, v => { if (v === 'reports') loadReports() })
+
+function fileIcon(name) {
+  if (!name) return '📄'
+  const ext = name.split('.').pop().toLowerCase()
+  return { pdf: '📕', ppt: '📙', pptx: '📙', doc: '📘', docx: '📘', html: '🌐', htm: '🌐' }[ext] ?? '📄'
+}
+
+function canDelete(r) {
+  if (!props.currentUser) return false
+  return props.currentUser.role === 'admin' || r.uploader_id === props.currentUser.id
+}
+
+async function handleFileUpload(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const title = file.name.replace(/\.[^.]+$/, '')
+  uploading.value = true
+  try {
+    const res = await uploadReport(props.stock.stock_code, props.stock.market, title, file)
+    reports.value.unshift(res.data)
+  } catch (err) {
+    alert(err.response?.data?.detail || '上传失败')
+  } finally {
+    uploading.value = false
+    e.target.value = ''
+  }
+}
+
+async function submitLink() {
+  if (!linkTitle.value.trim() || !linkUrl.value.trim()) return
+  submittingLink.value = true
+  try {
+    const res = await addLinkReport(props.stock.stock_code, props.stock.market, linkTitle.value, linkUrl.value)
+    reports.value.unshift(res.data)
+    linkTitle.value = ''
+    linkUrl.value = ''
+    showLinkDialog.value = false
+  } catch (err) {
+    alert(err.response?.data?.detail || '添加失败')
+  } finally {
+    submittingLink.value = false
+  }
+}
+
+async function removeReport(r) {
+  if (!confirm(`确认删除「${r.title}」？`)) return
+  try {
+    await deleteReport(r.id)
+    reports.value = reports.value.filter(x => x.id !== r.id)
+  } catch (err) {
+    alert(err.response?.data?.detail || '删除失败')
+  }
+}
+</script>
+
+<style scoped>
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 600; padding: 16px;
+}
+.modal {
+  background: #fff; border-radius: 14px;
+  width: 100%; max-width: 680px; max-height: 90vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  overflow: hidden;
+}
+
+/* Header */
+.modal-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
+}
+.hdr-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.stock-name { font-size: 18px; font-weight: 800; color: #111827; }
+.stock-code { font-size: 13px; color: #6b7280; }
+.badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+.ba { background: #fef3c7; color: #92400e; }
+.bh { background: #dbeafe; color: #1e40af; }
+.bu { background: #ede9fe; color: #5b21b6; }
+.bs { background: #fce7f3; color: #9d174d; }
+.close-btn {
+  background: none; border: none; font-size: 22px; color: #9ca3af;
+  cursor: pointer; width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; flex-shrink: 0;
+}
+.close-btn:hover { background: #f3f4f6; color: #374151; }
+
+/* Tabs */
+.tab-bar {
+  display: flex; gap: 0; border-bottom: 1px solid #e5e7eb;
+  padding: 0 16px; flex-shrink: 0; background: #f9fafb;
+}
+.tab-btn {
+  background: none; border: none; cursor: pointer;
+  padding: 10px 16px; font-size: 13px; font-weight: 600; color: #6b7280;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: all .15s;
+}
+.tab-btn:hover { color: #374151; }
+.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+/* Tab body */
+.tab-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+
+/* Info tab */
+.info-price-row {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-bottom: 16px;
+}
+.big-price { font-size: 30px; font-weight: 900; }
+.big-price.up { color: #dc2626; }
+.big-price.down { color: #16a34a; }
+.big-price.flat { color: #374151; }
+.price-tag {
+  font-size: 14px; font-weight: 700; padding: 4px 10px; border-radius: 6px;
+}
+.price-tag.up { background: #fee2e2; color: #dc2626; }
+.price-tag.down { background: #dcfce7; color: #16a34a; }
+.price-tag.flat { background: #f3f4f6; color: #6b7280; }
+.price-abs { font-size: 14px; color: #6b7280; }
+
+.metrics-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 1px; background: #e5e7eb;
+  border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;
+  margin-bottom: 14px;
+}
+.mg-item { background: #fff; padding: 10px 8px; text-align: center; }
+.mg-label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; }
+.mg-value { font-size: 13px; font-weight: 700; color: #111827; }
+
+.sparkline-wrap { height: 70px; margin-bottom: 14px; border: 1px solid #f3f4f6; border-radius: 8px; overflow: hidden; }
+.sparkline { width: 100%; height: 100%; }
+
+.news-section { border-top: 1px solid #e5e7eb; padding-top: 12px; }
+.sec-ttl { font-size: 11px; font-weight: 700; color: #6b7280; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; }
+.ni { padding: 7px 0; border-bottom: 1px solid #f3f4f6; }
+.ni:last-child { border-bottom: none; }
+.ni-title { font-size: 13px; color: #111827; text-decoration: none; display: block; line-height: 1.45; }
+.ni-title:hover { color: #2563eb; }
+.ni-meta { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+
+/* Notes tab */
+.notes-body { display: flex; flex-direction: column; gap: 0; }
+.notes-ta {
+  flex: 1; min-height: 300px; width: 100%;
+  border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 12px 14px; font-size: 14px; font-family: inherit;
+  color: #111827; background: #f9fafb; resize: vertical; line-height: 1.7;
+}
+.notes-ta:focus { outline: none; border-color: #2563eb; background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+.notes-ta::placeholder { color: #9ca3af; }
+.notes-ftr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 12px;
+}
+.char-count { font-size: 12px; color: #9ca3af; }
+
+/* Reports tab */
+.reports-body { display: flex; flex-direction: column; gap: 12px; }
+.report-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.upload-label { cursor: pointer; }
+
+.link-dialog {
+  border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 14px; background: #f9fafb;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.ld-title { font-size: 13px; font-weight: 600; color: #374151; }
+.ld-input {
+  border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px;
+  font-size: 13px; font-family: inherit; color: #111827; background: #fff;
+}
+.ld-input:focus { outline: none; border-color: #2563eb; }
+.ld-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+.upload-progress { font-size: 13px; color: #6b7280; padding: 4px 0; }
+
+.report-list { display: flex; flex-direction: column; gap: 6px; }
+.report-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px;
+  background: #fff; transition: background .15s;
+}
+.report-item:hover { background: #f8fafc; }
+.ri-icon { font-size: 20px; flex-shrink: 0; }
+.ri-main { flex: 1; min-width: 0; }
+.ri-title {
+  font-size: 14px; font-weight: 600; color: #111827; text-decoration: none;
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ri-title:hover { color: #2563eb; }
+.ri-meta { font-size: 11px; color: #9ca3af; margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.badge-auto {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 3px;
+  background: #e0f2fe; color: #0369a1; letter-spacing: .3px;
+}
+.ri-del {
+  background: none; border: none; cursor: pointer; font-size: 18px;
+  color: #d1d5db; width: 28px; height: 28px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.ri-del:hover { background: #fee2e2; color: #dc2626; }
+
+.empty-tip { text-align: center; color: #9ca3af; font-size: 13px; padding: 30px 0; }
+
+/* Buttons */
+.btn {
+  padding: 8px 16px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; font-weight: 600; border: none; transition: all .15s;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn-primary { background: #2563eb; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn-outline { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+.btn-outline:hover { background: #f3f4f6; border-color: #9ca3af; }
+.btn-ghost { background: none; color: #6b7280; border: 1px solid transparent; }
+.btn-ghost:hover { background: #f3f4f6; }
+</style>

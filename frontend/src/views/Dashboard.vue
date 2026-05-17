@@ -76,6 +76,7 @@
             @remove="handleRemove(stock.id)"
             @update-notes="handleUpdateNotes"
             @rename="handleRename"
+            @open-detail="handleOpenDetail"
           />
         </div>
       </div>
@@ -137,6 +138,15 @@
       v-if="showLLMConfig"
       @close="showLLMConfig = false"
     />
+
+    <!-- Stock Detail Modal -->
+    <StockDetailModal
+      v-if="detailStock"
+      :stock="detailStock"
+      :currentUser="currentUserObj"
+      @close="detailStock = null"
+      @notes-saved="handleNotesSaved"
+    />
   </div>
 </template>
 
@@ -154,6 +164,7 @@ import OperationLog from '../components/OperationLog.vue'
 import LLMConfigModal from '../components/LLMConfigModal.vue'
 import MacroMonitor from '../components/MacroMonitor.vue'
 import IndustrialProfitMonitor from '../components/IndustrialProfitMonitor.vue'
+import StockDetailModal from '../components/StockDetailModal.vue'
 
 const router = useRouter()
 const store = useStockStore()
@@ -166,6 +177,19 @@ const showOpLogs = ref(false)
 const showLLMConfig = ref(false)
 const showSysMenu = ref(false)
 const activeTab = ref('ALL')
+const detailStock = ref(null)
+
+// Decode JWT to get current user id and role (no extra network call needed)
+const currentUserObj = computed(() => {
+  const token = localStorage.getItem('token')
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return { id: parseInt(payload.sub), username: payload.username, role: payload.role }
+  } catch {
+    return null
+  }
+})
 const lastUpdate = ref('')
 const dragIdx = ref(-1)
 const dragOverIdx = ref(-1)
@@ -304,6 +328,14 @@ function handleUpdateNotes(id, notes) {
 
 function handleRename(id, name) {
   store.renameStock(id, name)
+}
+
+function handleOpenDetail(stock) {
+  detailStock.value = stock
+}
+
+function handleNotesSaved(id, notes) {
+  store.updateStockNotesLocal(id, notes)
 }
 
 function handleAdded() {

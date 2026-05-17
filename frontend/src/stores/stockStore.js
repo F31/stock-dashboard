@@ -112,6 +112,11 @@ export const useStockStore = defineStore('stocks', {
       }
     },
 
+    updateStockNotesLocal(id, notes) {
+      const stock = this.stocks.find((s) => s.id === id)
+      if (stock) stock.notes = notes
+    },
+
     async renameStock(id, name) {
       try {
         await renameStock(id, name)

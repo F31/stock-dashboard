@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>澜起科技 (688008) 投资分析报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f5;color:#1a1a1a;font-size:14px}
+.page-header{background:linear-gradient(135deg,#1a237e 0%,#283593 50%,#1565c0 100%);color:#fff;padding:32px 40px}
+.page-header h1{font-size:24px;font-weight:700;margin-bottom:6px}
+.header-row{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.meta{font-size:11px;opacity:.7;margin-top:8px}
+.rating-badge{background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.5);border-radius:12px;padding:12px 24px;text-align:center;min-width:120px}
+.rating-badge .r{font-size:24px;font-weight:800;color:#ffeb3b}
+.rating-badge .rl{font-size:11px;opacity:.8;margin-top:3px}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px}
+.section{background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+.section-title{font-size:16px;font-weight:700;color:#1a237e;border-left:4px solid #1565c0;padding-left:12px;margin-bottom:18px}
+.scorecard{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.si{background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+.si .lbl{font-size:11px;color:#6b7280;margin-bottom:4px}
+.si .val{font-size:20px;font-weight:800}
+.si .sub{font-size:11px;color:#9ca3af;margin-top:2px}
+.red{color:#dc2626}.green{color:#16a34a}.blue{color:#1d4ed8}.orange{color:#d97706}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#f8fafc;color:#374151;font-weight:600;padding:10px 14px;text-align:left;border-bottom:2px solid #e5e7eb}
+td{padding:9px 14px;border-bottom:1px solid #f3f4f6}
+tr:hover td{background:#fafafa}
+.tr{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.tag-r{background:#fee2e2;color:#dc2626}.tag-g{background:#dcfce7;color:#16a34a}
+.tag-b{background:#dbeafe;color:#1d4ed8}.tag-o{background:#fef3c7;color:#d97706}
+.tag-gray{background:#f3f4f6;color:#6b7280}
+.signal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.sc{border-radius:8px;padding:14px;border:1px solid #e5e7eb}
+.sc .st{font-weight:700;font-size:13px;margin-bottom:6px}
+.sc .sb{font-size:12px;color:#4b5563;line-height:1.6}
+.sc .ss{font-size:11px;font-weight:600;margin-top:8px}
+.sig-pos{border-left:4px solid #16a34a;background:#f0fdf4}
+.sig-neg{border-left:4px solid #dc2626;background:#fef2f2}
+.sig-warn{border-left:4px solid #d97706;background:#fffbeb}
+.sig-neu{border-left:4px solid #6b7280;background:#f9fafb}
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cbox{border:1px solid #e5e7eb;border-radius:8px;padding:12px}
+.ctitle{font-size:12px;font-weight:600;color:#374151;margin-bottom:8px}
+.strat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.sk{border-radius:10px;padding:16px;border:1px solid #e5e7eb}
+.sk h4{font-size:13px;font-weight:700;margin-bottom:10px}
+.sk ul{list-style:none}
+.sk li{font-size:12px;color:#374151;padding:5px 0;border-bottom:1px dashed #f3f4f6;display:flex;justify-content:space-between}
+.sk li:last-child{border-bottom:none}
+.sk li span{font-weight:600}
+.card-buy{background:#f0fdf4;border-color:#86efac}.card-buy h4{color:#15803d}
+.card-sell{background:#fef2f2;border-color:#fca5a5}.card-sell h4{color:#dc2626}
+.card-hold{background:#eff6ff;border-color:#93c5fd}.card-hold h4{color:#1d4ed8}
+.summary-box{background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #93c5fd;border-radius:10px;padding:20px;margin-bottom:20px}
+.summary-box h3{color:#1d4ed8;font-size:15px;margin-bottom:10px}
+.summary-box p{font-size:13px;color:#1e3a5f;line-height:1.8}
+.srow{display:flex;gap:10px;align-items:center;margin-bottom:10px;font-size:12px}
+.slbl{width:280px;color:#374151;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbw{flex:1;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden}
+.sbar{height:100%;border-radius:4px}
+.bar-pos{background:#dc2626}.bar-neg{background:#16a34a}.bar-neu{background:#9ca3af}
+.sscore{width:50px;text-align:right;font-weight:600}
+.risk-lev-h{color:#dc2626;font-weight:700}.risk-lev-m{color:#d97706;font-weight:700}.risk-lev-l{color:#16a34a;font-weight:700}
+footer{text-align:center;padding:24px;font-size:11px;color:#9ca3af}
+.divider{border:none;border-top:1px solid #f3f4f6;margin:16px 0}
+p.body{font-size:13px;color:#374151;line-height:1.8;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="header-row">
+    <div>
+      <h1>澜起科技 (688008.SH) · 深度投资分析报告</h1>
+      <div style="font-size:13px;opacity:.85;margin-top:5px">科创板 · 半导体 · 内存接口芯片 / CXL互连</div>
+      <div class="meta">报告日期: 2026-05-17 &nbsp;·&nbsp; 数据来源: 东方财富、akshare、财联社 &nbsp;·&nbsp; 技能: alphaear-stock / news / sentiment / signal-tracker / logic-visualizer / reporter</div>
+    </div>
+    <div class="rating-badge">
+      <div class="r">买入</div>
+      <div class="rl">中线评级</div>
+      <div style="font-size:10px;opacity:.7;margin-top:3px">目标价 280~320元</div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- Scorecard -->
+<div class="scorecard">
+  <div class="si"><div class="lbl">最新收盘</div><div class="val red">247.98</div><div class="sub">-6.45% · 2026/05/15</div></div>
+  <div class="si"><div class="lbl">近6月涨幅</div><div class="val red">+105.1%</div><div class="sub">52W低 113.57 / 高 265.08</div></div>
+  <div class="si"><div class="lbl">Q1 2026净利润</div><div class="val red">8.47亿</div><div class="sub">同比 +61.3%</div></div>
+  <div class="si"><div class="lbl">市值 (估算)</div><div class="val blue">~3030亿</div><div class="sub">PE(TTM) ≈ 135x</div></div>
+  <div class="si"><div class="lbl">Q1毛利率</div><div class="val red">69.79%</div><div class="sub">历史新高</div></div>
+  <div class="si"><div class="lbl">RSI 14</div><div class="val orange">76.5</div><div class="sub">超买 (阈值70)</div></div>
+  <div class="si"><div class="lbl">MACD</div><div class="val green">多头排列</div><div class="sub">27.7 > 信号线 19.5</div></div>
+  <div class="si"><div class="lbl">机构动向 Q1</div><div class="val orange">减持</div><div class="sub">170+家机构减仓</div></div>
+</div>
+
+<!-- Summary -->
+<div class="summary-box">
+  <h3>📋 执行摘要 (alphaear-reporter)</h3>
+  <p>
+    澜起科技是国内内存接口芯片（DDR5 MRC/RCD）龙头，深度受益于全球AI服务器基础设施的大规模建设浪潮。
+    2026年Q1实现营收14.61亿(+19.5%)、净利润8.47亿(+61.3%)、毛利率历史新高69.79%，盈利质量持续提升。
+    过去6个月股价上涨超105%，技术面RSI=76.5已进入超买区，短线有回调风险，但MACD多头完整、趋势未破。
+    <strong>中线（3~6个月）维持"买入"评级，目标价280~320元；短线建议等待回调至220~235区域再逢低加仓，严守止损220元以下。</strong>
+  </p>
+</div>
+
+<!-- Section 1: Business -->
+<div class="section">
+  <div class="section-title">一、公司业务与核心竞争力</div>
+  <p class="body">
+    澜起科技（Montage Technology）2019年登陆科创板，专注于<strong>内存配套芯片</strong>与<strong>互联芯片</strong>设计，是全球少数能同时提供服务器内存接口芯片完整解决方案的企业之一。
+  </p>
+  <table>
+    <tr><th>产品线</th><th>主要产品</th><th>应用场景</th><th>竞争地位</th></tr>
+    <tr><td><strong>内存接口芯片</strong></td><td>DDR5 MRC、RCD、SPD Hub</td><td>AI服务器、云计算数据中心</td><td class="tr"><span class="tag tag-r">国内龙头</span></td></tr>
+    <tr><td><strong>CXL互连芯片</strong></td><td>CXL Memory Expander</td><td>大内存池化、AI推理</td><td class="tr"><span class="tag tag-o">快速成长</span></td></tr>
+    <tr><td><strong>PCIe Retimer</strong></td><td>PCIe 5.0/6.0 Retimer</td><td>高速数据中心互联</td><td class="tr"><span class="tag tag-b">量产中</span></td></tr>
+    <tr><td><strong>津逮CPU</strong></td><td>Jintide服务器CPU</td><td>国产化替代</td><td class="tr"><span class="tag tag-gray">战略布局</span></td></tr>
+  </table>
+  <hr class="divider">
+  <p class="body">
+    <strong>核心护城河</strong>：① 深度掌握 JEDEC 国际标准制定权，具备先发技术壁垒；② 与三星、美光、SK海力士等全球顶级存储厂深度绑定；③ 国内唯一量产DDR5全系列接口芯片企业；④ 毛利率长期维持60~70%，具备典型"芯片设计"高利润特征。
+  </p>
+</div>
+
+<!-- Section 2: Financials -->
+<div class="section">
+  <div class="section-title">二、财务数据分析 (alphaear-stock)</div>
+  <div class="chart-row" style="margin-bottom:16px">
+    <div class="cbox">
+      <div class="ctitle">营收 & 净利润趋势（亿元）</div>
+      <div id="chart-rev" style="height:220px"></div>
+    </div>
+    <div class="cbox">
+      <div class="ctitle">毛利率 & 净利率趋势（%）</div>
+      <div id="chart-margin" style="height:220px"></div>
+    </div>
+  </div>
+  <table>
+    <tr><th>报告期</th><th class="tr">营业收入</th><th class="tr">YoY</th><th class="tr">净利润</th><th class="tr">YoY</th><th class="tr">毛利率</th><th class="tr">净利率</th><th class="tr">评价</th></tr>
+    <tr><td>2023全年</td><td class="tr">22.86亿</td><td class="tr green">-37.8%</td><td class="tr">4.51亿</td><td class="tr green">-65.3%</td><td class="tr">58.9%</td><td class="tr">19.7%</td><td class="tr"><span class="tag tag-o">行业低谷</span></td></tr>
+    <tr><td>2024全年</td><td class="tr">36.39亿</td><td class="tr red">+59.2%</td><td class="tr">14.12亿</td><td class="tr red">+213%</td><td class="tr">58.1%</td><td class="tr">36.8%</td><td class="tr"><span class="tag tag-g">强势复苏</span></td></tr>
+    <tr><td>2025全年</td><td class="tr">54.56亿</td><td class="tr red">+49.9%</td><td class="tr">22.36亿</td><td class="tr red">+58.4%</td><td class="tr">62.2%</td><td class="tr">39.0%</td><td class="tr"><span class="tag tag-r">景气上行</span></td></tr>
+    <tr><td><strong>2026 Q1</strong></td><td class="tr"><strong>14.61亿</strong></td><td class="tr red"><strong>+19.5%</strong></td><td class="tr"><strong>8.47亿</strong></td><td class="tr red"><strong>+61.3%</strong></td><td class="tr"><strong>69.79%</strong></td><td class="tr"><strong>56.8%</strong></td><td class="tr"><span class="tag tag-r">新高</span></td></tr>
+  </table>
+  <hr class="divider">
+  <p class="body">
+    <strong>关键观察</strong>：① Q1 2026毛利率69.79%创历史新高，显示DDR5产品定价权显著增强；
+    ② 营收增速从2025年+49.9%降至Q1 2026的+19.5%，增速有所放缓，需关注后续季度加速能否恢复；
+    ③ 净利润增速（+61.3%）远高于营收增速（+19.5%），体现强规模效应与费用管控；
+    ④ 市值~3030亿对应2025年利润22.36亿，TTM PE约135x，按2026年预期利润30~32亿，前向PE约95~100x，估值偏高但符合AI芯片龙头溢价。
+  </p>
+</div>
+
+<!-- Section 3: Technical -->
+<div class="section">
+  <div class="section-title">三、技术面分析 (alphaear-stock)</div>
+  <div class="chart-row" style="margin-bottom:16px">
+    <div class="cbox">
+      <div class="ctitle">近期价格 & 均线（元）</div>
+      <div id="chart-price" style="height:240px"></div>
+    </div>
+    <div class="cbox">
+      <div class="ctitle">技术指标概览</div>
+      <div id="chart-tech" style="height:240px"></div>
+    </div>
+  </div>
+  <table>
+    <tr><th>指标</th><th class="tr">数值</th><th>信号</th><th>解读</th></tr>
+    <tr><td>收盘价</td><td class="tr">247.98元</td><td><span class="tag tag-o">整理</span></td><td>从265.08高点回调6.5%，短线整理</td></tr>
+    <tr><td>MA5</td><td class="tr">252.36元</td><td><span class="tag tag-o">价格下穿</span></td><td>价格低于MA5，短线偏弱</td></tr>
+    <tr><td>MA20</td><td class="tr">191.22元</td><td><span class="tag tag-g">+29.7%</span></td><td>价格大幅高于MA20，趋势强势</td></tr>
+    <tr><td>MA60</td><td class="tr">163.18元</td><td><span class="tag tag-g">+52%</span></td><td>长期上升趋势完整</td></tr>
+    <tr><td>RSI (14)</td><td class="tr">76.5</td><td><span class="tag tag-r">超买</span></td><td>&gt;70超买，回调风险上升</td></tr>
+    <tr><td>MACD</td><td class="tr">27.7 / 信号 19.5</td><td><span class="tag tag-g">多头</span></td><td>MACD > 信号线，趋势未破</td></tr>
+    <tr><td>布林上轨</td><td class="tr">272.3元</td><td><span class="tag tag-b">压力</span></td><td>压力位272，当前价在上轨内</td></tr>
+    <tr><td>布林下轨</td><td class="tr">110.1元</td><td><span class="tag tag-g">强支撑</span></td><td>下轨极强支撑，趋势破坏线</td></tr>
+  </table>
+  <hr class="divider">
+  <p class="body">
+    <strong>技术面小结</strong>：股价从11月低点113.57元，经历近6个月的强势拉升至最高265元，累计涨幅超130%。当前处于高位整理阶段，RSI超买显示短期存在回调压力，但MACD多头排列完整、MA20/MA60上升趋势未破。
+    关键支撑：<strong>230~235元</strong>（近期震荡中枢）、<strong>195~200元</strong>（MA20强支撑）。
+    关键压力：<strong>265~272元</strong>（近期高点+布林上轨）。
+  </p>
+</div>
+
+<!-- Section 4: Investment Signals -->
+<div class="section">
+  <div class="section-title">四、投资信号追踪 (alphaear-signal-tracker)</div>
+  <div class="signal-grid">
+    <div class="sc sig-pos">
+      <div class="st">📡 AI服务器DDR5需求加速</div>
+      <div class="sb">全球超大规模云厂商（微软、谷歌、Meta、字节、腾讯等）持续加码AI基础设施投资，2026年AI服务器出货量预计同比增长60%+。DDR5渗透率从2024年30%快速提升至2026年预计70%+，澜起科技作为核心供应商直接受益。</div>
+      <div class="ss green">🔺 信号强化 · 置信度: 92% · 强度: 高</div>
+    </div>
+    <div class="sc sig-pos">
+      <div class="st">📈 毛利率扩张与产品结构升级</div>
+      <div class="sb">Q1 2026毛利率69.79%创历史新高，较2023年低点58.9%提升近11个百分点。DDR5产品单价显著高于DDR4，产品升级带来的ASP提升叠加规模效应，利润弹性持续释放。CXL产品逐步放量将进一步支撑高毛利结构。</div>
+      <div class="ss green">🔺 信号强化 · 置信度: 88% · 强度: 高</div>
+    </div>
+    <div class="sc sig-warn">
+      <div class="st">⚠️ 营收增速阶段性放缓</div>
+      <div class="sb">Q1 2026营收同比增速+19.5%，显著低于2025全年+49.9%。部分原因为高基数效应（2025年Q1已强势），但也需警惕客户库存消化、下单节奏调整的风险。需重点观察Q2 2026营收能否重回30%+增速。</div>
+      <div class="ss orange">🔸 信号弱化 · 置信度: 65% · 强度: 中</div>
+    </div>
+    <div class="sc sig-neg">
+      <div class="st">🏦 机构Q1大规模减持</div>
+      <div class="sb">2026年Q1超过170家机构减少持仓，华夏科创50 ETF、嘉实芯片ETF等主要指数基金均出现减持。主要被动型ETF受申购赎回影响，但也反映主动型机构在高价位获利了结。短期有抛压压力。</div>
+      <div class="ss red">🔻 信号偏负 · 置信度: 75% · 强度: 中</div>
+    </div>
+    <div class="sc sig-pos">
+      <div class="st">🔬 CXL新品上市催化</div>
+      <div class="sb">CXL（Compute Express Link）是下一代内存互连标准，澜起科技已推出CXL Memory Controller芯片并开始与头部服务器厂商验证。CXL将大幅扩展澜起的TAM（全球潜在市场），预计2027年开始规模放量，为中长期增长提供新引擎。</div>
+      <div class="ss green">🔺 信号强化(中长期) · 置信度: 70% · 强度: 中高</div>
+    </div>
+    <div class="sc sig-warn">
+      <div class="st">📊 估值处于历史高位</div>
+      <div class="sb">当前市值~3030亿，TTM PE约135x，前向PE（2026E）约95~100x。高估值对盈利增速高度敏感，若Q2/Q3增速不及预期（低于40%），估值收缩风险明显。相较A股半导体板块均值60~80x PE，溢价明显。</div>
+      <div class="ss orange">⚡ 估值风险 · 置信度: 80% · 强度: 中高</div>
+    </div>
+  </div>
+</div>
+
+<!-- Section 5: Logic Chain -->
+<div class="section">
+  <div class="section-title">五、投资逻辑传导链 (alphaear-logic-visualizer)</div>
+  <p class="body" style="margin-bottom:14px">以下为核心投资逻辑的结构化传导关系图，展示从宏观催化剂到公司业绩的完整链条：</p>
+  <div style="background:#f8fafc;border-radius:8px;padding:16px;border:1px solid #e5e7eb">
+    <div style="display:grid;grid-template-columns:auto 30px auto 30px auto 30px auto;align-items:center;gap:0;font-size:12px;overflow-x:auto">
+      <!-- Row 1 -->
+      <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;text-align:center;min-width:120px">
+        <div style="font-weight:700;color:#991b1b;font-size:13px">🌐 AI大模型</div>
+        <div style="color:#7f1d1d;margin-top:3px">全球基础设施</div>
+        <div style="color:#7f1d1d">大规模建设</div>
+      </div>
+      <div style="text-align:center;color:#6b7280;font-size:18px">→</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;text-align:center;min-width:130px">
+          <div style="font-weight:700;color:#92400e">AI服务器需求</div>
+          <div style="color:#78350f;font-size:11px">年增60%+</div>
+        </div>
+        <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#92400e">DDR5渗透加速</div>
+          <div style="color:#78350f;font-size:11px">2024:30%→2026:70%</div>
+        </div>
+        <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#92400e">CXL新兴需求</div>
+          <div style="color:#78350f;font-size:11px">2027+规模放量</div>
+        </div>
+      </div>
+      <div style="text-align:center;color:#6b7280;font-size:18px">→</div>
+      <div style="background:#dcfce7;border:2px solid #86efac;border-radius:10px;padding:14px 16px;text-align:center;min-width:140px">
+        <div style="font-weight:800;color:#15803d;font-size:15px">澜起科技</div>
+        <div style="color:#166534;margin-top:3px;font-size:11px">DDR5 MRC/RCD龙头</div>
+        <div style="color:#166534;font-size:11px">国产唯一量产</div>
+      </div>
+      <div style="text-align:center;color:#6b7280;font-size:18px">→</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:8px 12px;text-align:center;min-width:140px">
+          <div style="font-weight:700;color:#1d4ed8">业绩持续高增</div>
+          <div style="color:#1e40af;font-size:11px">净利+61.3%(Q1 2026)</div>
+        </div>
+        <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#1d4ed8">毛利率创新高</div>
+          <div style="color:#1e40af;font-size:11px">69.79%(历史最高)</div>
+        </div>
+        <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#1d4ed8">估值重估</div>
+          <div style="color:#1e40af;font-size:11px">6M +105%</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border-radius:6px;border:1px solid #fca5a5;font-size:12px;color:#991b1b">
+      ⚠️ <strong>风险节点</strong>：RSI=76.5超买 | 170+机构减持 | PE~135x高估值 | 营收增速放缓 | 中美贸易摩擦
+    </div>
+  </div>
+</div>
+
+<!-- Section 6: Sentiment -->
+<div class="section">
+  <div class="section-title">六、市场情绪分析 (alphaear-sentiment)</div>
+  <p class="body">综合近期财联社新闻、机构动向、市场消息，情绪分析结果如下（红色=正面/利好，绿色=负面/利空）：</p>
+  <div style="margin-top:14px">
+    <div class="srow"><div class="slbl">Q1 2026净利润8.47亿，同比+61.3%</div><div class="sbw"><div class="sbar bar-pos" style="width:60%"></div></div><div class="sscore red">+0.60</div></div>
+    <div class="srow"><div class="slbl">Q1毛利率69.79%创历史新高</div><div class="sbw"><div class="sbar bar-pos" style="width:70%"></div></div><div class="sscore red">+0.70</div></div>
+    <div class="srow"><div class="slbl">DDR5内存接口芯片需求持续高景气</div><div class="sbw"><div class="sbar bar-pos" style="width:65%"></div></div><div class="sscore red">+0.65</div></div>
+    <div class="srow"><div class="slbl">沪指突破4200点，科创板/AI算力走强</div><div class="sbw"><div class="sbar bar-pos" style="width:55%"></div></div><div class="sscore red">+0.55</div></div>
+    <div class="srow"><div class="slbl">科创板融资净买入超5000万元</div><div class="sbw"><div class="sbar bar-neu" style="width:15%"></div></div><div class="sscore" style="color:#6b7280">+0.15</div></div>
+    <div class="srow"><div class="slbl">营收增速放缓至+19.5%（vs去年+49.9%）</div><div class="sbw"><div class="sbar bar-neu" style="width:25%;background:#d97706"></div></div><div class="sscore orange">-0.25</div></div>
+    <div class="srow"><div class="slbl">170+家机构Q1减持持仓</div><div class="sbw"><div class="sbar bar-neg" style="width:55%"></div></div><div class="sscore green">-0.55</div></div>
+  </div>
+  <hr class="divider">
+  <p class="body">
+    <strong>综合情绪评分: +0.35（偏正面）</strong>。基本面驱动情绪明显强于机构减持带来的负面信号，整体市场对AI芯片板块保持较强信心。短期需警惕高位获利了结压力。
+  </p>
+</div>
+
+<!-- Section 7: Trading Strategy -->
+<div class="section">
+  <div class="section-title">七、交易策略建议</div>
+  <div class="strat-grid" style="margin-bottom:16px">
+    <div class="sk card-buy">
+      <h4>🟢 买入策略</h4>
+      <ul>
+        <li>第一买点 <span class="red">220~235元</span></li>
+        <li>第二买点 <span class="red">195~205元</span></li>
+        <li>MA20强支撑 <span>~191元</span></li>
+        <li>建议仓位 <span>15~20%</span></li>
+        <li>触发条件 <span>RSI回落至60以下</span></li>
+        <li>持仓周期 <span>3~6个月</span></li>
+      </ul>
+    </div>
+    <div class="sk card-sell">
+      <h4>🔴 止盈 / 止损</h4>
+      <ul>
+        <li>目标价一 <span class="red">280~290元</span></li>
+        <li>目标价二 <span class="red">310~320元</span></li>
+        <li>止损线（短线） <span class="green">220元以下</span></li>
+        <li>止损线（中线） <span class="green">190元以下</span></li>
+        <li>动态止盈 <span>每+15%减1/3仓</span></li>
+        <li>触发减仓 <span>季报不及预期</span></li>
+      </ul>
+    </div>
+    <div class="sk card-hold">
+      <h4>🔵 持有策略</h4>
+      <ul>
+        <li>核心逻辑未变 <span class="blue">继续持有</span></li>
+        <li>RSI&gt;80 <span>减仓1/4</span></li>
+        <li>机构大幅减持 <span>降低至半仓</span></li>
+        <li>CXL放量落地 <span>加仓</span></li>
+        <li>Q2营收恢复30%+ <span class="blue">加仓</span></li>
+        <li>仓位上限 <span>25%</span></li>
+      </ul>
+    </div>
+  </div>
+  <table>
+    <tr><th>时间维度</th><th>预期方向</th><th>价格区间</th><th>核心催化剂</th><th>风险事件</th></tr>
+    <tr><td><strong>短线（1~2周）</strong></td><td><span class="tag tag-o">震荡整理</span></td><td>230~265元</td><td>市场情绪、指数走势</td><td>RSI超买回调</td></tr>
+    <tr><td><strong>中线（1~3月）</strong></td><td><span class="tag tag-r">偏多</span></td><td>255~300元</td><td>Q2业绩预告、DDR5旺季</td><td>季报不及预期</td></tr>
+    <tr><td><strong>中线（3~6月）</strong></td><td><span class="tag tag-r">做多</span></td><td>280~320元</td><td>H2旺季+CXL验证</td><td>中美贸易摩擦</td></tr>
+    <tr><td><strong>长线（1年）</strong></td><td><span class="tag tag-b">长期持有</span></td><td>300~400元</td><td>CXL规模放量、PCIe 6.0</td><td>行业周期下行</td></tr>
+  </table>
+</div>
+
+<!-- Section 8: Risks -->
+<div class="section">
+  <div class="section-title">八、主要风险因素</div>
+  <table class="risk-table">
+    <tr><th>风险类型</th><th>风险等级</th><th>具体描述</th><th>应对建议</th></tr>
+    <tr><td>估值风险</td><td><span class="risk-lev-h">高</span></td><td>PE~135x，任何盈利不及预期将引发估值收缩，潜在回撤20~30%</td><td>严格止损，分批建仓</td></tr>
+    <tr><td>技术超买</td><td><span class="risk-lev-h">高（短期）</span></td><td>RSI=76.5，近6个月涨幅105%，短线回调压力明显</td><td>等待RSI回落60再入场</td></tr>
+    <tr><td>营收增速放缓</td><td><span class="risk-lev-m">中</span></td><td>Q1增速降至+19.5%，若Q2继续放缓，市场情绪可能转向</td><td>重点关注Q2业绩预告</td></tr>
+    <tr><td>机构减持压力</td><td><span class="risk-lev-m">中</span></td><td>170+机构Q1减仓，高位获利盘较多，短线有持续抛压</td><td>关注龙虎榜机构席位</td></tr>
+    <tr><td>中美贸易摩擦</td><td><span class="risk-lev-m">中</span></td><td>半导体国产化有双面性：制裁升级可能影响供应链或客户订单</td><td>关注政策动向，设置预案</td></tr>
+    <tr><td>行业周期风险</td><td><span class="risk-lev-l">低（当前）</span></td><td>半导体行业存在库存周期，当前处于上行周期中后期</td><td>2027年起需关注周期拐点</td></tr>
+    <tr><td>竞争加剧</td><td><span class="risk-lev-l">低</span></td><td>Rambus、SK海力士自研内存接口芯片，国内也有新入局者</td><td>持续跟踪竞争格局变化</td></tr>
+  </table>
+</div>
+
+<!-- Section 9: Conclusion -->
+<div class="section" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac">
+  <div class="section-title" style="color:#15803d;border-color:#15803d">九、综合结论与投资建议</div>
+  <table>
+    <tr><th>维度</th><th>评分</th><th>结论</th></tr>
+    <tr><td><strong>基本面</strong></td><td><span class="tag tag-r">⭐⭐⭐⭐⭐</span></td><td>DDR5龙头，毛利率历史新高，净利润高增长，质地优秀</td></tr>
+    <tr><td><strong>成长性</strong></td><td><span class="tag tag-r">⭐⭐⭐⭐☆</span></td><td>AI服务器+CXL双轮驱动，中长期成长空间大，短期增速放缓</td></tr>
+    <tr><td><strong>技术面</strong></td><td><span class="tag tag-o">⭐⭐⭐☆☆</span></td><td>RSI超买，短线需消化，中期趋势完整</td></tr>
+    <tr><td><strong>估值</strong></td><td><span class="tag tag-o">⭐⭐☆☆☆</span></td><td>PE~135x偏贵，需强劲业绩兑现支撑</td></tr>
+    <tr><td><strong>市场情绪</strong></td><td><span class="tag tag-g">⭐⭐⭐⭐☆</span></td><td>AI算力主线热度高，科创板资金流入，情绪偏正面</td></tr>
+  </table>
+  <div style="margin-top:16px;padding:16px;background:rgba(255,255,255,.7);border-radius:8px;border:1px solid #86efac">
+    <p style="font-size:13px;color:#14532d;line-height:1.8">
+      <strong>综合结论：中线"买入"，短线"等待"。</strong><br>
+      澜起科技是A股AI产业链中稀缺的芯片设计龙头，具备清晰的竞争壁垒和强劲的业绩兑现能力。当前估值已充分反映了市场对其AI红利的高预期，短线技术面超买状态下不建议追高。
+      <strong>建议策略：等待回调至220~235元区间（对应RSI回落至60附近）后分批布局，中线目标280~320元，止损190元以下。</strong>
+      重点跟踪：① Q2 2026营收增速是否重回30%+；② CXL产品客户验证进展；③ 机构持仓变化。
+    </p>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<footer>本报告由 Claude Code + Awesome-Finance-Skills 多技能协作生成 · 仅供研究参考，不构成投资建议 · 2026-05-17</footer>
+
+<script>
+// Chart 1: Revenue & Profit
+const c1 = echarts.init(document.getElementById('chart-rev'));
+c1.setOption({
+  tooltip:{trigger:'axis'},
+  legend:{data:['营收(亿)','净利润(亿)'],textStyle:{fontSize:11},top:0},
+  grid:{top:30,bottom:30,left:45,right:10},
+  xAxis:{type:'category',data:['2023','2024','2025','2026Q1*4'],axisLabel:{fontSize:11}},
+  yAxis:{type:'value',axisLabel:{fontSize:11}},
+  series:[
+    {name:'营收(亿)',type:'bar',data:[22.86,36.39,54.56,58.44],itemStyle:{color:'#93c5fd'},barMaxWidth:40},
+    {name:'净利润(亿)',type:'bar',data:[4.51,14.12,22.36,33.88],itemStyle:{color:'#6ee7b7'},barMaxWidth:40},
+  ]
+});
+
+// Chart 2: Margins
+const c2 = echarts.init(document.getElementById('chart-margin'));
+c2.setOption({
+  tooltip:{trigger:'axis'},
+  legend:{data:['毛利率%','净利率%'],textStyle:{fontSize:11},top:0},
+  grid:{top:30,bottom:30,left:40,right:10},
+  xAxis:{type:'category',data:['2023Q4','2024全年','2025Q1','2025Q2','2025Q3','2025Q4','2026Q1'],axisLabel:{fontSize:10,rotate:15}},
+  yAxis:{type:'value',min:0,max:80,axisLabel:{fontSize:11,formatter:'{value}%'}},
+  series:[
+    {name:'毛利率%',type:'line',data:[58.9,58.1,60.45,60.44,61.46,62.23,69.79],smooth:true,itemStyle:{color:'#f97316'},lineStyle:{width:2}},
+    {name:'净利率%',type:'line',data:[19.7,36.8,41.21,42.24,38.85,39.03,56.80],smooth:true,itemStyle:{color:'#8b5cf6'},lineStyle:{width:2}},
+  ]
+});
+
+// Chart 3: Price
+const c3 = echarts.init(document.getElementById('chart-price'));
+const prices = [
+  ['2026-04-29',171.00,169.90,171.95,165.35],
+  ['2026-04-30',174.28,173.30,175.14,169.53],
+  ['2026-05-06',190.30,198.98,205.57,188.01],
+  ['2026-05-07',201.99,209.91,213.00,200.00],
+  ['2026-05-08',205.00,210.27,212.19,203.68],
+  ['2026-05-11',231.26,249.22,252.32,230.00],
+  ['2026-05-12',240.85,240.70,245.74,231.08],
+  ['2026-05-13',233.00,258.80,258.80,233.00],
+  ['2026-05-14',280.00,265.08,282.00,262.97],
+  ['2026-05-15',265.00,247.98,272.00,242.63],
+];
+c3.setOption({
+  tooltip:{trigger:'axis'},
+  grid:{top:20,bottom:30,left:55,right:10},
+  xAxis:{type:'category',data:prices.map(p=>p[0]),axisLabel:{fontSize:10,rotate:20}},
+  yAxis:{type:'value',scale:true,axisLabel:{fontSize:11}},
+  series:[
+    {type:'candlestick',data:prices.map(p=>[p[1],p[2],p[4],p[3]]),
+     itemStyle:{color:'#dc2626',color0:'#16a34a',borderColor:'#dc2626',borderColor0:'#16a34a'}},
+    {type:'line',data:[252.36,252.36,252.36,252.36,252.36,252.36,252.36,252.36,252.36,252.36],
+     name:'MA5',lineStyle:{color:'#f97316',width:1.5},showSymbol:false},
+    {type:'line',data:[191,191,191,191,191,191,191,191,191,191],
+     name:'MA20',lineStyle:{color:'#8b5cf6',width:1.5},showSymbol:false},
+  ]
+});
+
+// Chart 4: Technical radar
+const c4 = echarts.init(document.getElementById('chart-tech'));
+c4.setOption({
+  tooltip:{},
+  radar:{indicator:[
+    {name:'趋势强度',max:100},{name:'盈利质量',max:100},
+    {name:'成长性',max:100},{name:'估值合理',max:100},
+    {name:'技术形态',max:100},{name:'市场情绪',max:100},
+  ],radius:'65%',axisName:{fontSize:11}},
+  series:[{type:'radar',data:[{
+    value:[88,90,82,35,55,72],
+    name:'澜起科技综合评分',
+    itemStyle:{color:'#1d4ed8'},
+    areaStyle:{color:'rgba(29,78,216,0.15)'},
+  }]}]
+});
+</script>
+</body>
+</html>

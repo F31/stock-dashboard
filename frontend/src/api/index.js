@@ -111,6 +111,29 @@ export function fetchIndustrialProfit() {
   return api.get('/macro/profit')
 }
 
+// ── Analysis Reports ──
+
+export function listReports(stockCode, market) {
+  return api.get('/reports', { params: { stock_code: stockCode, market } })
+}
+
+export function uploadReport(stockCode, market, title, file) {
+  const fd = new FormData()
+  fd.append('stock_code', stockCode)
+  fd.append('market', market)
+  fd.append('title', title)
+  fd.append('file', file)
+  return api.post('/reports/upload', fd)
+}
+
+export function addLinkReport(stockCode, market, title, url) {
+  return api.post('/reports/link', { stock_code: stockCode, market, title, url })
+}
+
+export function deleteReport(id) {
+  return api.delete(`/reports/${id}`)
+}
+
 // ── Admin / User Management ──
 
 export function listUsers(page = 1, pageSize = 20) {

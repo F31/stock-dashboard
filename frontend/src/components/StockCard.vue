@@ -4,7 +4,7 @@
     <div class="card-hdr">
       <div class="card-hdr-l">
         <div v-if="!renamingName" class="sname">
-          {{ stock.data?.stock_name || stock.stock_name || stock.stock_code }}
+          <span class="sname-text" @click.stop="$emit('open-detail', stock)">{{ stock.data?.stock_name || stock.stock_name || stock.stock_code }}</span>
           <button v-if="isSector" class="rename-btn" @click.stop="startRename" title="修改名称">✎</button>
         </div>
         <div v-else class="rename-row">
@@ -208,7 +208,7 @@
 import { ref, computed, nextTick } from 'vue'
 
 const props = defineProps({ stock: Object })
-const emit = defineEmits(['remove', 'update-notes', 'rename'])
+const emit = defineEmits(['remove', 'update-notes', 'rename', 'open-detail'])
 
 // Notes editor modal
 const showNotesModal = ref(false)
@@ -389,6 +389,8 @@ function updateNotes(e) {
 }
 .card-hdr-l { flex: 1; min-width: 0; }
 .sname { font-size: 14px; font-weight: 800; line-height: 1.2; color: #111827; display: flex; align-items: center; gap: 4px; }
+.sname-text { cursor: pointer; }
+.sname-text:hover { color: #2563eb; text-decoration: underline; }
 .scode { font-size: 11px; color: #6b7280; margin-top: 1px; }
 
 .rename-btn {
