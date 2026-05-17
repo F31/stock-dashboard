@@ -1,0 +1,12 @@
+backend/data/*.db
+*.db
+*.out
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyda
+frontend/dist/
+dist/
+frontend/dist/assets/
+
