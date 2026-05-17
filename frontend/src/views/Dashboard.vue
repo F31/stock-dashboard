@@ -119,6 +119,7 @@
       :stocks="currentStocks"
       @close="showAllModal = false"
       @remove="handleRemove"
+      @open-detail="handleOpenDetail"
     />
 
     <!-- User Management Modal -->

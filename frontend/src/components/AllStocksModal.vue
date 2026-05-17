@@ -40,7 +40,7 @@
                       title="拖动排序">⠿</span>
               </td>
               <td class="td-name">
-                <div class="td-name-top">
+                <div class="td-name-top td-name-link" @click="$emit('open-detail', s)">
                   {{ s.data?.stock_name || s.stock_name || s.stock_code }}
                 </div>
                 <div class="td-code">
@@ -80,7 +80,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useStockStore } from '../stores/stockStore'
 
 const props = defineProps({ stocks: Array })
-const emit = defineEmits(['close', 'remove'])
+const emit = defineEmits(['close', 'remove', 'open-detail'])
 
 const store = useStockStore()
 
@@ -357,6 +357,13 @@ function onDragEnd() {
   font-weight: 700;
   color: #1f2937;
   font-size: 0.95em;
+}
+.td-name-link {
+  cursor: pointer;
+}
+.td-name-link:hover {
+  color: #2563eb;
+  text-decoration: underline;
 }
 
 .td-code {
