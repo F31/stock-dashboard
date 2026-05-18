@@ -33,7 +33,7 @@
               <th class="col-action">操作</th>
               <th class="col-target">目标</th>
               <th class="col-detail">详情</th>
-              <th class="col-ip">IP</th>
+              <th class="col-ip">IP / 地区</th>
               <th class="col-time">时间</th>
             </tr>
           </thead>
@@ -46,7 +46,10 @@
               </td>
               <td class="col-target">{{ log.target }}</td>
               <td class="col-detail">{{ log.detail }}</td>
-              <td class="col-ip">{{ log.ip_address }}</td>
+              <td class="col-ip">
+                <span class="ip-addr">{{ log.ip_address }}</span>
+                <span v-if="log.ip_location" class="ip-loc">{{ log.ip_location }}</span>
+              </td>
               <td class="col-time">{{ log.created_at }}</td>
             </tr>
           </tbody>
@@ -214,7 +217,9 @@ onMounted(fetchData)
 .col-action { width: 110px; }
 .col-target { width: 140px; color: #374151; }
 .col-detail { color: #6b7280; min-width: 100px; }
-.col-ip { width: 120px; color: #9ca3af; font-family: monospace; font-size: 0.9em; }
+.col-ip { width: 150px; }
+.ip-addr { display: block; color: #9ca3af; font-family: monospace; font-size: 0.85em; }
+.ip-loc { display: block; color: #6b7280; font-size: 0.78em; margin-top: 1px; white-space: nowrap; }
 .col-time { width: 140px; color: #6b7280; white-space: nowrap; }
 
 .action-badge { font-size: 0.8em; padding: 2px 8px; border-radius: 4px; font-weight: 600; white-space: nowrap; }

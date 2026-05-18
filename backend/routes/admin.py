@@ -13,6 +13,7 @@ from schemas import (
     PaginatedUsers, LogEntry, PaginatedLogs,
 )
 from routes.auth import get_current_user
+from utils import get_client_ip, get_ip_location  # noqa: re-exported for stocks.py
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,6 @@ def log_action(
     detail: str = "",
     ip_address: str = "",
 ):
-    """Create an operation log entry."""
     entry = OperationLog(
         user_id=user_id,
         username=username,
@@ -38,33 +38,10 @@ def log_action(
         target=target,
         detail=detail,
         ip_address=ip_address,
+        ip_location=get_ip_location(ip_address),
     )
     db.add(entry)
     db.commit()
-
-
-def get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-    return request.client.host if request.client else "unknown"
-
-
-# ── Debug ──
-
-@router.get("/debug/headers")
-def debug_headers(request: Request):
-    """Temporary: show what headers FastAPI actually receives (remove after debugging)."""
-    return {
-        "client_host": request.client.host if request.client else None,
-        "x_forwarded_for": request.headers.get("X-Forwarded-For"),
-        "x_real_ip": request.headers.get("X-Real-IP"),
-        "all_headers": dict(request.headers),
-        "resolved_ip": get_client_ip(request),
-    }
 
 
 # ── User Management ──
@@ -233,6 +210,7 @@ def list_logs(
             target=log.target or "",
             detail=log.detail or "",
             ip_address=log.ip_address or "",
+            ip_location=getattr(log, "ip_location", "") or "",
             created_at=log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else "",
         ) for log in logs],
     )

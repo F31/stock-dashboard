@@ -29,6 +29,7 @@ from database import _ensure_column
 _ensure_column("users", "role VARCHAR(20) DEFAULT 'user'")
 _ensure_column("watchlist", "item_type VARCHAR(10) DEFAULT 'stock'")
 _ensure_column("watchlist", "hidden INTEGER DEFAULT 0")
+_ensure_column("operation_logs", "ip_location VARCHAR(100) DEFAULT ''")
 
 
 app = FastAPI(title="Stock Dashboard")

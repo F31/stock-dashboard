@@ -64,4 +64,5 @@ class OperationLog(Base):
     target = Column(String(100), default="")          # what was acted upon (stock code, user id, etc.)
     detail = Column(Text, default="")                 # extra info
     ip_address = Column(String(50), default="")
+    ip_location = Column(String(100), default="")
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)

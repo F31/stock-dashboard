@@ -111,6 +111,7 @@ class LogEntry(BaseModel):
     target: str
     detail: str
     ip_address: str
+    ip_location: str = ""
     created_at: Optional[str] = ""
 
     class Config:

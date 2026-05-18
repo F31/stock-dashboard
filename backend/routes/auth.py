@@ -10,6 +10,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from database import get_db
 from models import User, OperationLog
 from schemas import LoginRequest, TokenResponse
+from utils import get_client_ip, get_ip_location
 
 logger = logging.getLogger(__name__)
 
@@ -49,23 +50,13 @@ def get_current_user(token: HTTPAuthorizationCredentials = Depends(security),
 
 def log_action(db: Session, user_id: int, username: str, action: str,
                target: str = "", detail: str = "", ip_address: str = ""):
-    """Create an operation log entry."""
     entry = OperationLog(
         user_id=user_id, username=username, action=action,
         target=target, detail=detail, ip_address=ip_address,
+        ip_location=get_ip_location(ip_address),
     )
     db.add(entry)
     db.commit()
-
-
-def get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-    return request.client.host if request.client else "unknown"
 
 
 @router.post("/login", response_model=TokenResponse)
