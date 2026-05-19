@@ -115,6 +115,18 @@ export function fetchIndustrialProfit() {
   return api.get('/macro/profit')
 }
 
+export function refreshIndustrialProfit() {
+  return api.post('/macro/profit/refresh')
+}
+
+export function fetchIndustrialCharts() {
+  return api.get('/macro/industrial-charts')
+}
+
+export function refreshIndustrialCharts() {
+  return api.post('/macro/industrial-charts/refresh')
+}
+
 // ── Analysis Reports ──
 
 export function listReports(stockCode, market) {

@@ -1,6 +1,8 @@
 """Stock Dashboard — FastAPI backend entry point."""
+import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -32,7 +34,36 @@ _ensure_column("watchlist", "hidden INTEGER DEFAULT 0")
 _ensure_column("operation_logs", "ip_location VARCHAR(100) DEFAULT ''")
 
 
-app = FastAPI(title="Stock Dashboard")
+async def _daily_macro_refresh():
+    """Background task: pre-warm then refresh profit + industrial charts every 24h."""
+    await asyncio.sleep(15)  # let app finish starting up first
+    while True:
+        try:
+            from services.macro_service import (
+                fetch_industrial_profit, fetch_nbs_industrial_charts, _cache as macro_cache,
+            )
+            macro_cache.pop("macro:industrial_profit", None)
+            macro_cache.pop("macro:nbs_industrial_charts", None)
+            await fetch_industrial_profit()
+            await fetch_nbs_industrial_charts()
+            logging.info("Daily macro refresh completed (profit + industrial charts)")
+        except Exception as exc:
+            logging.warning(f"Daily macro refresh error: {exc}")
+        await asyncio.sleep(24 * 3600)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_daily_macro_refresh())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="Stock Dashboard", lifespan=lifespan)
 
 # CORS — 本地开发模式用（生产模式走同源无需 CORS）
 app.add_middleware(

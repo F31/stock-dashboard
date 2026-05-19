@@ -448,7 +448,14 @@ _NBS_HEADERS = {
 }
 
 
-async def _nbs_find_profit_releases(max_pages: int = 12, count: int = 3) -> list:
+def _nbs_listing_url(page: int) -> str:
+    """NBS listing page URL. Page 1 = index.html, page 2 = index_1.html, etc."""
+    if page == 1:
+        return _NBS_BASE
+    return f"{_NBS_BASE}index_{page - 1}.html"
+
+
+async def _nbs_find_profit_releases(max_pages: int = 15, count: int = 3) -> list:
     """Scan NBS listing pages to find the most recent N monthly cumulative profit releases."""
     found = []
     seen: set = set()
@@ -457,18 +464,20 @@ async def _nbs_find_profit_releases(max_pages: int = 12, count: int = 3) -> list
         timeout=15, verify=False, headers=_NBS_HEADERS, follow_redirects=True
     ) as client:
         for page in range(1, max_pages + 1):
-            url = _NBS_BASE if page == 1 else f"{_NBS_BASE}index_{page}.html"
+            url = _nbs_listing_url(page)
             try:
                 resp = await client.get(url)
                 if resp.status_code != 200:
                     continue
-                # Match monthly cumulative releases (not annual "全年" titles)
-                matches = re.findall(
-                    r'href="(\./\d{6}/[^"]+\.html)"[^>]*>\s*\d{4}年[\d—\-]+月份全国规模以上工业企业利润',
+                # NBS listing uses title='' attribute for link text (not <a> inner body)
+                raw_links = re.findall(
+                    r'href="(\./\d{6}/[^"]+\.html)"[^>]*title=[\'"](.*?)[\'"]',
                     resp.text,
                 )
-                for rel in matches:
-                    # rel is like ./202604/t20260427_1963403.html
+                for rel, text in raw_links:
+                    # Match monthly cumulative profit releases (skip annual 全年)
+                    if not re.search(r'\d{4}年[\d—\-]+月份全国规模以上工业企业利润', text):
+                        continue
                     month_dir = re.search(r'\./(\d{6})/', rel)
                     if not month_dir:
                         continue
@@ -577,7 +586,10 @@ async def _nbs_parse_profit_release(release_url: str) -> dict:
 
 async def fetch_industrial_profit() -> list:
     """
-    Return last 3 monthly cumulative industrial profit releases from NBS.
+    Return last 3 monthly cumulative industrial profit periods from NBS.
+    Primary: NBS easyquery API (China servers) via the path:
+      月度数据 > 工业 > 按行业分工业企业主要经济指标(2018-至今) > 工业企业利润总额
+    Fallback: scrape NBS press release Excel attachments (any server, pagination-fixed).
     Each item: {period, total_profit, total_prev, total_yoy, elec_profit, elec_prev, elec_yoy}
     """
     cache_key = "macro:industrial_profit"
@@ -585,21 +597,470 @@ async def fetch_industrial_profit() -> list:
     if cached is not None:
         return cached
 
-    release_urls = await _nbs_find_profit_releases(max_pages=12, count=3)
-    logger.info(f"NBS profit releases found: {release_urls}")
+    # Primary: NBS easyquery (China servers only)
+    results = await _fetch_profit_from_nbs_easyquery()
 
-    results = []
-    for url in release_urls:
-        try:
-            data = await _nbs_parse_profit_release(url)
-            if data:
-                results.append(data)
-        except Exception as e:
-            logger.warning(f"Failed to parse NBS profit release {url}: {e}")
+    # Fallback: NBS press release Excel scraper (any server)
+    if not results:
+        release_urls = await _nbs_find_profit_releases(max_pages=12, count=3)
+        logger.info(f"NBS profit releases (press release scraper): {release_urls}")
+        for url in release_urls:
+            try:
+                data = await _nbs_parse_profit_release(url)
+                if data:
+                    results.append(data)
+            except Exception as e:
+                logger.warning(f"Failed to parse NBS profit release {url}: {e}")
 
     if results:
         _set_cache(cache_key, results, CACHE_TTL_MACRO)
     return results
+
+
+# ── NBS Industrial Charts (工业增加值 + 工业出口交货值) ─────────────────────
+
+CACHE_TTL_INDUSTRIAL = 86400  # 24h — data is released monthly
+
+
+def _nbs_df_to_series(df) -> list:
+    """Convert NBS DataFrame (rows=indicators, cols=periods) to chart series list."""
+    import re, math
+    series = []
+    for row_name in df.index:
+        points = []
+        for col in df.columns:
+            m = re.match(r'(\d{4})年(\d{1,2})月', str(col))
+            period = f"{m.group(1)}-{m.group(2).zfill(2)}" if m else str(col)[:7]
+            try:
+                v = float(df.loc[row_name, col])
+                v = None if math.isnan(v) else round(v, 2)
+            except Exception:
+                v = None
+            points.append({"period": period, "value": v})
+        points.sort(key=lambda x: x["period"])
+        points = [p for p in points if p["value"] is not None]
+        if points:
+            series.append({"name": str(row_name), "data": points})
+    return series
+
+
+def _detect_series_type(name: str) -> str:
+    """Classify a series as 'yoy' (percentage) or 'value' (absolute) by its name."""
+    if any(kw in name for kw in ("同比", "增长", "增速", "%", "率")):
+        return "yoy"
+    return "value"
+
+
+def _annotate_series(series: list) -> list:
+    return [{**s, "series_type": _detect_series_type(s.get("name", ""))} for s in series]
+
+
+def _nbs_period_sort_key(col) -> str:
+    """Parse NBS column like '2026年3月' to sortable '2026-03'."""
+    m = re.search(r'(\d{4})年(\d{1,2})月', str(col))
+    return f"{m.group(1)}-{m.group(2).zfill(2)}" if m else str(col)
+
+
+def _nbs_period_to_label(col) -> str:
+    """'2026年3月' → '2026年1—3月份' (cumulative label used in profit table)."""
+    m = re.search(r'(\d{4})年(\d{1,2})月', str(col))
+    if not m:
+        return str(col)
+    year, mo = m.group(1), int(m.group(2))
+    return f"{year}年1月份" if mo == 1 else f"{year}年1—{mo}月份"
+
+
+async def _fetch_profit_from_nbs_easyquery() -> list:
+    """
+    Fetch 规模以上工业企业利润 via NBS easyquery.
+    Data path: 简单查询 > 月度数据 > 工业 > 按行业分工业企业主要经济指标(2018-至今) > 工业企业利润总额
+    Returns last 3 periods in the same format as _nbs_parse_profit_release.
+    Only works on China-based servers (NBS IP restriction).
+    """
+    import math
+
+    df = None
+    for path in [
+        "工业 > 按行业分工业企业主要经济指标(2018-至今) > 工业企业利润总额",
+        "工业 > 按行业分工业企业主要经济指标 (2018-至今) > 工业企业利润总额",
+        "工业 > 工业企业利润总额",
+    ]:
+        try:
+            df = await _run_ak("macro_china_nbs_nation", kind="月度数据", path=path, period="LAST48")
+            if df is not None and not df.empty:
+                logger.info(f"NBS profit easyquery OK: path={path!r}, shape={df.shape}")
+                break
+        except Exception as e:
+            logger.debug(f"NBS profit easyquery path={path!r}: {e}")
+
+    if df is None or df.empty:
+        return []
+
+    # Sort period columns chronologically
+    period_cols = []
+    for col in df.columns:
+        k = _nbs_period_sort_key(col)
+        if re.match(r'\d{4}-\d{2}', k):
+            period_cols.append((k, col))
+    period_cols = sorted(dict(period_cols).items())  # deduplicate, sort
+    if not period_cols:
+        return []
+
+    col_by_key = {k: c for k, c in period_cols}
+
+    # Find 总计 and 计算机通信电子 rows
+    total_idx = elec_idx = None
+    for idx in df.index:
+        name = str(idx).strip()
+        if total_idx is None and name in ('总计', '合计', '全部工业企业', '全部'):
+            total_idx = idx
+        if elec_idx is None and '计算机' in name and ('通信' in name or '电子' in name):
+            elec_idx = idx
+
+    if total_idx is None:
+        logger.warning("NBS profit easyquery: 总计 row not found; available: %s", list(df.index)[:10])
+        return []
+
+    def _get(idx, col):
+        try:
+            f = float(df.loc[idx, col])
+            return None if math.isnan(f) else round(f, 1)
+        except Exception:
+            return None
+
+    def _yoy(cur, prev):
+        if cur is None or prev is None or prev == 0:
+            return None
+        return round((cur - prev) / abs(prev) * 100, 1)
+
+    results = []
+    for sort_key, col in period_cols[-3:]:
+        y, mo = sort_key.split('-')
+        prior_col = col_by_key.get(f"{int(y)-1}-{mo}")
+
+        total = _get(total_idx, col)
+        total_prev = _get(total_idx, prior_col) if prior_col else None
+        elec = _get(elec_idx, col) if elec_idx else None
+        elec_prev = _get(elec_idx, prior_col) if (elec_idx and prior_col) else None
+
+        results.append({
+            'period': _nbs_period_to_label(col),
+            'total_profit': total,
+            'total_prev': total_prev,
+            'total_yoy': _yoy(total, total_prev),
+            'elec_profit': elec,
+            'elec_prev': elec_prev,
+            'elec_yoy': _yoy(elec, elec_prev),
+        })
+
+    return results
+
+
+async def _fetch_nbs_indicator(paths: list, period: str = "LAST36", kind: str = "月度数据") -> list:
+    """Try each NBS path in order (with given kind); return series list on first success."""
+    for path in paths:
+        try:
+            df = await _run_ak("macro_china_nbs_nation", kind=kind, path=path, period=period)
+            if df is not None and not df.empty:
+                series = _nbs_df_to_series(df)
+                if series:
+                    logger.info(f"NBS indicator OK kind={kind!r} path={path!r}, series={[s['name'] for s in series]}")
+                    return series
+        except Exception as e:
+            logger.debug(f"NBS kind={kind!r} path={path!r} error: {e}")
+    return []
+
+
+def _parse_industrial_excel(data: bytes) -> dict:
+    """
+    Parse NBS monthly industrial production Excel.
+    The sheet has 5 columns: [B]=indicator, [C]=当月绝对量, [D]=当月同比%, [E]=累计绝对量, [F]=累计同比%
+    Returns current-month 工业增加值 and 出口交货值 data.
+    """
+    import openpyxl, math
+
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    ws = wb.worksheets[0]
+    rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+
+    def _f(v):
+        try:
+            f = float(v)
+            return None if math.isnan(f) else round(f, 1)
+        except (TypeError, ValueError):
+            return None
+
+    iva_month_yoy = iva_cumul_yoy = None
+    exp_month_val = exp_month_yoy = None
+
+    for row in rows:
+        if len(row) < 6 or row[1] is None:
+            continue
+        name = str(row[1]).strip()
+        if name == '规模以上工业增加值':
+            iva_month_yoy = _f(row[3])   # col D = 当月同比%
+            iva_cumul_yoy = _f(row[5])   # col F = 累计同比%
+        elif '出口交货值' in name and '亿元' in name:
+            exp_month_val = _f(row[2])   # col C = 当月亿元
+            exp_month_yoy = _f(row[3])   # col D = 当月同比%
+
+    return {
+        'iva_month_yoy': iva_month_yoy,
+        'iva_cumul_yoy': iva_cumul_yoy,
+        'exp_month_val': exp_month_val,
+        'exp_month_yoy': exp_month_yoy,
+    }
+
+
+async def _fetch_nbs_industrial_charts_from_releases(
+    max_pages: int = 50, count: int = 24
+) -> Dict[str, Any]:
+    """
+    Build 工业增加值 and 工业出口交货值 time series by scraping NBS monthly press releases.
+    Works from any server (not dependent on NBS easyquery IP restriction).
+    First run is slow (~10-30s); results cached 24h.
+    """
+    _sem = asyncio.Semaphore(5)
+
+    async def _get_page(client, page):
+        async with _sem:
+            url = _nbs_listing_url(page)
+            try:
+                resp = await client.get(url, timeout=10)
+                if resp.status_code != 200:
+                    return []
+                raw_links = re.findall(
+                    r'href="(\./\d{6}/[^"]+\.html)"[^>]*title=[\'"](.*?)[\'"]',
+                    resp.text,
+                )
+                items = []
+                for rel, text in raw_links:
+                    if not re.search(r'\d{4}年[\d—\-]+月份规模以上工业增加值', text):
+                        continue
+                    month_dir = re.search(r'\./(\d{6})/', rel)
+                    if not month_dir:
+                        continue
+                    full_url = f"{_NBS_BASE}{month_dir.group(1)}/{rel.split('/')[-1]}"
+                    pm = re.search(r'(\d{4})年(?:\d+—)?(\d{1,2})月份', text)
+                    if pm:
+                        period = f"{pm.group(1)}-{pm.group(2).zfill(2)}"
+                        items.append((period, full_url))
+                return items
+            except Exception as e:
+                logger.debug(f"NBS industrial page {page}: {e}")
+                return []
+
+    async def _get_excel_data(client, period, release_url):
+        async with _sem:
+            try:
+                m = re.match(r'(https://www\.stats\.gov\.cn/sj/zxfb/\d{6}/)', release_url)
+                if not m:
+                    return period, None
+                base_dir = m.group(1)
+                resp = await client.get(release_url, timeout=10)
+                resp.raise_for_status()
+                xls_links = re.findall(r'href="(\./[^"]*\.xlsx?)"', resp.text, re.IGNORECASE)
+                if not xls_links:
+                    return period, None
+                xls_url = base_dir + xls_links[0].lstrip('./')
+                xr = await client.get(xls_url, timeout=20)
+                xr.raise_for_status()
+                parsed = await asyncio.to_thread(_parse_industrial_excel, xr.content)
+                return period, parsed
+            except Exception as e:
+                logger.debug(f"NBS industrial Excel {period}: {e}")
+                return period, None
+
+    async with httpx.AsyncClient(
+        timeout=20, verify=False, headers=_NBS_HEADERS, follow_redirects=True
+    ) as client:
+        # Scan listing pages in batches of 5 until we have enough releases
+        seen_periods: set = set()
+        releases: list = []
+
+        for batch_start in range(1, max_pages + 1, 5):
+            batch_end = min(batch_start + 5, max_pages + 1)
+            batch_results = await asyncio.gather(
+                *[_get_page(client, p) for p in range(batch_start, batch_end)],
+                return_exceptions=True,
+            )
+            for page_items in batch_results:
+                if isinstance(page_items, Exception):
+                    continue
+                for period, url in page_items:
+                    if period not in seen_periods:
+                        seen_periods.add(period)
+                        releases.append((period, url))
+            if len(releases) >= count:
+                break
+
+        releases.sort(key=lambda x: x[0], reverse=True)
+        releases = releases[:count]
+
+        if not releases:
+            logger.info("No NBS industrial production releases found on listing pages")
+            return {}
+
+        logger.info(f"NBS industrial: found {len(releases)} releases {[r[0] for r in releases[:5]]}...")
+
+        # Download + parse all Excels concurrently
+        excel_results = await asyncio.gather(
+            *[_get_excel_data(client, p, u) for p, u in releases],
+            return_exceptions=True,
+        )
+
+    # Aggregate into time series
+    iva_month_pts: List[dict] = []
+    iva_cumul_pts: List[dict] = []
+    exp_val_pts: List[dict] = []
+    exp_yoy_pts: List[dict] = []
+
+    for res in excel_results:
+        if isinstance(res, Exception):
+            continue
+        period, data = res
+        if data is None:
+            continue
+        if data.get('iva_month_yoy') is not None:
+            iva_month_pts.append({'period': period, 'value': data['iva_month_yoy']})
+        if data.get('iva_cumul_yoy') is not None:
+            iva_cumul_pts.append({'period': period, 'value': data['iva_cumul_yoy']})
+        if data.get('exp_month_val') is not None:
+            exp_val_pts.append({'period': period, 'value': data['exp_month_val']})
+        if data.get('exp_month_yoy') is not None:
+            exp_yoy_pts.append({'period': period, 'value': data['exp_month_yoy']})
+
+    for pts in [iva_month_pts, iva_cumul_pts, exp_val_pts, exp_yoy_pts]:
+        pts.sort(key=lambda x: x['period'])
+
+    out: Dict[str, Any] = {}
+
+    if iva_month_pts or iva_cumul_pts:
+        series = []
+        if iva_month_pts:
+            series.append({'name': '当月同比(%)', 'data': iva_month_pts, 'series_type': 'yoy'})
+        if iva_cumul_pts:
+            series.append({'name': '累计同比(%)', 'data': iva_cumul_pts, 'series_type': 'yoy'})
+        out['industrial_value_added'] = {
+            'title': '规模以上工业增加值',
+            'unit': '%',
+            'chart_type': 'dual_line',
+            'series': series,
+        }
+
+    if exp_val_pts or exp_yoy_pts:
+        series = []
+        if exp_val_pts:
+            series.append({'name': '当月出口交货值(亿元)', 'data': exp_val_pts, 'series_type': 'value'})
+        if exp_yoy_pts:
+            series.append({'name': '当月同比(%)', 'data': exp_yoy_pts, 'series_type': 'yoy'})
+        out['industrial_export'] = {
+            'title': '工业出口交货值',
+            'unit': '亿元',
+            'chart_type': 'bar_line',
+            'series': series,
+        }
+
+    return out
+
+
+async def fetch_nbs_industrial_charts() -> Dict[str, Any]:
+    """
+    Fetch 工业增加值 and 工业出口交货值 time series.
+
+    Data paths (from NBS website):
+      工业增加值:    经济图表 > 月度经济图表 > 工业生产 > 工业增加值
+      工业出口交货值: 经济图表 > 月度经济图表 > 工业生产 > 工业出口交货值
+
+    Priority:
+      1. NBS easyquery via akshare — "月度经济图表" kind (user-specified paths, China servers)
+      2. NBS easyquery via akshare — "月度数据" kind (alternate paths, China servers)
+      3. NBS press release Excel scraper — any server, builds 24-month series
+      4. Jin10 fallback — any server, 工业增加值 YoY only
+    """
+    cache_key = "macro:nbs_industrial_charts"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    result: Dict[str, Any] = {}
+
+    # ── 工业增加值 ──────────────────────────────────────────────────────────
+    # 1. 月度经济图表 (user-specified path)
+    iva_series = await _fetch_nbs_indicator(["工业生产 > 工业增加值"], kind="月度经济图表")
+    # 2. 月度数据 alternate paths
+    if not iva_series:
+        iva_series = await _fetch_nbs_indicator([
+            "工业 > 规模以上工业增加值",
+            "工业 > 规模以上工业 > 工业增加值",
+        ])
+
+    # ── 工业出口交货值 ──────────────────────────────────────────────────────
+    # 1. 月度经济图表 (user-specified path)
+    exp_series = await _fetch_nbs_indicator(["工业生产 > 工业出口交货值"], kind="月度经济图表")
+    # 2. 月度数据 alternate paths
+    if not exp_series:
+        exp_series = await _fetch_nbs_indicator([
+            "工业 > 工业出口交货值",
+            "工业 > 工业总产值及出口交货值 > 工业出口交货值",
+            "工业 > 工业分大类行业出口交货值(2018-至今) > 总计",
+        ])
+
+    if iva_series:
+        result["industrial_value_added"] = {
+            "title": "规模以上工业增加值", "unit": "%",
+            "chart_type": "dual_line", "series": _annotate_series(iva_series),
+        }
+    if exp_series:
+        result["industrial_export"] = {
+            "title": "工业出口交货值", "unit": "亿元",
+            "chart_type": "bar_line", "series": _annotate_series(exp_series),
+        }
+
+    # ── Fallback: press release Excel scraper (any server) ──────────────────
+    need_iva = not result.get('industrial_value_added')
+    need_exp = not result.get('industrial_export')
+    if need_iva or need_exp:
+        try:
+            scraper = await _fetch_nbs_industrial_charts_from_releases(max_pages=50, count=24)
+            if need_iva and scraper.get('industrial_value_added'):
+                result['industrial_value_added'] = scraper['industrial_value_added']
+            if need_exp and scraper.get('industrial_export'):
+                result['industrial_export'] = scraper['industrial_export']
+        except Exception as e:
+            logger.warning(f"NBS industrial press release scraper failed: {e}")
+
+    # ── Jin10 last-resort fallback for 工业增加值 ────────────────────────────
+    if not result.get('industrial_value_added'):
+        try:
+            df = await _run_ak("macro_china_industrial_production_yoy")
+            if df is not None and not df.empty:
+                import math
+                points = []
+                for _, row in df.iterrows():
+                    try:
+                        v = float(row.get("今值") or row.get("当前值") or 0)
+                        period = str(row.get("日期", ""))[:7]
+                        if v == v and period:
+                            points.append({"period": period, "value": round(v, 2)})
+                    except Exception:
+                        pass
+                points.sort(key=lambda x: x["period"])
+                points = [p for p in points if p["value"] is not None][-36:]
+                if points:
+                    result["industrial_value_added"] = {
+                        "title": "规模以上工业增加值", "unit": "%",
+                        "chart_type": "dual_line",
+                        "series": [{"name": "当月同比(%)", "data": points, "series_type": "yoy"}],
+                    }
+        except Exception as e:
+            logger.debug(f"Jin10 工业增加值 fallback error: {e}")
+
+    if result:
+        _set_cache(cache_key, result, CACHE_TTL_INDUSTRIAL)
+    logger.info(f"NBS industrial charts fetched: keys={list(result.keys())}")
+    return result
 
 
 # ── Aggregate ───────────────────────────────────────────────────────────────
