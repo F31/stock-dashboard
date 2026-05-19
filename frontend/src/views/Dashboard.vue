@@ -62,7 +62,7 @@
       </div>
 
       <!-- Stock Grid (fluid auto-fill, max 2 rows on desktop) -->
-      <div class="stock-grid">
+      <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
         <div
           v-for="(stock, idx) in visibleStocks"
           :key="stock.id"
@@ -84,6 +84,17 @@
             @open-detail="handleOpenDetail"
           />
         </div>
+      </div>
+
+      <!-- Pagination Controls -->
+      <div v-if="totalPages > 1" class="pagination">
+        <button class="page-btn" :disabled="currentPage === 0" @click="prevPage">
+          ‹ 上一页
+        </button>
+        <span class="page-info">{{ currentPage + 1 }} / {{ totalPages }}</span>
+        <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="nextPage">
+          下一页 ›
+        </button>
       </div>
 
       <!-- Market Intelligence -->
@@ -159,7 +170,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
 import StockCard from '../components/StockCard.vue'
@@ -216,12 +227,21 @@ const gridCols = computed(() => {
   return Math.min(5, Math.max(1, Math.floor((avail + gap) / (280 + gap))))
 })
 
-// Mobile (1 col): show all; Desktop: max 2 rows
+// Mobile (1 col): show all; Desktop: max 2 rows per page
 const MAX_VISIBLE = computed(() =>
   gridCols.value <= 1 ? 9999 : gridCols.value * 2
 )
+
+// ── Pagination ──
+const currentPage = ref(0)
+const totalPages = computed(() =>
+  MAX_VISIBLE.value >= 9999 ? 1 : Math.max(1, Math.ceil(currentStocks.value.length / MAX_VISIBLE.value))
+)
+const pageStart = computed(() => currentPage.value * MAX_VISIBLE.value)
+const pageEnd = computed(() => Math.min(pageStart.value + MAX_VISIBLE.value, currentStocks.value.length))
+
 const visibleStocks = computed(() =>
-  currentStocks.value.slice(0, MAX_VISIBLE.value)
+  currentStocks.value.slice(pageStart.value, pageEnd.value)
 )
 
 const watchlist = computed(() => store.watchlistWithData)
@@ -300,6 +320,10 @@ function onDrop(e, idx) {
     return
   }
 
+  // Convert page-relative indices to absolute indices within currentStocks
+  const absFrom = pageStart.value + dragIdx.value
+  const absTo = pageStart.value + idx
+
   const list = currentStocks.value
   if (!list || list.length < 2) {
     dragIdx.value = -1; dragOverIdx.value = -1
@@ -307,8 +331,8 @@ function onDrop(e, idx) {
   }
 
   const newList = [...list]
-  const [moved] = newList.splice(dragIdx.value, 1)
-  newList.splice(idx, 0, moved)
+  const [moved] = newList.splice(absFrom, 1)
+  newList.splice(absTo, 0, moved)
 
   const newIds = newList.map(s => s.id)
 
@@ -382,6 +406,39 @@ function handleAdded() {
   // Card already added to local state by store.addStock (optimistic).
   // Real-time data is being fetched in background by store.addStock -> refreshStocks.
 }
+
+function prevPage() {
+  if (currentPage.value > 0) currentPage.value--
+}
+
+function nextPage() {
+  if (currentPage.value < totalPages.value - 1) currentPage.value++
+}
+
+// ── Touch swipe to paginate ──
+let touchStartX = 0
+let touchStartY = 0
+
+function onTouchStart(e) {
+  touchStartX = e.touches[0].clientX
+  touchStartY = e.touches[0].clientY
+}
+
+function onTouchEnd(e) {
+  if (totalPages.value <= 1) return
+  const dx = e.changedTouches[0].clientX - touchStartX
+  const dy = e.changedTouches[0].clientY - touchStartY
+  // Only trigger on predominantly horizontal swipes with enough distance
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return
+  if (dx < 0) nextPage()
+  else prevPage()
+}
+
+// Reset to first page when switching tabs or when page count shrinks below current page
+watch(activeTab, () => { currentPage.value = 0 })
+watch(totalPages, (newTotal) => {
+  if (currentPage.value >= newTotal) currentPage.value = Math.max(0, newTotal - 1)
+})
 
 function logout() {
   localStorage.removeItem('token')
@@ -659,6 +716,7 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: clamp(8px, 1.5vw, 14px);
   padding: 4px 0 16px;
+  touch-action: pan-y;
 }
 
 /* ── "列表" button in tab bar ── */
@@ -680,6 +738,46 @@ onUnmounted(() => {
   background: #f3f4f6;
   border-color: #2563eb;
   color: #2563eb;
+}
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 4px 0 16px;
+}
+
+.page-btn {
+  padding: 7px 20px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.88em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.page-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 0.85em;
+  color: #6b7280;
+  min-width: 52px;
+  text-align: center;
 }
 
 /* ── Empty State ── */
