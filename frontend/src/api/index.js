@@ -201,3 +201,29 @@ export function listLogs(page = 1, pageSize = 20, filters = {}) {
     params: { page, page_size: pageSize, ...filters },
   })
 }
+
+// ── Data Sources ──
+export function listDataSources() { return api.get('/datasources') }
+export function createDataSource(data) { return api.post('/datasources', data) }
+export function updateDataSource(id, data) { return api.put(`/datasources/${id}`, data) }
+export function deleteDataSource(id) { return api.delete(`/datasources/${id}`) }
+
+// ── Prompt Templates ──
+export function listPromptTemplates() { return api.get('/prompt-templates') }
+export function createPromptTemplate(data) { return api.post('/prompt-templates', data) }
+export function updatePromptTemplate(id, data) { return api.put(`/prompt-templates/${id}`, data) }
+export function deletePromptTemplate(id) { return api.delete(`/prompt-templates/${id}`) }
+export function setDefaultPromptTemplate(id) { return api.post(`/prompt-templates/${id}/set-default`) }
+
+// ── Scheduled Tasks ──
+export function listScheduledTasks() { return api.get('/scheduled-tasks') }
+export function createScheduledTask(data) { return api.post('/scheduled-tasks', data) }
+export function updateScheduledTask(id, data) { return api.put(`/scheduled-tasks/${id}`, data) }
+export function deleteScheduledTask(id) { return api.delete(`/scheduled-tasks/${id}`) }
+
+// ── Premarket Analysis ──
+export function triggerPremarket() { return api.post('/premarket/run') }
+export function getLatestPremarket() { return api.get('/premarket/latest') }
+export function listPremarketReports(limit = 30) { return api.get('/premarket/reports', { params: { limit } }) }
+export function getPremarketReport(id) { return api.get(`/premarket/reports/${id}`) }
+export function getStreamText(id) { return api.get(`/premarket/stream-text/${id}`) }

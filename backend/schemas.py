@@ -153,12 +153,109 @@ class LLMConfigResponse(BaseModel):
     provider: str
     base_url: str
     model_name: str
-    api_key_masked: str      # 脱敏展示
-    api_key: Optional[str] = None   # 仅详情接口返回明文
+    api_key_masked: str      # 脱敏展示，格式：前4位 + *×8 + 后4位
     description: str
     is_default: bool
     created_at: Optional[str] = ""
     updated_at: Optional[str] = ""
 
+    class Config:
+        from_attributes = True
+
+
+# ── Data Sources ──
+
+class DataSourceCreate(BaseModel):
+    name: str
+    url: str
+    source_type: str = "rss"
+    category: str = "国际"
+    notes: str = ""
+    enabled: bool = True
+
+class DataSourceUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    source_type: Optional[str] = None
+    category: Optional[str] = None
+    notes: Optional[str] = None
+    enabled: Optional[bool] = None
+
+class DataSourceResponse(BaseModel):
+    id: int
+    name: str
+    url: str
+    source_type: str
+    category: str
+    notes: str
+    enabled: bool
+    created_at: Optional[str] = ""
+    class Config:
+        from_attributes = True
+
+
+# ── Prompt Templates ──
+
+class PromptTemplateCreate(BaseModel):
+    name: str
+    content: str
+    status: str = "active"
+    is_default: bool = False
+
+class PromptTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    content: Optional[str] = None
+    status: Optional[str] = None
+    is_default: Optional[bool] = None
+
+class PromptTemplateResponse(BaseModel):
+    id: int
+    name: str
+    content: str
+    status: str
+    is_default: bool
+    created_at: Optional[str] = ""
+    updated_at: Optional[str] = ""
+    class Config:
+        from_attributes = True
+
+
+# ── Scheduled Tasks ──
+
+class ScheduledTaskCreate(BaseModel):
+    name: str
+    task_type: str = "premarket_analysis"
+    schedule_time: str = "06:00"
+    enabled: bool = True
+
+class ScheduledTaskUpdate(BaseModel):
+    name: Optional[str] = None
+    schedule_time: Optional[str] = None
+    enabled: Optional[bool] = None
+
+class ScheduledTaskResponse(BaseModel):
+    id: int
+    name: str
+    task_type: str
+    schedule_time: str
+    enabled: bool
+    last_run: Optional[str] = None
+    next_run: Optional[str] = None
+    created_at: Optional[str] = ""
+    class Config:
+        from_attributes = True
+
+
+# ── Premarket Reports ──
+
+class PremarketReportResponse(BaseModel):
+    id: int
+    report_date: str
+    report_time: str
+    report_path: str
+    analysis_json: str
+    status: str
+    error_msg: str
+    created_at: Optional[str] = ""
     class Config:
         from_attributes = True

@@ -12,8 +12,15 @@ from routes.admin import router as admin_router
 from routes.llm_config import router as llm_config_router
 from routes.macro import router as macro_router
 from routes.reports import router as reports_router
-from database import engine, Base
-from models import User, LLMConfig, StockReport  # noqa: F401 — ensures table is registered
+from routes.datasources import router as datasources_router
+from routes.prompt_templates import router as prompt_templates_router
+from routes.scheduled_tasks import router as scheduled_tasks_router
+from routes.premarket import router as premarket_router
+from database import engine, Base, get_db
+from models import (  # noqa: F401 — ensures tables are registered
+    User, LLMConfig, StockReport,
+    DataSource, PromptTemplate, PremarketReport, ScheduledTask,
+)
 from sqlalchemy.orm import Session
 
 logging.basicConfig(
@@ -32,6 +39,188 @@ _ensure_column("users", "role VARCHAR(20) DEFAULT 'user'")
 _ensure_column("watchlist", "item_type VARCHAR(10) DEFAULT 'stock'")
 _ensure_column("watchlist", "hidden INTEGER DEFAULT 0")
 _ensure_column("operation_logs", "ip_location VARCHAR(100) DEFAULT ''")
+
+
+def _seed_defaults():
+    """首次启动时插入默认数据源、提示词模板、定时任务。"""
+    from sqlalchemy.orm import Session as _S
+    db: _S = next(get_db())
+    try:
+        # ── 默认数据源 ──
+        if db.query(DataSource).count() == 0:
+            defaults = [
+                DataSource(name="Reuters Technology", source_type="rss", category="国际",
+                           url="https://feeds.reuters.com/reuters/technologyNews",
+                           notes="路透社科技新闻"),
+                DataSource(name="CNBC Tech", source_type="rss", category="国际",
+                           url="https://www.cnbc.com/id/19854910/device/rss/rss.html",
+                           notes="CNBC科技频道"),
+                DataSource(name="MarketWatch", source_type="rss", category="国际",
+                           url="https://feeds.marketwatch.com/marketwatch/topstories/",
+                           notes="MarketWatch头条"),
+                DataSource(name="TechCrunch", source_type="rss", category="国际",
+                           url="https://techcrunch.com/feed/",
+                           notes="TechCrunch科技创业"),
+                DataSource(name="新浪财经科技", source_type="api", category="国内",
+                           url="https://feed.mix.sina.com.cn/api/roll/get",
+                           notes="新浪财经科技滚动新闻"),
+                DataSource(name="东方财富", source_type="webpage", category="国内",
+                           url="https://www.eastmoney.com",
+                           notes="东方财富财经新闻"),
+                DataSource(name="财联社", source_type="api", category="国内",
+                           url="https://www.cls.cn/api/telegraph/index",
+                           notes="财联社电报"),
+                DataSource(name="36氪", source_type="rss", category="国内",
+                           url="https://36kr.com/feed",
+                           notes="36氪科技创业"),
+            ]
+            db.add_all(defaults)
+
+        # ── 默认提示词模板 ──
+        if db.query(PromptTemplate).count() == 0:
+            default_prompt = """# 角色
+你是 AI 产业链研究助理。你的任务是基于下方提供的、经过采集和清洗的结构化数据，
+做产业链关联分析，生成股票观察清单和 A股开盘前情景判断。
+
+# 最重要的约束(违反即视为失败)
+1. 你只能基于【输入数据】区块内的信息进行分析。严禁引入任何外部信息、你训练数据中的旧信息或你的猜测。
+2. 所有数字、行情、事件均为既定事实，不得修改、不得编造。如果某项信息输入中没有，就明确写"数据中未提供"，不要补全。
+3. 你的工作是"判断与解读"，不是"提供事实"。
+4. 你输出的是"值得关注什么、为什么"，不是买卖指令。不得出现"买入""卖出""目标价"等表述。
+5. 每个标的必须同时给出看多和看空两方面理由。
+
+# 产业链分层定义(用于给标的打标签)
+- 算力层：AI芯片、晶圆代工、先进封装、HBM、服务器、光模块、数据中心、电力与散热
+- 模型与平台层：大模型厂商、云服务、开发框架
+- 应用层：AI软件、AI Agent、垂直行业应用
+- 配套基础设施：网络设备、存储
+
+# 分析步骤
+1. 通读输入数据，识别与 AI 产业链相关的关键事件。
+2. 将每个事件关联到产业链层级和具体标的；若某事件可能沿产业链传导（如算力层利空传导至光模块），需指出传导路径。
+3. 结合隔夜美股、股指期货表现，判断市场对科技股的情绪基调。
+4. 筛选出 3-5 个本期最值得关注的标的进入观察清单。
+5. 给出 A股开盘前的情景判断（注意：是情景描述，不是涨跌预测）。
+
+# 输入数据
+## 新闻(过去24小时)
+{{news_json}}
+## 财报与重要事件
+{{earnings_events_json}}
+## 宏观经济数据
+{{macro_json}}
+## 隔夜美股收盘(含盘后)
+{{us_market_json}}
+## 股指期货
+{{futures_json}}
+
+# 输出格式(严格输出 JSON，不要任何额外文字、不要 Markdown 代码块)
+{
+  "date": "YYYY-MM-DD",
+  "market_sentiment": {
+    "tone": "偏乐观/中性/偏谨慎",
+    "basis": "基于哪些输入数据得出，逐条说明"
+  },
+  "watchlist": [
+    {
+      "name": "标的名称",
+      "industry_layer": "所属产业链层级",
+      "trigger_event": "今天因何进入清单",
+      "source_ref": "该结论依据的输入数据条目标识",
+      "overnight_performance": "隔夜相关表现，无则填'数据中未提供'",
+      "bull_case": "看多理由",
+      "bear_case": "看空理由",
+      "follow_up": "需要用户进一步跟进的问题"
+    }
+  ],
+  "premarket_outlook": {
+    "summary": "A股开盘前情景判断",
+    "key_watch_points": ["关注点1", "关注点2"],
+    "uncertainties": ["主要不确定性1", "主要不确定性2"]
+  },
+  "data_gaps": ["本次输入中缺失或不足的数据项"]
+}"""
+            db.add(PromptTemplate(
+                name="AI产业链盘前分析（默认）",
+                content=default_prompt,
+                status="active",
+                is_default=1,
+            ))
+
+        # ── 默认定时任务 ──
+        if db.query(ScheduledTask).count() == 0:
+            db.add(ScheduledTask(
+                name="AI产业链盘前分析",
+                task_type="premarket_analysis",
+                schedule_time="06:00",
+                enabled=1,
+            ))
+
+        db.commit()
+        logging.info("Default seed data initialized")
+    except Exception as e:
+        logging.warning(f"Seed defaults error: {e}")
+    finally:
+        db.close()
+
+
+_seed_defaults()
+
+
+def _cleanup_stale_running():
+    """启动时：把遗留 running 记录标为 failed，并删除所有 failed 记录。"""
+    from sqlalchemy.orm import Session as _S
+    db: _S = next(get_db())
+    try:
+        from models import PremarketReport
+        # 1. 遗留 running → failed
+        stale = db.query(PremarketReport).filter(PremarketReport.status == "running").all()
+        for r in stale:
+            r.status = "failed"
+            r.error_msg = "服务重启，任务中断"
+        if stale:
+            db.commit()
+            logging.info(f"Startup cleanup: marked {len(stale)} stale running record(s) as failed")
+        # 2. 删除所有 failed 记录
+        deleted = db.query(PremarketReport).filter(PremarketReport.status == "failed").delete()
+        if deleted:
+            db.commit()
+            logging.info(f"Startup cleanup: deleted {deleted} failed record(s)")
+    except Exception as e:
+        logging.warning(f"Startup cleanup error: {e}")
+    finally:
+        db.close()
+
+
+_cleanup_stale_running()
+
+
+async def _periodic_stale_cleanup():
+    """每 2 分钟：删除超时 running 记录 + 删除所有 failed 记录。"""
+    await asyncio.sleep(60)  # 启动 1 分钟后开始
+    while True:
+        try:
+            import datetime as _dt
+            from database import SessionLocal
+            from models import PremarketReport
+            db = SessionLocal()
+            # 1. 超过 20 分钟仍 running → 删除
+            cutoff = _dt.datetime.utcnow() - _dt.timedelta(minutes=20)
+            stuck = db.query(PremarketReport).filter(
+                PremarketReport.status == "running",
+                PremarketReport.created_at < cutoff,
+            ).delete()
+            # 2. 所有 failed → 删除
+            failed = db.query(PremarketReport).filter(
+                PremarketReport.status == "failed",
+            ).delete()
+            if stuck or failed:
+                db.commit()
+                logging.info(f"Periodic cleanup: deleted {stuck} stuck + {failed} failed record(s)")
+            db.close()
+        except Exception as e:
+            logging.warning(f"Periodic stale cleanup error: {e}")
+        await asyncio.sleep(120)  # 每 2 分钟检查一次
 
 
 async def _daily_macro_refresh():
@@ -54,12 +243,27 @@ async def _daily_macro_refresh():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_daily_macro_refresh())
-    yield
-    task.cancel()
+    task_macro = asyncio.create_task(_daily_macro_refresh())
+    task_cleanup = asyncio.create_task(_periodic_stale_cleanup())
+    # 启动盘前分析调度器
     try:
-        await task
-    except asyncio.CancelledError:
+        from premarket.scheduler import start as sched_start, stop as sched_stop
+        db = next(get_db())
+        sched_start(db)
+        db.close()
+    except Exception as e:
+        logging.warning(f"Scheduler start error: {e}")
+    yield
+    for t in (task_macro, task_cleanup):
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+    try:
+        from premarket.scheduler import stop as sched_stop
+        sched_stop()
+    except Exception:
         pass
 
 
@@ -88,6 +292,10 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(llm_config_router, prefix="/api")
 app.include_router(macro_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
+app.include_router(datasources_router, prefix="/api")
+app.include_router(prompt_templates_router, prefix="/api")
+app.include_router(scheduled_tasks_router, prefix="/api")
+app.include_router(premarket_router, prefix="/api")
 
 # ── Serve reports directory ──
 reports_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "reports")

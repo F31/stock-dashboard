@@ -6,6 +6,17 @@
         <h1><span class="logo-icon">📈</span> 自选股看板</h1>
         <span class="update-time" v-if="lastUpdate">更新于 {{ lastUpdate }}</span>
       </div>
+
+      <!-- Center: Premarket Analysis -->
+      <div class="header-c">
+        <button class="btn btn-premarket" @click="showPremarket = true">
+          ☀ 今日盘前分析（人工智能产业链）
+        </button>
+        <button class="btn btn-premarket-hist" @click="showPremarketHist = true" title="历史记录">
+          ···
+        </button>
+      </div>
+
       <div class="header-r">
         <span class="user-badge">{{ username }}</span>
 
@@ -16,6 +27,10 @@
             <button class="sys-item" @click="showUserMgmt = true">👥 用户维护</button>
             <button class="sys-item" @click="showOpLogs = true">📋 操作日志</button>
             <button class="sys-item" @click="showLLMConfig = true">🤖 大模型配置</button>
+            <div class="sys-divider"></div>
+            <button class="sys-item" @click="showScheduledTasks = true">⏰ 定时任务</button>
+            <button class="sys-item" @click="showDataSources = true">📡 采集数据配置</button>
+            <button class="sys-item" @click="showPromptTemplates = true">📝 提示词模板</button>
           </div>
         </div>
 
@@ -166,6 +181,36 @@
       @close="detailStock = null; detailInitialTab = 'info'"
       @notes-saved="handleNotesSaved"
     />
+
+    <!-- Premarket Analysis Modal -->
+    <PremarketModal
+      v-if="showPremarket"
+      @close="showPremarket = false"
+    />
+
+    <!-- Premarket History Modal -->
+    <PremarketHistoryModal
+      v-if="showPremarketHist"
+      @close="showPremarketHist = false"
+    />
+
+    <!-- Scheduled Tasks Config -->
+    <ScheduledTaskConfig
+      v-if="showScheduledTasks"
+      @close="showScheduledTasks = false"
+    />
+
+    <!-- Data Source Config -->
+    <DataSourceConfig
+      v-if="showDataSources"
+      @close="showDataSources = false"
+    />
+
+    <!-- Prompt Template Config -->
+    <PromptTemplateConfig
+      v-if="showPromptTemplates"
+      @close="showPromptTemplates = false"
+    />
   </div>
 </template>
 
@@ -184,6 +229,11 @@ import LLMConfigModal from '../components/LLMConfigModal.vue'
 import MacroMonitor from '../components/MacroMonitor.vue'
 import IndustrialProfitMonitor from '../components/IndustrialProfitMonitor.vue'
 import StockDetailModal from '../components/StockDetailModal.vue'
+import PremarketModal from '../components/PremarketModal.vue'
+import PremarketHistoryModal from '../components/PremarketHistoryModal.vue'
+import ScheduledTaskConfig from '../components/ScheduledTaskConfig.vue'
+import DataSourceConfig from '../components/DataSourceConfig.vue'
+import PromptTemplateConfig from '../components/PromptTemplateConfig.vue'
 
 const router = useRouter()
 const store = useStockStore()
@@ -195,6 +245,11 @@ const showUserMgmt = ref(false)
 const showOpLogs = ref(false)
 const showLLMConfig = ref(false)
 const showSysMenu = ref(false)
+const showPremarket = ref(false)
+const showPremarketHist = ref(false)
+const showScheduledTasks = ref(false)
+const showDataSources = ref(false)
+const showPromptTemplates = ref(false)
 const activeTab = ref('ALL')
 const detailStock = ref(null)
 
@@ -612,6 +667,47 @@ onUnmounted(() => {
 }
 .sys-item:hover { background: #f3f4f6; color: #2563eb; }
 .sys-item + .sys-item { border-top: 1px solid #f3f4f6; }
+.sys-divider { height: 1px; background: #e5e7eb; margin: 2px 0; }
+
+/* ── Header Center (Premarket) ── */
+.header-c {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
+.btn-premarket {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.82em;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(245,158,11,0.35);
+}
+.btn-premarket:hover { background: linear-gradient(135deg, #d97706, #b45309); }
+
+.btn-premarket-hist {
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.85);
+  font-size: 1em;
+  font-weight: 700;
+  letter-spacing: .08em;
+  padding: 5px 10px;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.btn-premarket-hist:hover { background: rgba(255,255,255,0.25); }
 
 /* ── Error Toast ── */
 .error-toast {

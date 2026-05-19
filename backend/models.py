@@ -55,6 +55,54 @@ class StockReport(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class DataSource(Base):
+    __tablename__ = "data_sources"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    url = Column(String(1000), nullable=False)
+    source_type = Column(String(20), default="rss")   # rss | api | webpage
+    category = Column(String(20), default="国际")      # 国际 | 国内
+    notes = Column(String(500), default="")
+    enabled = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class PromptTemplate(Base):
+    __tablename__ = "prompt_templates"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String(20), default="active")      # active | inactive
+    is_default = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class PremarketReport(Base):
+    __tablename__ = "premarket_reports"
+    id = Column(Integer, primary_key=True, index=True)
+    report_date = Column(String(20), nullable=False, index=True)   # YYYY-MM-DD
+    report_time = Column(String(20), default="")                   # HH:MM:SS
+    report_path = Column(String(500), default="")                  # relative path to HTML
+    analysis_json = Column(Text, default="")                       # LLM output JSON
+    raw_data_json = Column(Text, default="")                       # collected+cleaned data
+    status = Column(String(20), default="completed")               # running|completed|failed
+    error_msg = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    task_type = Column(String(50), default="premarket_analysis")
+    schedule_time = Column(String(10), default="06:00")            # HH:MM
+    enabled = Column(Integer, default=1)
+    last_run = Column(DateTime, nullable=True)
+    next_run = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class OperationLog(Base):
     __tablename__ = "operation_logs"
     id = Column(Integer, primary_key=True, index=True)

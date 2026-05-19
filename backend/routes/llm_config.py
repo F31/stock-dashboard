@@ -20,10 +20,10 @@ def _mask_key(key: str) -> str:
         return ""
     if len(key) <= 8:
         return "*" * len(key)
-    return key[:4] + "·" * 8 + key[-4:]
+    return key[:4] + "*" * 8 + key[-4:]
 
 
-def _to_response(cfg: LLMConfig, include_key: bool = False) -> LLMConfigResponse:
+def _to_response(cfg: LLMConfig) -> LLMConfigResponse:
     return LLMConfigResponse(
         id=cfg.id,
         name=cfg.name,
@@ -31,7 +31,6 @@ def _to_response(cfg: LLMConfig, include_key: bool = False) -> LLMConfigResponse
         base_url=cfg.base_url,
         model_name=cfg.model_name,
         api_key_masked=_mask_key(cfg.api_key or ""),
-        api_key=cfg.api_key if include_key else None,
         description=cfg.description or "",
         is_default=bool(cfg.is_default),
         created_at=cfg.created_at.strftime("%Y-%m-%d %H:%M") if cfg.created_at else "",
@@ -54,11 +53,10 @@ def get_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """返回完整配置（含明文 API Key），供编辑表单使用。"""
     cfg = db.query(LLMConfig).filter(LLMConfig.id == config_id).first()
     if not cfg:
         raise HTTPException(404, "Config not found")
-    return _to_response(cfg, include_key=True)
+    return _to_response(cfg)
 
 
 @router.post("", response_model=LLMConfigResponse)
@@ -110,7 +108,7 @@ def update_config(
         cfg.base_url = req.base_url
     if req.model_name is not None:
         cfg.model_name = req.model_name
-    if req.api_key is not None:
+    if req.api_key:          # 仅在非空时才更新，空值保留原有 Key
         cfg.api_key = req.api_key
     if req.description is not None:
         cfg.description = req.description

@@ -47,15 +47,7 @@
               <div class="card-url">{{ c.base_url }}</div>
               <div class="card-key">
                 <span class="key-label">Key</span>
-                <span class="key-val" :class="{ revealed: revealedIds.has(c.id) }">
-                  {{ revealedIds.has(c.id) ? (fullKeys[c.id] || c.api_key_masked) : c.api_key_masked }}
-                </span>
-                <button
-                  v-if="c.api_key_masked"
-                  class="eye-btn"
-                  :title="revealedIds.has(c.id) ? '隐藏' : '显示'"
-                  @click.stop="toggleReveal(c)"
-                >{{ revealedIds.has(c.id) ? '🙈' : '👁' }}</button>
+                <span class="key-val">{{ c.api_key_masked || '未设置' }}</span>
               </div>
             </div>
           </div>
@@ -110,20 +102,14 @@
 
             <!-- API Key -->
             <div class="field">
-              <label>API Key</label>
-              <div class="key-input-wrap">
-                <input
-                  v-model="form.api_key"
-                  :type="showKey ? 'text' : 'password'"
-                  placeholder="sk-..."
-                  class="key-input"
-                  autocomplete="new-password"
-                />
-                <button type="button" class="key-eye" @click="showKey = !showKey">
-                  {{ showKey ? '🙈' : '👁' }}
-                </button>
-              </div>
-              <p class="field-hint">列表中仅展示前4位和后4位，完整 Key 仅在编辑时可见</p>
+              <label>API Key{{ editId ? '（留空则保留原有 Key）' : '' }}</label>
+              <input
+                v-model="form.api_key"
+                type="password"
+                :placeholder="editId ? '不修改请留空' : 'sk-...'"
+                autocomplete="new-password"
+              />
+              <p class="field-hint">Key 仅存储于服务端，前端只展示前4位和后4位，不传输完整内容</p>
             </div>
 
             <!-- Description -->
@@ -174,10 +160,7 @@ const loading = ref(false)
 const saving = ref(false)
 const formVisible = ref(false)
 const editId = ref(null)
-const showKey = ref(false)
 const formError = ref('')
-const revealedIds = ref(new Set())
-const fullKeys = ref({})   // id → full key, loaded on demand
 
 const form = reactive({
   name: '',
@@ -234,7 +217,6 @@ function startNew() {
     name: '', provider: 'openai', base_url: 'https://api.openai.com/v1',
     model_name: 'gpt-4o', api_key: '', description: '', is_default: false,
   })
-  showKey.value = false
   formError.value = ''
   formVisible.value = true
 }
@@ -242,7 +224,6 @@ function startNew() {
 async function startEdit(id) {
   editId.value = id
   formError.value = ''
-  showKey.value = false
   formVisible.value = true
   try {
     const res = await getLLMConfig(id)
@@ -252,7 +233,7 @@ async function startEdit(id) {
       provider: c.provider || 'custom',
       base_url: c.base_url,
       model_name: c.model_name,
-      api_key: c.api_key || '',
+      api_key: '',            // 始终置空，编辑时留空 = 保留原有 Key
       description: c.description || '',
       is_default: c.is_default,
     })
@@ -279,9 +260,12 @@ async function handleSubmit() {
       provider: form.provider,
       base_url: form.base_url.trim(),
       model_name: form.model_name.trim(),
-      api_key: form.api_key,
       description: form.description.trim(),
       is_default: form.is_default,
+    }
+    // 只在用户实际填写了新 Key 时才传输，留空则后端保留原值
+    if (form.api_key.trim()) {
+      payload.api_key = form.api_key.trim()
     }
     if (editId.value) {
       await updateLLMConfig(editId.value, payload)
@@ -290,8 +274,6 @@ async function handleSubmit() {
     }
     formVisible.value = false
     editId.value = null
-    fullKeys.value = {}
-    revealedIds.value = new Set()
     await loadConfigs()
   } catch (e) {
     formError.value = e.response?.data?.detail || '保存失败，请重试'
@@ -315,31 +297,10 @@ async function handleDelete(c) {
   try {
     await deleteLLMConfig(c.id)
     if (editId.value === c.id) cancelForm()
-    fullKeys.value = { ...fullKeys.value }
-    delete fullKeys.value[c.id]
-    revealedIds.value.delete(c.id)
     await loadConfigs()
   } catch {
     // ignore
   }
-}
-
-async function toggleReveal(c) {
-  const id = c.id
-  if (revealedIds.value.has(id)) {
-    revealedIds.value = new Set([...revealedIds.value].filter(x => x !== id))
-    return
-  }
-  // Load full key if not cached
-  if (!fullKeys.value[id]) {
-    try {
-      const res = await getLLMConfig(id)
-      fullKeys.value = { ...fullKeys.value, [id]: res.data.api_key || '' }
-    } catch {
-      return
-    }
-  }
-  revealedIds.value = new Set([...revealedIds.value, id])
 }
 </script>
 
@@ -562,19 +523,6 @@ async function toggleReveal(c) {
   white-space: nowrap;
 }
 
-.key-val.revealed {
-  color: #1f2937;
-  font-size: 0.9em;
-  letter-spacing: 0;
-}
-
-.eye-btn {
-  background: none; border: none;
-  cursor: pointer; font-size: 0.95em;
-  padding: 0 2px; opacity: 0.5;
-  transition: opacity 0.15s;
-}
-.eye-btn:hover { opacity: 1; }
 
 .add-btn {
   margin: 10px 12px;
@@ -711,31 +659,6 @@ async function toggleReveal(c) {
 
 .pb-icon { font-size: 1.2em; }
 .pb-label { font-size: 0.78em; white-space: nowrap; }
-
-/* Key input */
-.key-input-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.key-input {
-  flex: 1;
-  padding-right: 36px !important;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  letter-spacing: 0.05em;
-}
-
-.key-eye {
-  position: absolute;
-  right: 8px;
-  background: none; border: none;
-  cursor: pointer; font-size: 1em;
-  opacity: 0.5;
-  transition: opacity 0.15s;
-  padding: 0;
-}
-.key-eye:hover { opacity: 1; }
 
 /* Toggle */
 .toggle {
