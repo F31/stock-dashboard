@@ -435,44 +435,44 @@ def _fill_china_sources(result: dict):
     def _clean_err(sym: str):
         result["errors"] = [e for e in result["errors"] if not e.startswith(f"{sym}:")]
 
-    # ── US ETF via 新浪财经实时行情 ───────────────────────────────────────
-    # 一次请求拿三个 ETF，字段：名称,现价,涨跌幅%,时间,涨跌额,...
+    # ── US ETF via 东方财富 ulist 实时行情（无需鉴权，国内云主机可达）──────
+    # secid 格式：市场代码.标的代码，105=NASDAQ，107=NYSE Arca
+    etf_secid_map = {"SPY": "107.SPY", "QQQ": "105.QQQ", "DIA": "107.DIA"}
     etf_need = [s for s in ("SPY", "QQQ", "DIA") if s not in result["indices"]]
     if etf_need:
-        sina_sym_map = {"SPY": "gb_spy", "QQQ": "gb_qqq", "DIA": "gb_dia"}
-        sina_query = ",".join(sina_sym_map[s] for s in etf_need)
+        secids = ",".join(etf_secid_map[s] for s in etf_need)
         try:
             r = requests.get(
-                f"https://hq.sinajs.cn/list={sina_query}",
-                headers={**HEADERS, "Referer": "https://finance.sina.com.cn/"},
-                timeout=TIMEOUT, proxies=PROXIES,
+                "https://push2.eastmoney.com/api/qt/ulist.np/get",
+                params={
+                    "secids": secids,
+                    "fields": "f2,f3,f4,f12,f14,f18",   # 现价,涨跌幅%,涨跌额,代码,名称,昨收
+                    "ut":   "bd1d9ddb04089700cf9c27f6f7426281",
+                    "invt": "2", "fltt": "2",
+                },
+                headers=HEADERS, timeout=TIMEOUT, proxies=PROXIES,
             )
             r.raise_for_status()
-            import re
+            diff = r.json().get("data", {}).get("diff", [])
+            code_to_row = {item["f12"]: item for item in diff}
             for sym in etf_need:
                 label = _US_SYMBOLS["indices"][sym]
-                m = re.search(rf'hq_str_{sina_sym_map[sym]}="([^"]*)"', r.text)
-                if not m or not m.group(1):
-                    result["errors"].append(f"{sym}: empty response (Sina)")
+                row = code_to_row.get(sym)
+                if not row:
+                    result["errors"].append(f"{sym}: not in EastMoney ulist response")
                     continue
-                parts = m.group(1).split(",")
-                if len(parts) < 5:
-                    result["errors"].append(f"{sym}: unexpected format (Sina)")
-                    continue
-                last     = float(parts[1])
-                chg_pct  = float(parts[2])          # 涨跌幅，已是百分比数字
-                chg_amt  = float(parts[4])          # 涨跌额
-                prev     = round(last - chg_amt, 4) if chg_amt else None
+                last    = float(row["f2"])
+                chg_pct = float(row["f3"])
                 result["indices"][sym] = {
                     "label": label,
                     "price": round(last, 4),
                     "change_pct": round(chg_pct, 2),
                 }
                 _clean_err(sym)
-                logger.info(f"[Sina] {sym}: {last} ({chg_pct:+.2f}%)")
+                logger.info(f"[EastMoney] {sym}: {last} ({chg_pct:+.2f}%)")
         except Exception as e:
             for sym in etf_need:
-                result["errors"].append(f"{sym} (Sina): {e}")
+                result["errors"].append(f"{sym} (EastMoney): {e}")
 
     # ── VIX via CBOE CDN（Cloudflare，中国可达） ─────────────────────────
     if "^VIX" not in result["indices"]:
