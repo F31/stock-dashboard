@@ -73,6 +73,9 @@ def _seed_defaults():
                 DataSource(name="36氪", source_type="rss", category="国内",
                            url="https://36kr.com/feed",
                            notes="36氪科技创业"),
+                DataSource(name="财新资讯", source_type="api", category="国内",
+                           url="https://www.caixin.com",
+                           notes="财新快讯，覆盖宏观、市场、产业动态（约100条）"),
             ]
             db.add_all(defaults)
 

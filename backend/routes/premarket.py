@@ -76,19 +76,17 @@ def get_latest(db: Session = Depends(get_db), _: User = Depends(get_current_user
     }
 
 
-@router.get("/reports", response_model=list[PremarketReportResponse])
+@router.get("/reports")
 def list_reports(
-    limit: int = 30,
+    limit: int = 20,
+    offset: int = 0,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    rows = (
-        db.query(PremarketReport)
-        .order_by(PremarketReport.id.desc())
-        .limit(limit)
-        .all()
-    )
-    return [_to_resp(r) for r in rows]
+    q = db.query(PremarketReport).order_by(PremarketReport.id.desc())
+    total = q.count()
+    rows = q.offset(offset).limit(limit).all()
+    return {"total": total, "items": [_to_resp(r) for r in rows]}
 
 
 @router.get("/stream-text/{record_id}")

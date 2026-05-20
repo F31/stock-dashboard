@@ -224,6 +224,6 @@ export function deleteScheduledTask(id) { return api.delete(`/scheduled-tasks/${
 // ── Premarket Analysis ──
 export function triggerPremarket() { return api.post('/premarket/run') }
 export function getLatestPremarket() { return api.get('/premarket/latest') }
-export function listPremarketReports(limit = 30) { return api.get('/premarket/reports', { params: { limit } }) }
+export function listPremarketReports(limit = 20, offset = 0) { return api.get('/premarket/reports', { params: { limit, offset } }) }
 export function getPremarketReport(id) { return api.get(`/premarket/reports/${id}`) }
 export function getStreamText(id) { return api.get(`/premarket/stream-text/${id}`) }
