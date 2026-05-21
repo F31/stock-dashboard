@@ -998,19 +998,55 @@ onUnmounted(() => {
 
 /* ── Responsive: Mobile ── */
 @media (max-width: 640px) {
+  /* 两行布局：
+     行1: 标题(左) + 操作按钮(右)
+     行2: 盘前分析按钮(全宽) */
   .header {
-    padding: 8px clamp(10px, 3vw, 16px);
-    gap: 6px;
+    padding: 8px 12px;
+    gap: 0;
+    row-gap: 7px;
+    align-items: center;
   }
-  .header h1 { font-size: 0.95em; }
-  .header-l { gap: 8px; }
-  .header-r { gap: 4px; }
+
+  /* 行1: 标题撑满剩余空间 */
+  .header-l {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 8px;
+  }
+  .header h1 { font-size: 0.92em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .update-time { display: none; }
-  .user-badge { display: none; }
-  .btn { padding: 6px 10px; font-size: 0.78em; }
-  .btn-sys { padding: 6px 10px; font-size: 0.78em; }
-  /* Show icon-only for logout on very small screens */
-  .btn-logout .btn-text { display: none; }
+  .user-badge  { display: none; }
+
+  /* 行1: 按钮组靠右紧凑排列 */
+  .header-r {
+    flex: 0 0 auto;
+    gap: 5px;
+  }
+  .btn        { padding: 6px 9px; font-size: 0.76em; }
+  .btn-sys    { padding: 6px 9px; font-size: 0.76em; }
+
+  /* 行2: 盘前分析区 — order 靠后强制换行，宽度撑满 */
+  .header-c {
+    order: 10;
+    flex: 0 0 100%;
+    width: 100%;
+    justify-content: stretch;
+    gap: 5px;
+  }
+  .btn-premarket {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.78em;
+    padding: 7px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .btn-premarket-hist {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+  }
 
   .tab-bar-wrap {
     padding: 10px 0 0;
