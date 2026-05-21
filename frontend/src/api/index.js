@@ -168,6 +168,16 @@ export function deleteUser(id) {
   return api.delete(`/admin/users/${id}`)
 }
 
+// ── System Settings ──
+
+export function getSystemSetting(key) {
+  return api.get(`/admin/settings/${key}`)
+}
+
+export function updateSystemSetting(key, value) {
+  return api.put(`/admin/settings/${key}`, { value })
+}
+
 // ── LLM Config ──
 
 export function listLLMConfigs() {

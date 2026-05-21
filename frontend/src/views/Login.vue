@@ -1,51 +1,56 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <div class="logo">
-        <svg viewBox="0 0 64 64" fill="none" class="logo-icon">
-          <rect width="64" height="64" rx="12" fill="#3b82f6"/>
-          <path d="M16 44 L24 32 L32 38 L42 22 L50 30" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          <circle cx="50" cy="30" r="3" fill="#4ade80"/>
-        </svg>
+
+      <!-- Brand -->
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M4 22 L10 14 L16 18 L22 8 L28 14" stroke="#2563eb" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="28" cy="14" r="2" fill="#22c55e"/>
+          </svg>
+        </div>
         <h1>股票投资仪表盘</h1>
-        <p class="subtitle">Stock Investment Dashboard</p>
       </div>
 
-      <form @submit.prevent="handleSubmit" class="login-form">
-        <div class="form-group">
-          <label for="username">用户名</label>
+      <!-- Mode toggle -->
+      <div class="mode-bar">
+        <button :class="['mode-btn', { active: isLogin }]" @click="isLogin = true; errorMsg = ''">登录</button>
+        <button :class="['mode-btn', { active: !isLogin }]" @click="isLogin = false; errorMsg = ''">注册</button>
+      </div>
+
+      <!-- Form -->
+      <form @submit.prevent="handleSubmit" class="form">
+        <div class="field">
           <input
             id="username"
             v-model="form.username"
             type="text"
-            placeholder="请输入用户名"
-            required
+            placeholder="用户名"
+            autocomplete="username"
             :disabled="submitting"
           />
         </div>
-        <div class="form-group">
-          <label for="password">密码</label>
+        <div class="field">
           <input
             id="password"
             v-model="form.password"
             type="password"
-            placeholder="请输入密码"
-            required
+            placeholder="密码"
+            autocomplete="current-password"
             :disabled="submitting"
           />
         </div>
 
-        <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
+        <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
 
-        <div class="btn-group">
-          <button type="submit" class="btn btn-primary" :disabled="submitting">
-            {{ submitting ? '处理中...' : isLogin ? '登录' : '注册' }}
-          </button>
-          <button type="button" class="btn btn-secondary" @click="isLogin = !isLogin">
-            {{ isLogin ? '没有账号？去注册' : '已有账号？去登录' }}
-          </button>
-        </div>
+        <button type="submit" class="submit-btn" :disabled="submitting">
+          <span v-if="submitting" class="spinner"></span>
+          {{ submitting ? '处理中…' : isLogin ? '登录' : '注册' }}
+        </button>
       </form>
+
     </div>
   </div>
 </template>
@@ -62,24 +67,20 @@ const isLogin = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
 
-const form = reactive({
-  username: '',
-  password: '',
-})
+const form = reactive({ username: '', password: '' })
 
 function resolveError(e, isLoginMode) {
-  if (!e.response) {
-    return '网络连接失败，请检查网络后重试'
-  }
+  if (!e.response) return '网络连接失败，请检查网络后重试'
   const status = e.response.status
   const detail = e.response?.data?.detail || ''
   if (isLoginMode) {
-    if (status === 401) return '用户名或密码不正确，请重新输入'
+    if (status === 401) return '用户名或密码不正确'
     if (status === 403) return '账号已被禁用，请联系管理员'
     if (status >= 500) return '服务器繁忙，请稍后重试'
     return detail || '登录失败，请重试'
   } else {
-    if (status === 400 && detail.toLowerCase().includes('exists')) return '用户名已存在，请换一个或直接登录'
+    if (status === 403) return detail || '注册功能已关闭，请联系管理员'
+    if (status === 400 && detail.includes('已存在')) return '用户名已存在，请直接登录'
     if (status === 422) return '用户名或密码格式不正确'
     if (status >= 500) return '服务器繁忙，请稍后重试'
     return detail || '注册失败，请重试'
@@ -90,7 +91,6 @@ async function handleSubmit() {
   if (!form.username || !form.password) return
   submitting.value = true
   errorMsg.value = ''
-
   try {
     if (isLogin.value) {
       await authStore.login(form.username, form.password)
@@ -107,127 +107,173 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
+/* ── Page ── */
 .login-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  padding: 20px;
+  background: #f5f7fa;
 }
 
+/* ── Card ── */
 .login-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 40px;
-  width: 100%;
-  max-width: 400px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: #fff;
+  border-radius: 12px;
+  padding: 40px 36px 36px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.07);
 }
 
-.logo {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.logo-icon {
-  width: 56px;
-  height: 56px;
-  margin-bottom: 12px;
-}
-
-.logo h1 {
-  font-size: 22px;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-
-.subtitle {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.login-form {
+/* ── Brand ── */
+.brand {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-group label {
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.form-group input {
-  padding: 10px 14px;
-  border: 1px solid var(--border);
+.brand-icon {
+  width: 36px;
+  height: 36px;
+  background: #eff6ff;
   border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.form-group input:focus {
-  border-color: var(--accent);
-}
-
-.error-msg {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--down);
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  text-align: center;
-}
-
-.btn-group {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.btn {
-  padding: 10px 20px;
+.brand-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.brand h1 {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+/* ── Mode toggle ── */
+.mode-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 24px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 8px 0;
+  background: none;
   border: none;
-  border-radius: 8px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
 
-.btn:disabled {
+.mode-btn.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.mode-btn:not(.active):hover {
+  color: #6b7280;
+}
+
+/* ── Form ── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #111827;
+  background: #fafafa;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.field input::placeholder {
+  color: #c4c9d4;
+}
+
+.field input:focus {
+  border-color: #2563eb;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+}
+
+.field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Error ── */
+.error {
+  font-size: 13px;
+  color: #ef4444;
+  margin: 0;
+  padding: 2px 0;
+}
+
+/* ── Submit ── */
+.submit-btn {
+  width: 100%;
+  padding: 11px;
+  margin-top: 4px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.submit-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.btn-primary {
-  background: var(--accent);
-  color: white;
+/* ── Spinner ── */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.btn-secondary {
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

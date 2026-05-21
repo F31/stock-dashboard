@@ -76,6 +76,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     role: str
+    is_active: bool = True
     created_at: Optional[str] = ""
 
     class Config:
@@ -92,6 +93,16 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SystemSettingResponse(BaseModel):
+    key: str
+    value: str
+
+
+class SystemSettingUpdate(BaseModel):
+    value: str
 
 
 class PaginatedUsers(BaseModel):

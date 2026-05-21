@@ -22,7 +22,7 @@ from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
     DataSource, PromptTemplate, PremarketReport, ScheduledTask, WatchedTicker,
-    AnalysisFramework,
+    AnalysisFramework, SystemSetting,
 )
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,7 @@ Base.metadata.create_all(bind=engine)
 # Migration: add role column to users table if missing
 from database import _ensure_column
 _ensure_column("users", "role VARCHAR(20) DEFAULT 'user'")
+_ensure_column("users", "is_active INTEGER DEFAULT 1")
 _ensure_column("watchlist", "item_type VARCHAR(10) DEFAULT 'stock'")
 _ensure_column("watchlist", "hidden INTEGER DEFAULT 0")
 _ensure_column("operation_logs", "ip_location VARCHAR(100) DEFAULT ''")

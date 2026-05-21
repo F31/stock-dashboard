@@ -10,7 +10,15 @@ class User(Base):
     username = Column(String(50), unique=True, index=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
     role = Column(String(20), default="user")  # "admin" | "user"
+    is_active = Column(Integer, default=1)     # 1=正常, 0=禁用
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, default="")
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class WatchlistItem(Base):

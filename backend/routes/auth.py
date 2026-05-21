@@ -63,7 +63,9 @@ def log_action(db: Session, user_id: int, username: str, action: str,
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
     if not user or not bcrypt.checkpw(req.password.encode(), user.password_hash.encode()):
-        raise HTTPException(401, "Invalid username or password")
+        raise HTTPException(401, "用户名或密码不正确")
+    if getattr(user, "is_active", 1) == 0:
+        raise HTTPException(403, "账号已被禁用，请联系管理员")
 
     token = create_access_token({
         "sub": str(user.id),
@@ -79,9 +81,14 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
 
 @router.post("/register", response_model=TokenResponse)
 def register(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    from models import SystemSetting
+    reg_setting = db.query(SystemSetting).filter(SystemSetting.key == "allow_registration").first()
+    if reg_setting and reg_setting.value == "0":
+        raise HTTPException(403, "注册功能已关闭，请联系管理员")
+
     existing = db.query(User).filter(User.username == req.username).first()
     if existing:
-        raise HTTPException(400, "Username already exists")
+        raise HTTPException(400, "用户名已存在")
 
     # First user gets admin role
     user_count = db.query(User).count()

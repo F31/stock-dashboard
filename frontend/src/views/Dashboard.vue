@@ -20,8 +20,8 @@
       <div class="header-r">
         <span class="user-badge">{{ username }}</span>
 
-        <!-- System Menu -->
-        <div class="sys-menu" @click.stop>
+        <!-- System Menu (admin only) -->
+        <div class="sys-menu" v-if="isAdmin" @click.stop>
           <button class="btn btn-sys" @click="toggleSysMenu">⚙ 系统</button>
           <div class="sys-dropdown" v-if="showSysMenu" @click="showSysMenu = false">
             <button class="sys-item" @click="showUserMgmt = true">👥 用户维护</button>
@@ -251,9 +251,12 @@ import DataSourceConfig from '../components/DataSourceConfig.vue'
 import WatchedTickerConfig from '../components/WatchedTickerConfig.vue'
 import FrameworkEditor from '../components/FrameworkEditor.vue'
 import PromptTemplateConfig from '../components/PromptTemplateConfig.vue'
+import { useAuthStore } from '../stores/authStore.js'
 
 const router = useRouter()
 const store = useStockStore()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
 
 const username = ref(localStorage.getItem('username') || 'User')
 const showAddModal = ref(false)

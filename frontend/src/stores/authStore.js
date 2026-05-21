@@ -8,6 +8,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value)
 
+  const role = computed(() => {
+    if (!token.value) return 'user'
+    try {
+      return JSON.parse(atob(token.value.split('.')[1])).role || 'user'
+    } catch { return 'user' }
+  })
+
+  const isAdmin = computed(() => role.value === 'admin')
+
   function setAuth(newToken, newUsername) {
     token.value = newToken
     username.value = newUsername
@@ -34,5 +43,5 @@ export const useAuthStore = defineStore('auth', () => {
     return res.data
   }
 
-  return { token, username, isAuthenticated, login, register, logout, setAuth }
+  return { token, username, isAuthenticated, role, isAdmin, login, register, logout, setAuth }
 })
