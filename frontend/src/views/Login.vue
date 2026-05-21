@@ -67,6 +67,25 @@ const form = reactive({
   password: '',
 })
 
+function resolveError(e, isLoginMode) {
+  if (!e.response) {
+    return '网络连接失败，请检查网络后重试'
+  }
+  const status = e.response.status
+  const detail = e.response?.data?.detail || ''
+  if (isLoginMode) {
+    if (status === 401) return '用户名或密码不正确，请重新输入'
+    if (status === 403) return '账号已被禁用，请联系管理员'
+    if (status >= 500) return '服务器繁忙，请稍后重试'
+    return detail || '登录失败，请重试'
+  } else {
+    if (status === 400 && detail.toLowerCase().includes('exists')) return '用户名已存在，请换一个或直接登录'
+    if (status === 422) return '用户名或密码格式不正确'
+    if (status >= 500) return '服务器繁忙，请稍后重试'
+    return detail || '注册失败，请重试'
+  }
+}
+
 async function handleSubmit() {
   if (!form.username || !form.password) return
   submitting.value = true
@@ -80,7 +99,7 @@ async function handleSubmit() {
     }
     router.replace({ name: 'Dashboard' })
   } catch (e) {
-    errorMsg.value = e.response?.data?.detail || (isLogin.value ? '登录失败' : '注册失败')
+    errorMsg.value = resolveError(e, isLogin.value)
   } finally {
     submitting.value = false
   }

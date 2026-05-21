@@ -35,7 +35,7 @@ const busy = ref(false)
 
 async function submit() {
   if (!username.value || !password.value) {
-    error.value = 'Please enter username and password'
+    error.value = '请输入用户名和密码'
     return
   }
   busy.value = true
@@ -48,7 +48,18 @@ async function submit() {
     localStorage.setItem('username', username.value)
     router.push('/')
   } catch (e) {
-    error.value = e.response?.data?.detail || 'Operation failed'
+    if (!e.response) {
+      error.value = '网络连接失败，请检查网络后重试'
+    } else if (e.response.status === 401) {
+      error.value = '用户名或密码不正确，请重新输入'
+    } else if (e.response.status === 400) {
+      const d = e.response?.data?.detail || ''
+      error.value = d.toLowerCase().includes('exists') ? '用户名已存在，请换一个或直接登录' : (d || '请求错误')
+    } else if (e.response.status >= 500) {
+      error.value = '服务器繁忙，请稍后重试'
+    } else {
+      error.value = e.response?.data?.detail || (tab.value === 'login' ? '登录失败，请重试' : '注册失败，请重试')
+    }
   } finally {
     busy.value = false
   }
