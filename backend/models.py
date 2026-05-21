@@ -103,6 +103,31 @@ class ScheduledTask(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class WatchedTicker(Base):
+    __tablename__ = "watched_tickers"
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False)        # 股票代码，如 NVDA
+    name = Column(String(100), nullable=False)          # 显示名称，如 英伟达
+    category = Column(String(50), default="AI芯片")    # 分类标签
+    enabled = Column(Integer, default=1)
+    notes = Column(String(500), default="")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AnalysisFramework(Base):
+    __tablename__ = "analysis_framework"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), default="")
+    description = Column(Text, default="")
+    is_active = Column(Integer, default=0)       # only one active at a time
+    framework_data = Column(Text, default=None)    # JSON: hierarchical layers→sectors→companies
+    layer_definition = Column(Text, default="[]")  # JSON array: layer/column metadata (derived)
+    keyword_dict = Column(Text, default="{}")       # JSON object: {layer_id: [keywords]}
+    entity_matrix = Column(Text, default="[]")      # JSON array: company→matrix entries (derived)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class OperationLog(Base):
     __tablename__ = "operation_logs"
     id = Column(Integer, primary_key=True, index=True)

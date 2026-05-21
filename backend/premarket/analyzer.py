@@ -102,28 +102,212 @@ def _get_active_template(db=None, name: str = None) -> Optional[str]:
         return None
 
 
-def _build_prompt(template: str, cleaned_data: dict) -> str:
-    news_items = cleaned_data.get("news", [])
-    us_market = cleaned_data.get("us_market", {})
-    fetch_errors = cleaned_data.get("fetch_errors", [])
+def _build_framework_structure() -> str:
+    """
+    从数据库读取当前活跃的产业链框架，序列化为 JSON 字符串注入 prompt。
+    格式与其他模板变量（news_json / us_market_json 等）保持一致。
+    优先使用 framework_data（WYSIWYG 层级树），退而使用 entity_matrix 扁平结构。
+    """
+    try:
+        from database import SessionLocal
+        from models import AnalysisFramework
+        _db = SessionLocal()
+        try:
+            row = _db.query(AnalysisFramework).filter(AnalysisFramework.is_active == 1).first()
+            if not row:
+                return "{}"
 
+            # ── 优先：hierarchical framework_data ──────────────────────────
+            fd = json.loads(row.framework_data or "null")
+            if fd and fd.get("layers"):
+                layers = []
+                for layer in fd["layers"]:
+                    sectors = []
+                    for sec in layer.get("sectors", []):
+                        sectors.append({
+                            "name":               sec["name"],
+                            "description":        sec.get("description", ""),
+                            "physical_bottleneck":sec.get("physical_bottleneck", False),
+                            "companies":          [co["name"] for co in sec.get("companies", [])],
+                        })
+                    layers.append({
+                        "id":                  layer["id"],
+                        "name":                layer["name"],
+                        "physical_bottleneck": layer.get("physical_bottleneck", False),
+                        "description":         layer.get("description", ""),
+                        "sectors":             sectors,
+                    })
+                return json.dumps({
+                    "name":        row.name or "AI产业链分析框架",
+                    "description": row.description or "",
+                    "layers":      layers,
+                }, ensure_ascii=False, indent=2)
+
+            # ── 退而：entity_matrix 扁平结构 ──────────────────────────────
+            ld_raw = json.loads(row.layer_definition or "[]")
+            em_raw = json.loads(row.entity_matrix or "[]")
+            if not ld_raw:
+                return "{}"
+
+            layers_only = [d for d in ld_raw if d.get("type") == "layer"]
+            layers = []
+            for ld in layers_only:
+                companies = [
+                    e["name"] for e in em_raw
+                    if ld["id"] in (e.get("layers") or [])
+                ]
+                layers.append({
+                    "id":                  ld["id"],
+                    "name":                ld["name"],
+                    "physical_bottleneck": ld.get("physical_bottleneck", False),
+                    "description":         ld.get("description", ""),
+                    "companies":           companies,
+                })
+            return json.dumps({
+                "name":        row.name or "AI产业链分析框架",
+                "description": row.description or "",
+                "layers":      layers,
+            }, ensure_ascii=False, indent=2)
+
+        finally:
+            _db.close()
+    except Exception as e:
+        logger.warning("Failed to build framework structure: %s", e)
+        return "{}"
+
+
+_STRENGTH_RANK = {"high": 0, "medium": 1, "low": 2}
+
+
+def _build_ticker_news(cleaned_data: dict) -> dict:
+    """
+    为每个行情监控标的关联相关新闻（通过 entities.symbol 匹配）。
+    返回: { SYMBOL: {name, price, change_pct, category, news_count, news: [...]} }
+    供 {{ticker_news_json}} 模板变量使用。
+    """
+    ai_stocks: dict = cleaned_data.get("us_market", {}).get("ai_stocks", {})
+    news_items: list = cleaned_data.get("news", [])
+    if not ai_stocks:
+        return {}
+
+    # 预先构建 symbol(upper) → [news_item] 索引
+    sym_news: dict[str, list] = {}
+    for item in news_items:
+        for ent in (item.get("entities") or []):
+            sym = (ent.get("symbol") or "").upper().strip()
+            if sym:
+                sym_news.setdefault(sym, []).append(item)
+
+    result: dict = {}
+    for ticker_sym, stock in ai_stocks.items():
+        sym_key = ticker_sym.upper().strip()
+        related = sym_news.get(sym_key, [])
+
+        # 去重（同一篇新闻可能被多次命中）
+        seen_ids: set = set()
+        deduped: list = []
+        for it in related:
+            iid = it.get("item_id") or id(it)
+            if iid not in seen_ids:
+                seen_ids.add(iid)
+                deduped.append(it)
+
+        # 按信号强度（高优先）再按时间降序排列，取前 5 条
+        from premarket.cleaner import _ts_sort_key
+        deduped.sort(key=lambda x: (
+            _STRENGTH_RANK.get(x.get("signal_strength", "low"), 2),
+            -_ts_sort_key(x.get("published_at", "")),
+        ))
+        top = deduped[:5]
+
+        result[ticker_sym] = {
+            "name":        stock.get("label", ticker_sym),
+            "price":       stock.get("price"),
+            "change_pct":  stock.get("change_pct"),
+            "category":    stock.get("category", ""),
+            "news_count":  len(deduped),
+            "news": [
+                {
+                    "title":           it.get("title", ""),
+                    "summary":         it.get("summary", ""),
+                    "source":          it.get("source", ""),
+                    "published_at":    it.get("published_at", ""),
+                    "sentiment":       it.get("sentiment", ""),
+                    "signal_strength": it.get("signal_strength", ""),
+                    "event_types":     it.get("event_types", []),
+                    "layers":          it.get("layers", []),
+                }
+                for it in top
+            ],
+        }
+
+    return result
+
+
+def _build_prompt(template: str, cleaned_data: dict) -> str:
+    news_items        = cleaned_data.get("news", [])
+    us_market         = cleaned_data.get("us_market", {})
+    cn_market         = cleaned_data.get("cn_market", {})
+    macro_indicators  = cleaned_data.get("macro_indicators", {"us": {}, "cn": {}})
+    earnings_calendar = cleaned_data.get("earnings_calendar", [])
+
+    # ── 新闻：按信号强度排序，保留全量标注字段供 LLM 分层解读 ──────────────
+    sorted_news = sorted(
+        news_items,
+        key=lambda x: (
+            _STRENGTH_RANK.get(x.get("signal_strength", "low"), 2),
+            # 时间降序（用负号）
+        ),
+    )
     news_json = json.dumps(
-        [{"title": n.get("title", ""), "summary": n.get("summary", ""),
-          "source": n.get("source", ""), "published_at": n.get("published_at", "")}
-         for n in news_items[:60]],
+        [
+            {
+                "title":           n.get("title", ""),
+                "summary":         n.get("summary", ""),
+                "source":          n.get("source", ""),
+                "published_at":    n.get("published_at", ""),
+                "signal_strength": n.get("signal_strength", ""),
+                "sentiment":       n.get("sentiment", ""),
+                "event_types":     n.get("event_types", []),
+                "layers":          n.get("layers", []),
+                "is_bottleneck":   n.get("is_bottleneck", False),
+                "entities":        [
+                    {"name": e["name"], "symbol": e.get("symbol")}
+                    for e in (n.get("entities") or [])[:6]
+                ],
+            }
+            for n in sorted_news[:80]
+        ],
         ensure_ascii=False, indent=2
     )
+
+    # US market: indices + futures + commodities + rates + AI chip stocks
     us_json = json.dumps(us_market, ensure_ascii=False, indent=2)
     futures_json = json.dumps(us_market.get("futures", {}), ensure_ascii=False, indent=2)
-    macro_json = json.dumps(
-        {"fetch_errors": fetch_errors,
-         "note": "宏观数据本次从美股行情中推断，如需完整宏观数据请配置专用数据源"},
-        ensure_ascii=False, indent=2
-    )
-    earnings_json = json.dumps(
-        {"note": "财报日历数据本次未单独采集，请参考新闻条目中的财报相关内容"},
-        ensure_ascii=False, indent=2
-    )
+
+    # A-share indices: filter out error keys
+    cn_clean = {k: v for k, v in cn_market.items() if not k.startswith("_")}
+    cn_json = json.dumps(cn_clean, ensure_ascii=False, indent=2)
+
+    # Macro indicators: real data from akshare
+    macro_obj: dict = {}
+    if macro_indicators.get("us"):
+        macro_obj["美国宏观指标"] = macro_indicators["us"]
+    if macro_indicators.get("cn"):
+        macro_obj["中国宏观指标"] = macro_indicators["cn"]
+    if not macro_obj:
+        macro_obj["note"] = "本次宏观指标采集失败，请参考美股行情和新闻判断宏观环境"
+    macro_json = json.dumps(macro_obj, ensure_ascii=False, indent=2)
+
+    # Earnings calendar
+    valid_earnings = [e for e in earnings_calendar if "_error" not in e]
+    if valid_earnings:
+        earnings_json = json.dumps(valid_earnings, ensure_ascii=False, indent=2)
+    else:
+        earnings_json = json.dumps(
+            {"note": "本次财报日历采集失败，请参考新闻条目中的财报相关内容"},
+            ensure_ascii=False, indent=2
+        )
 
     prompt = template
     prompt = prompt.replace("{{news_json}}", news_json)
@@ -131,6 +315,20 @@ def _build_prompt(template: str, cleaned_data: dict) -> str:
     prompt = prompt.replace("{{macro_json}}", macro_json)
     prompt = prompt.replace("{{us_market_json}}", us_json)
     prompt = prompt.replace("{{futures_json}}", futures_json)
+    prompt = prompt.replace("{{cn_market_json}}", cn_json)
+    if "{{framework_structure}}" in prompt:
+        prompt = prompt.replace("{{framework_structure}}", _build_framework_structure())
+    if "{{framework_news_json}}" in prompt:
+        fw_summary = cleaned_data.get("framework_summary", {})
+        prompt = prompt.replace(
+            "{{framework_news_json}}",
+            json.dumps(fw_summary, ensure_ascii=False, indent=2),
+        )
+    if "{{ticker_news_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{ticker_news_json}}",
+            json.dumps(_build_ticker_news(cleaned_data), ensure_ascii=False, indent=2),
+        )
     return prompt
 
 
@@ -151,7 +349,7 @@ def _call_llm_streaming(cfg, prompt: str, on_chunk=None) -> str:
         "model": cfg.model_name,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "stream": True,
     }
     url = _make_url(cfg.base_url)
@@ -188,7 +386,7 @@ def _call_llm(cfg, prompt: str) -> str:
         "model": cfg.model_name,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "stream": False,
     }
     r = requests.post(_make_url(cfg.base_url), headers=_make_headers(cfg.api_key),
@@ -198,18 +396,41 @@ def _call_llm(cfg, prompt: str) -> str:
 
 
 def _extract_json(raw: str) -> dict:
-    """从 LLM 输出中提取 JSON（容忍 markdown code fences）。"""
+    """
+    从 LLM 输出中提取 JSON，按优先级依次尝试：
+    1. markdown code fence 内的 JSON
+    2. 全文直接解析
+    3. 全文中第一个 {...} 块
+    4. 降级：将原始文本包装为 {"analysis_text": ...} 返回，避免前端报错
+    """
     text = raw.strip()
+
+    # ① markdown code fence
     m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
     if m:
-        text = m.group(1)
+        candidate = m.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # ② 全文
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        m2 = re.search(r"\{[\s\S]+\}", text)
-        if m2:
+        pass
+
+    # ③ 第一个 {...} 块（贪婪匹配到最后一个 }）
+    m2 = re.search(r"\{[\s\S]+\}", text)
+    if m2:
+        try:
             return json.loads(m2.group(0))
-        raise
+        except json.JSONDecodeError:
+            pass
+
+    # ④ 降级：原始文本原样返回，前端可按 analysis_text 渲染
+    logger.warning("LLM response is not valid JSON, returning as plain text. len=%d", len(raw))
+    return {"analysis_text": raw, "_is_text_response": True}
 
 
 def analyze(cleaned_data: dict, db=None, template_name: str = None, record_id: int = None) -> dict:
@@ -256,10 +477,6 @@ def analyze(cleaned_data: dict, db=None, template_name: str = None, record_id: i
         msg = f"LLM HTTP error: {e}"
         logger.error(msg)
         return {"error": msg, "raw": str(e)}
-    except json.JSONDecodeError as e:
-        msg = f"LLM response is not valid JSON: {e}"
-        logger.error(msg)
-        return {"error": msg}
     except Exception as e:
         msg = f"LLM call failed: {e}"
         logger.error(msg)

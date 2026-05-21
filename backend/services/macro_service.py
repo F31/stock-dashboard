@@ -1063,15 +1063,46 @@ async def fetch_nbs_industrial_charts() -> Dict[str, Any]:
     return result
 
 
+# ── US Macro (FRED API) ────────────────────────────────────────────────────
+
+async def fetch_us_fred_macro() -> Dict[str, Any]:
+    """
+    从 FRED API 获取美国宏观指标（复用 premarket.collector 的同步函数）。
+    返回格式: {key: {label, period, value}, ...}
+    缓存 12 小时（同 CN 月度数据）。
+    """
+    cache_key = "macro:us_fred"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        from premarket.collector import _fetch_fred_us_macro
+        import os
+        api_key = os.environ.get("FRED_API_KEY", "").strip()
+        if not api_key:
+            return {}
+        data, errors = await asyncio.to_thread(_fetch_fred_us_macro, api_key)
+        if errors:
+            logger.warning("FRED fetch partial errors: %s", errors)
+        if data:
+            _set_cache(cache_key, data, CACHE_TTL_MACRO)
+        return data
+    except Exception as e:
+        logger.warning("fetch_us_fred_macro error: %s", e)
+        return {}
+
+
 # ── Aggregate ───────────────────────────────────────────────────────────────
 
 async def get_macro_data() -> Dict[str, Any]:
     """Fetch all macro indicators concurrently."""
-    yields, cpi, ppi, pmi = await asyncio.gather(
+    yields, cpi, ppi, pmi, us_fred = await asyncio.gather(
         fetch_all_yields(),
         fetch_cn_cpi(),
         fetch_cn_ppi(),
         fetch_cn_pmi(),
+        fetch_us_fred_macro(),
         return_exceptions=True,
     )
 
@@ -1079,8 +1110,9 @@ async def get_macro_data() -> Dict[str, Any]:
         return {} if isinstance(v, Exception) else (v or {})
 
     return {
-        "yields": _safe(yields),
-        "cn_cpi": _safe(cpi),
-        "cn_ppi": _safe(ppi),
-        "cn_pmi": _safe(pmi),
+        "yields":   _safe(yields),
+        "cn_cpi":   _safe(cpi),
+        "cn_ppi":   _safe(ppi),
+        "cn_pmi":   _safe(pmi),
+        "us_fred":  _safe(us_fred),
     }

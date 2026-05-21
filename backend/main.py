@@ -16,10 +16,13 @@ from routes.datasources import router as datasources_router
 from routes.prompt_templates import router as prompt_templates_router
 from routes.scheduled_tasks import router as scheduled_tasks_router
 from routes.premarket import router as premarket_router
+from routes.watched_tickers import router as watched_tickers_router
+from routes.analysis_framework import router as analysis_framework_router
 from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
-    DataSource, PromptTemplate, PremarketReport, ScheduledTask,
+    DataSource, PromptTemplate, PremarketReport, ScheduledTask, WatchedTicker,
+    AnalysisFramework,
 )
 from sqlalchemy.orm import Session
 
@@ -39,6 +42,16 @@ _ensure_column("users", "role VARCHAR(20) DEFAULT 'user'")
 _ensure_column("watchlist", "item_type VARCHAR(10) DEFAULT 'stock'")
 _ensure_column("watchlist", "hidden INTEGER DEFAULT 0")
 _ensure_column("operation_logs", "ip_location VARCHAR(100) DEFAULT ''")
+# Migration: analysis_framework table — new 3-section structure replaces old definition blob
+try:
+    _ensure_column("analysis_framework", "description TEXT DEFAULT ''")
+    _ensure_column("analysis_framework", "layer_definition TEXT DEFAULT '[]'")
+    _ensure_column("analysis_framework", "keyword_dict TEXT DEFAULT '{}'")
+    _ensure_column("analysis_framework", "entity_matrix TEXT DEFAULT '[]'")
+    _ensure_column("analysis_framework", "created_at DATETIME")
+    _ensure_column("analysis_framework", "framework_data TEXT")
+except Exception:
+    pass  # table may not exist yet; create_all will handle it
 
 
 def _seed_defaults():
@@ -49,9 +62,9 @@ def _seed_defaults():
         # ── 默认数据源 ──
         if db.query(DataSource).count() == 0:
             defaults = [
-                DataSource(name="Reuters Technology", source_type="rss", category="国际",
-                           url="https://feeds.reuters.com/reuters/technologyNews",
-                           notes="路透社科技新闻"),
+                DataSource(name="Wired Technology", source_type="rss", category="国际",
+                           url="https://www.wired.com/feed/rss",
+                           notes="Wired 科技频道（替换已关闭的 Reuters RSS）"),
                 DataSource(name="CNBC Tech", source_type="rss", category="国际",
                            url="https://www.cnbc.com/id/19854910/device/rss/rss.html",
                            notes="CNBC科技频道"),
@@ -67,15 +80,21 @@ def _seed_defaults():
                 DataSource(name="东方财富", source_type="webpage", category="国内",
                            url="https://www.eastmoney.com",
                            notes="东方财富财经新闻"),
-                DataSource(name="财联社", source_type="api", category="国内",
-                           url="https://www.cls.cn/api/telegraph/index",
-                           notes="财联社电报"),
+                DataSource(name="财联社", source_type="akshare", category="国内",
+                           url="akshare:stock_info_global_cls",
+                           notes="财联社实时电报，通过 akshare 采集（原 API 已下线）"),
                 DataSource(name="36氪", source_type="rss", category="国内",
                            url="https://36kr.com/feed",
                            notes="36氪科技创业"),
-                DataSource(name="财新资讯", source_type="api", category="国内",
-                           url="https://www.caixin.com",
+                DataSource(name="财新资讯", source_type="akshare", category="国内",
+                           url="akshare:stock_news_main_cx",
                            notes="财新快讯，覆盖宏观、市场、产业动态（约100条）"),
+                DataSource(name="A股IPO辅导备案", source_type="akshare", category="国内",
+                           url="akshare:stock_ipo_tutor_em",
+                           notes="A股IPO辅导备案登记，近30天，来源：东方财富监管数据"),
+                DataSource(name="A股IPO申报受理", source_type="akshare", category="国内",
+                           url="akshare:stock_ipo_declare_em",
+                           notes="A股IPO申报受理状态，近7天有变更，来源：东方财富监管数据"),
             ]
             db.add_all(defaults)
 
@@ -112,10 +131,12 @@ def _seed_defaults():
 {{earnings_events_json}}
 ## 宏观经济数据
 {{macro_json}}
-## 隔夜美股收盘(含盘后)
+## 隔夜美股收盘(含盘后，含AI芯片个股)
 {{us_market_json}}
 ## 股指期货
 {{futures_json}}
+## A股主要指数（前一交易日收盘）
+{{cn_market_json}}
 
 # 输出格式(严格输出 JSON，不要任何额外文字、不要 Markdown 代码块)
 {
@@ -149,6 +170,30 @@ def _seed_defaults():
                 status="active",
                 is_default=1,
             ))
+
+        # ── 默认分析框架 ──
+        if db.query(AnalysisFramework).count() == 0:
+            import json as _json
+            from premarket.framework import (
+                DEFAULT_LAYER_DEFINITION, DEFAULT_KEYWORD_DICT, DEFAULT_ENTITY_MATRIX,
+            )
+            db.add(AnalysisFramework(
+                name             = "AI产业链",
+                description      = "纵向8层（L1-L3为★物理瓶颈层）× 横向3列（云侧/端侧/物理AI）",
+                is_active        = 1,
+                layer_definition = _json.dumps(DEFAULT_LAYER_DEFINITION, ensure_ascii=False),
+                keyword_dict     = _json.dumps(DEFAULT_KEYWORD_DICT,     ensure_ascii=False),
+                entity_matrix    = _json.dumps(DEFAULT_ENTITY_MATRIX,    ensure_ascii=False),
+            ))
+
+        # ── 默认行情监控标的 ──
+        if db.query(WatchedTicker).count() == 0:
+            db.add_all([
+                WatchedTicker(symbol="NVDA", name="英伟达",   category="AI芯片"),
+                WatchedTicker(symbol="AMD",  name="AMD",      category="AI芯片"),
+                WatchedTicker(symbol="AVGO", name="博通",     category="AI芯片"),
+                WatchedTicker(symbol="INTC", name="英特尔",   category="AI芯片"),
+            ])
 
         # ── 默认定时任务 ──
         if db.query(ScheduledTask).count() == 0:
@@ -196,6 +241,68 @@ def _cleanup_stale_running():
 
 
 _cleanup_stale_running()
+
+
+def _migrate_prompt_template():
+    """为现有提示词模板追加 {{cn_market_json}} 占位符（仅当缺失时执行）。"""
+    from sqlalchemy.orm import Session as _S
+    db: _S = next(get_db())
+    try:
+        from models import PromptTemplate
+        tpl = db.query(PromptTemplate).filter(
+            PromptTemplate.is_default == 1,
+            PromptTemplate.status == "active",
+        ).first()
+        if tpl and "{{cn_market_json}}" not in tpl.content:
+            old_sec = "## 股指期货\n{{futures_json}}"
+            new_sec = ("## 股指期货\n{{futures_json}}\n"
+                       "## A股主要指数（前一交易日收盘）\n{{cn_market_json}}")
+            if old_sec in tpl.content:
+                tpl.content = tpl.content.replace(old_sec, new_sec)
+                db.commit()
+                logging.info("Migrated prompt template: added {{cn_market_json}} placeholder")
+    except Exception as e:
+        logging.warning(f"Prompt template migration error: {e}")
+    finally:
+        db.close()
+
+
+_migrate_prompt_template()
+
+
+def _migrate_analysis_framework():
+    """将旧格式（definition blob）的 analysis_framework 行迁移为新三段式结构。"""
+    from sqlalchemy.orm import Session as _S
+    db: _S = next(get_db())
+    try:
+        from models import AnalysisFramework
+        import json as _json
+        from premarket.framework import (
+            DEFAULT_LAYER_DEFINITION, DEFAULT_KEYWORD_DICT, DEFAULT_ENTITY_MATRIX,
+        )
+        rows = db.query(AnalysisFramework).all()
+        updated = 0
+        for row in rows:
+            ld = _json.loads(row.layer_definition or "[]")
+            if not ld:  # old row migrated from previous schema — fill with defaults
+                row.layer_definition = _json.dumps(DEFAULT_LAYER_DEFINITION, ensure_ascii=False)
+                row.keyword_dict     = _json.dumps(DEFAULT_KEYWORD_DICT,     ensure_ascii=False)
+                row.entity_matrix    = _json.dumps(DEFAULT_ENTITY_MATRIX,    ensure_ascii=False)
+                if not row.description:
+                    row.description = "纵向8层（L1-L3为★物理瓶颈层）× 横向3列（云侧/端侧/物理AI）"
+                if not row.name:
+                    row.name = "AI产业链"
+                updated += 1
+        if updated:
+            db.commit()
+            logging.info(f"Migrated {updated} analysis_framework row(s) to new structure")
+    except Exception as e:
+        logging.warning(f"Analysis framework migration error: {e}")
+    finally:
+        db.close()
+
+
+_migrate_analysis_framework()
 
 
 async def _periodic_stale_cleanup():
@@ -299,6 +406,8 @@ app.include_router(datasources_router, prefix="/api")
 app.include_router(prompt_templates_router, prefix="/api")
 app.include_router(scheduled_tasks_router, prefix="/api")
 app.include_router(premarket_router, prefix="/api")
+app.include_router(watched_tickers_router, prefix="/api")
+app.include_router(analysis_framework_router, prefix="/api")
 
 # ── Serve reports directory ──
 reports_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "reports")

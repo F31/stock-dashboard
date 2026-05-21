@@ -62,7 +62,8 @@
         <span class="spread-desc">{{ yields.spread_10y < 0 ? '中债收益率低于美债' : '中债收益率高于美债' }}</span>
       </div>
 
-      <!-- ── 经济指标 ── -->
+      <!-- ── 中国经济指标 ── -->
+      <div class="section-title">🇨🇳 中国经济指标</div>
       <div class="indicator-row">
         <!-- CPI -->
         <div class="ind-card">
@@ -135,6 +136,23 @@
           <div class="ind-tag" :class="svcPmiClass">{{ svcPmiTag }}</div>
         </div>
       </div>
+
+      <!-- ── 美国经济指标（FRED） ── -->
+      <div class="section-title" v-if="usFred && Object.keys(usFred).length">🇺🇸 美国经济指标 <span class="fred-badge">FRED</span></div>
+      <div class="indicator-row us-row" v-if="usFred && Object.keys(usFred).length">
+        <div class="ind-card" v-for="(item, key) in usFred" :key="key">
+          <div class="ind-hdr">
+            <span class="ind-icon">{{ usFredIcon(key) }}</span>
+            <span class="ind-label">{{ item.label }}</span>
+            <span class="ind-period">{{ fmtFredPeriod(item.period) }}</span>
+          </div>
+          <div class="ind-main" :class="usFredClass(key, item.value)">
+            <span class="ind-big us-big">{{ item.value }}</span>
+          </div>
+          <div class="ind-sub" v-if="item.previous">前值 {{ item.previous }}</div>
+          <div class="ind-tag" :class="usFredClass(key, item.value)">{{ usFredTag(key, item.value) }}</div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -153,9 +171,11 @@ const yields = computed(() => macro.value.yields || {})
 const cpi    = computed(() => macro.value.cn_cpi || {})
 const ppi    = computed(() => macro.value.cn_ppi || {})
 const pmi    = computed(() => macro.value.cn_pmi || {})
+const usFred = computed(() => macro.value.us_fred || {})
 
 const hasData = computed(() =>
   yields.value.us?.length || cpi.value.yoy != null || ppi.value.yoy != null
+    || Object.keys(usFred.value).length > 0
 )
 
 async function load(forced = false) {
@@ -251,6 +271,51 @@ const mfgPmiClass = computed(() => pmiClass(pmi.value.mfg_value))
 const mfgPmiTag   = computed(() => pmiTag(pmi.value.mfg_value))
 const svcPmiClass = computed(() => pmiClass(pmi.value.svc_value))
 const svcPmiTag   = computed(() => pmiTag(pmi.value.svc_value))
+
+// ── US FRED helpers ──
+function fmtFredPeriod(p) {
+  if (!p) return '--'
+  return p.length >= 7 ? p.slice(0, 7) : p
+}
+
+const _fredIcons = {
+  fed_rate: '🏦', cpi: '📊', ppi: '🏭',
+  non_farm: '👷', unemployment: '📉', initial_jobless: '📋',
+  retail_sales: '🛒',
+}
+function usFredIcon(key) { return _fredIcons[key] || '📌' }
+
+function _parseNum(val) {
+  if (val == null) return null
+  const s = String(val).replace('%', '').replace('千人', '').replace('万人', '').trim()
+  const n = parseFloat(s)
+  return isNaN(n) ? null : n
+}
+
+function usFredClass(key, val) {
+  const n = _parseNum(val)
+  if (n == null) return 'neutral'
+  if (key === 'fed_rate')       return n > 4 ? 'hot' : n > 2 ? 'normal' : 'weak'
+  if (key === 'cpi')            return n > 4 ? 'hot' : n > 2 ? 'normal' : n < 0 ? 'deflation' : 'weak'
+  if (key === 'ppi')            return n > 5 ? 'hot' : n > 0 ? 'normal' : 'deflation'
+  if (key === 'non_farm')       return n > 200 ? 'hot' : n > 100 ? 'normal' : n > 0 ? 'weak' : 'deflation'
+  if (key === 'unemployment')   return n > 5 ? 'hot' : n < 4 ? 'normal' : 'weak'
+  if (key === 'retail_sales')   return n > 0.5 ? 'normal' : n > 0 ? 'weak' : 'deflation'
+  return 'neutral'
+}
+
+function usFredTag(key, val) {
+  const n = _parseNum(val)
+  if (n == null) return '--'
+  if (key === 'fed_rate')       return n > 4 ? '偏紧' : n > 2 ? '中性' : '宽松'
+  if (key === 'cpi')            return n > 4 ? '通胀偏热' : n > 2 ? '温和' : n < 0 ? '通缩' : '偏低'
+  if (key === 'ppi')            return n > 5 ? '上游通胀' : n > 0 ? '温和' : '通缩'
+  if (key === 'non_farm')       return n > 200 ? '强劲' : n > 100 ? '稳健' : n > 0 ? '偏弱' : '收缩'
+  if (key === 'unemployment')   return n > 5 ? '偏高' : n < 4 ? '低位' : '正常'
+  if (key === 'initial_jobless') return n < 15 ? '偏低' : n < 25 ? '正常' : '偏高'
+  if (key === 'retail_sales')   return n > 0.5 ? '强劲' : n > 0 ? '温和' : '走弱'
+  return '--'
+}
 </script>
 
 <style scoped>
@@ -363,6 +428,20 @@ const svcPmiTag   = computed(() => pmiTag(pmi.value.svc_value))
 .ind-tag.weak      { background: #fef3c7; color: #92400e; }
 .ind-tag.deflation { background: #ede9fe; color: #6d28d9; }
 .ind-tag.neutral   { background: #f3f4f6; color: #6b7280; }
+
+/* ── Section title ── */
+.section-title {
+  font-size: 0.78em; font-weight: 700; color: #374151;
+  padding: 4px 0 2px; letter-spacing: 0.3px;
+  display: flex; align-items: center; gap: 6px;
+}
+.fred-badge {
+  font-size: 0.72em; background: #dbeafe; color: #2563eb;
+  padding: 1px 6px; border-radius: 4px; font-weight: 600;
+}
+
+/* US FRED row — slightly smaller number to fit value+unit */
+.us-big { font-size: 1.3em !important; }
 
 /* ── Responsive ── */
 @media (max-width: 640px) {

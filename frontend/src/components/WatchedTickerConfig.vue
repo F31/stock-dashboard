@@ -2,83 +2,94 @@
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-box">
       <div class="modal-header">
-        <span class="modal-title">采集数据源配置</span>
+        <span class="modal-title">行情监控标的配置</span>
         <button class="close-btn" @click="$emit('close')">✕</button>
       </div>
 
       <div class="toolbar">
-        <button class="btn-add" @click="openAdd">+ 新增数据源</button>
+        <button class="btn-add" @click="openAdd">+ 新增标的</button>
+        <span class="toolbar-hint">配置的标的将在每次盘前分析时自动采集隔夜行情</span>
       </div>
 
       <div class="modal-body">
         <div v-if="loading" class="state-center"><div class="spinner"></div></div>
         <div v-else-if="error" class="state-center error-text">{{ error }}</div>
-        <div v-else-if="sources.length === 0" class="state-center muted">暂无数据源，点击新增</div>
+        <div v-else-if="tickers.length === 0" class="state-center muted">暂无标的，点击新增</div>
 
         <table v-else class="data-table">
           <thead>
             <tr>
+              <th>代码</th>
               <th>名称</th>
-              <th>类型</th>
               <th>分类</th>
-              <th>地址</th>
+              <th>状态</th>
               <th>备注</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in sources" :key="s.id">
-              <td class="col-name">{{ s.name }}</td>
-              <td><span class="type-badge" :class="s.source_type">{{ s.source_type }}</span></td>
-              <td class="col-cat">{{ s.category }}</td>
-              <td class="col-url">
-                <a v-if="s.source_type !== 'akshare'" :href="s.url" target="_blank" class="url-link">{{ shortUrl(s.url) }}</a>
-                <span v-else class="akshare-fn">{{ shortUrl(s.url) }}</span>
+            <tr v-for="t in tickers" :key="t.id">
+              <td class="col-symbol">{{ t.symbol }}</td>
+              <td class="col-name">{{ t.name }}</td>
+              <td><span class="cat-badge">{{ t.category }}</span></td>
+              <td>
+                <span class="status-badge" :class="t.enabled ? 'on' : 'off'">
+                  {{ t.enabled ? '启用' : '禁用' }}
+                </span>
               </td>
-              <td class="col-notes">{{ s.notes }}</td>
+              <td class="col-notes">{{ t.notes }}</td>
               <td class="col-ops">
-                <template v-if="s.source_type !== 'akshare'">
-                  <button class="op-btn edit" @click="openEdit(s)">编辑</button>
-                  <button class="op-btn del" @click="confirmDelete(s)">删除</button>
-                </template>
-                <span v-else class="builtin-label">系统内置</span>
+                <button class="op-btn edit" @click="openEdit(t)">编辑</button>
+                <button class="op-btn del" @click="confirmDelete(t)">删除</button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <!-- Add/Edit form dialog -->
+      <!-- Add/Edit form -->
       <div v-if="showForm" class="dialog-overlay" @click.self="showForm = false">
         <div class="dialog-box">
           <div class="dialog-header">
-            <span>{{ editingId ? '编辑数据源' : '新增数据源' }}</span>
+            <span>{{ editingId ? '编辑标的' : '新增标的' }}</span>
             <button class="close-btn" @click="showForm = false">✕</button>
           </div>
           <div class="dialog-body">
             <div class="form-row">
-              <label>名称 <span class="req">*</span></label>
-              <input v-model="form.name" class="form-input" placeholder="如 Reuters Technology" />
+              <label>股票代码 <span class="req">*</span></label>
+              <input v-model="form.symbol" class="form-input upper" placeholder="如 NVDA、MSFT" />
+              <span class="form-hint">自动转为大写，美股代码</span>
             </div>
             <div class="form-row">
-              <label>类型 <span class="req">*</span></label>
-              <select v-model="form.source_type" class="form-select">
-                <option value="rss">RSS</option>
-                <option value="api">API</option>
-                <option value="webpage">网页</option>
-              </select>
+              <label>显示名称 <span class="req">*</span></label>
+              <input v-model="form.name" class="form-input" placeholder="如 英伟达" />
             </div>
             <div class="form-row">
               <label>分类</label>
-              <input v-model="form.category" class="form-input" placeholder="国内 / 国际" />
+              <div class="select-with-custom">
+                <select v-model="form.category" class="form-select">
+                  <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                  <option value="__custom__">自定义...</option>
+                </select>
+                <input
+                  v-if="form.category === '__custom__'"
+                  v-model="customCategory"
+                  class="form-input"
+                  placeholder="输入分类名称"
+                  style="margin-top:6px;"
+                />
+              </div>
             </div>
             <div class="form-row">
-              <label>URL <span class="req">*</span></label>
-              <input v-model="form.url" class="form-input" placeholder="https://..." />
+              <label>状态</label>
+              <label class="toggle-row">
+                <input type="checkbox" v-model="form.enabled" />
+                <span>{{ form.enabled ? '启用' : '禁用' }}</span>
+              </label>
             </div>
             <div class="form-row">
               <label>备注</label>
-              <input v-model="form.notes" class="form-input" placeholder="可选描述" />
+              <input v-model="form.notes" class="form-input" placeholder="可选" />
             </div>
             <div v-if="formError" class="form-error">{{ formError }}</div>
           </div>
@@ -99,7 +110,7 @@
             <button class="close-btn" @click="deleteTarget = null">✕</button>
           </div>
           <div class="dialog-body">
-            <p>确定删除数据源 <strong>{{ deleteTarget.name }}</strong>？</p>
+            <p>确定删除标的 <strong>{{ deleteTarget.symbol }}（{{ deleteTarget.name }}）</strong>？</p>
           </div>
           <div class="dialog-footer">
             <button class="btn-cancel" @click="deleteTarget = null">取消</button>
@@ -109,7 +120,6 @@
           </div>
         </div>
       </div>
-
     </div>
   </div>
 </template>
@@ -117,18 +127,21 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import {
-  listDataSources, createDataSource, updateDataSource, deleteDataSource,
+  listWatchedTickers, createWatchedTicker, updateWatchedTicker, deleteWatchedTicker,
 } from '../api'
+
+const CATEGORIES = ['AI芯片', 'AI平台', '云计算', '半导体', '科技龙头', '其他']
 
 const emit = defineEmits(['close'])
 
-const sources = ref([])
+const tickers = ref([])
 const loading = ref(true)
 const error = ref('')
 
 const showForm = ref(false)
 const editingId = ref(null)
-const form = ref({ name: '', source_type: 'rss', category: '', url: '', notes: '' })
+const form = ref({ symbol: '', name: '', category: 'AI芯片', enabled: true, notes: '' })
+const customCategory = ref('')
 const formError = ref('')
 const saving = ref(false)
 
@@ -141,8 +154,8 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await listDataSources()
-    sources.value = res.data
+    const res = await listWatchedTickers()
+    tickers.value = res.data
   } catch (e) {
     error.value = '加载失败：' + (e.response?.data?.detail || e.message)
   } finally {
@@ -152,28 +165,45 @@ async function load() {
 
 function openAdd() {
   editingId.value = null
-  form.value = { name: '', source_type: 'rss', category: '', url: '', notes: '' }
+  form.value = { symbol: '', name: '', category: 'AI芯片', enabled: true, notes: '' }
+  customCategory.value = ''
   formError.value = ''
   showForm.value = true
 }
 
-function openEdit(s) {
-  editingId.value = s.id
-  form.value = { name: s.name, source_type: s.source_type, category: s.category || '', url: s.url, notes: s.notes || '' }
+function openEdit(t) {
+  editingId.value = t.id
+  const knownCat = CATEGORIES.includes(t.category)
+  form.value = {
+    symbol: t.symbol,
+    name: t.name,
+    category: knownCat ? t.category : '__custom__',
+    enabled: t.enabled,
+    notes: t.notes || '',
+  }
+  customCategory.value = knownCat ? '' : t.category
   formError.value = ''
   showForm.value = true
 }
 
 async function save() {
   formError.value = ''
+  const sym = form.value.symbol.trim().toUpperCase()
+  if (!sym) { formError.value = '代码不能为空'; return }
   if (!form.value.name.trim()) { formError.value = '名称不能为空'; return }
-  if (!form.value.url.trim())  { formError.value = 'URL 不能为空'; return }
+
+  const category = form.value.category === '__custom__'
+    ? customCategory.value.trim()
+    : form.value.category
+  if (!category) { formError.value = '请输入分类名称'; return }
+
   saving.value = true
   try {
+    const payload = { symbol: sym, name: form.value.name.trim(), category, enabled: form.value.enabled, notes: form.value.notes }
     if (editingId.value) {
-      await updateDataSource(editingId.value, form.value)
+      await updateWatchedTicker(editingId.value, payload)
     } else {
-      await createDataSource(form.value)
+      await createWatchedTicker(payload)
     }
     showForm.value = false
     await load()
@@ -184,12 +214,12 @@ async function save() {
   }
 }
 
-function confirmDelete(s) { deleteTarget.value = s }
+function confirmDelete(t) { deleteTarget.value = t }
 
 async function doDelete() {
   deleting.value = true
   try {
-    await deleteDataSource(deleteTarget.value.id)
+    await deleteWatchedTicker(deleteTarget.value.id)
     deleteTarget.value = null
     await load()
   } catch (e) {
@@ -197,11 +227,6 @@ async function doDelete() {
   } finally {
     deleting.value = false
   }
-}
-
-function shortUrl(url) {
-  if (url.startsWith('akshare:')) return url.slice('akshare:'.length)
-  try { return new URL(url).hostname } catch { return url.slice(0, 30) }
 }
 </script>
 
@@ -212,7 +237,7 @@ function shortUrl(url) {
 }
 .modal-box {
   background: #fff; border-radius: 12px;
-  width: 880px; max-width: 97vw; max-height: 88vh;
+  width: 760px; max-width: 97vw; max-height: 88vh;
   display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 8px 30px rgba(0,0,0,.2);
 }
@@ -227,12 +252,17 @@ function shortUrl(url) {
 }
 .close-btn:hover { background: #f3f4f6; color: #374151; }
 
-.toolbar { padding: 10px 20px; border-bottom: 1px solid #e5e7eb; }
+.toolbar {
+  padding: 10px 20px; border-bottom: 1px solid #e5e7eb;
+  display: flex; align-items: center; gap: 14px;
+}
 .btn-add {
   background: #2563eb; color: #fff; border: none; border-radius: 7px;
   padding: 7px 16px; font-size: 13px; cursor: pointer; font-weight: 500;
+  flex-shrink: 0;
 }
 .btn-add:hover { background: #1d4ed8; }
+.toolbar-hint { font-size: 12px; color: #9ca3af; }
 
 .modal-body { flex: 1; overflow-y: auto; min-height: 0; }
 
@@ -259,20 +289,21 @@ function shortUrl(url) {
 .data-table td { padding: 9px 12px; color: #374151; border-bottom: 1px solid #f3f4f6; }
 .data-table tr:hover td { background: #f9fafb; }
 
+.col-symbol { font-family: monospace; font-weight: 700; font-size: 14px; color: #1e3a8a; }
 .col-name { font-weight: 500; color: #1f2937; }
-.col-url { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col-notes { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9ca3af; }
+.col-notes { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9ca3af; }
 .col-ops { white-space: nowrap; }
-.col-cat { white-space: nowrap; }
 
-.url-link { color: #2563eb; text-decoration: none; }
-.url-link:hover { text-decoration: underline; }
+.cat-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: #ede9fe; color: #6d28d9; font-weight: 500;
+}
 
-.type-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
-.type-badge.rss     { background: #dcfce7; color: #166534; }
-.type-badge.api     { background: #dbeafe; color: #1d4ed8; }
-.type-badge.webpage { background: #f3e8ff; color: #7e22ce; }
-.type-badge.akshare { background: #fef3c7; color: #92400e; }
+.status-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500;
+}
+.status-badge.on  { background: #dcfce7; color: #166534; }
+.status-badge.off { background: #f3f4f6; color: #9ca3af; }
 
 .op-btn {
   font-size: 12px; padding: 3px 10px; border-radius: 5px;
@@ -282,9 +313,6 @@ function shortUrl(url) {
 .op-btn.edit:hover { border-color: #2563eb; color: #2563eb; }
 .op-btn.del:hover  { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
 
-.builtin-label { font-size: 12px; color: #9ca3af; font-style: italic; }
-.akshare-fn { font-size: 12px; color: #6b7280; font-family: monospace; }
-
 /* Dialog */
 .dialog-overlay {
   position: absolute; inset: 0; background: rgba(0,0,0,.4);
@@ -292,7 +320,7 @@ function shortUrl(url) {
 }
 .dialog-box {
   background: #fff; border-radius: 10px;
-  width: 480px; max-width: 94vw;
+  width: 440px; max-width: 94vw;
   box-shadow: 0 8px 30px rgba(0,0,0,.15);
 }
 .dialog-sm { width: 360px; }
@@ -310,12 +338,18 @@ function shortUrl(url) {
 .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
 .form-row label { font-size: 12px; color: #6b7280; font-weight: 500; }
 .req { color: #dc2626; }
+.form-hint { font-size: 11px; color: #9ca3af; }
 .form-input, .form-select {
   background: #fff; border: 1px solid #d1d5db; border-radius: 6px;
   color: #1f2937; padding: 7px 10px; font-size: 13px; outline: none;
 }
 .form-input:focus, .form-select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+.upper { text-transform: uppercase; }
 .form-error { color: #dc2626; font-size: 12px; margin-top: 4px; }
+.select-with-custom { display: flex; flex-direction: column; gap: 0; }
+
+.toggle-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #374151; }
+.toggle-row input[type=checkbox] { width: 16px; height: 16px; accent-color: #2563eb; }
 
 .btn-cancel {
   background: #fff; color: #6b7280; border: 1px solid #d1d5db; border-radius: 6px;

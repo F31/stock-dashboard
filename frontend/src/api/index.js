@@ -221,6 +221,20 @@ export function createScheduledTask(data) { return api.post('/scheduled-tasks', 
 export function updateScheduledTask(id, data) { return api.put(`/scheduled-tasks/${id}`, data) }
 export function deleteScheduledTask(id) { return api.delete(`/scheduled-tasks/${id}`) }
 
+// ── Watched Tickers ──
+export function listWatchedTickers() { return api.get('/watched-tickers') }
+export function createWatchedTicker(data) { return api.post('/watched-tickers', data) }
+export function updateWatchedTicker(id, data) { return api.put(`/watched-tickers/${id}`, data) }
+export function deleteWatchedTicker(id) { return api.delete(`/watched-tickers/${id}`) }
+
+// ── Analysis Frameworks ──
+export function listFrameworks() { return api.get('/analysis-frameworks') }
+export function getFramework(id) { return api.get(`/analysis-frameworks/${id}`) }
+export function createFramework(data) { return api.post('/analysis-frameworks', data) }
+export function updateFramework(id, data) { return api.put(`/analysis-frameworks/${id}`, data) }
+export function deleteFramework(id) { return api.delete(`/analysis-frameworks/${id}`) }
+export function setActiveFramework(id) { return api.post(`/analysis-frameworks/${id}/set-active`) }
+
 // ── Premarket Analysis ──
 export function triggerPremarket() { return api.post('/premarket/run') }
 export function getLatestPremarket() { return api.get('/premarket/latest') }

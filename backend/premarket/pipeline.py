@@ -38,7 +38,8 @@ def run_pipeline(db, record_id: int = None) -> dict:
         db.refresh(record)
 
     try:
-        # 1. 获取启用的数据源
+        # 1. 获取启用的数据源和行情标的
+        from models import WatchedTicker
         sources = db.query(DataSource).filter(DataSource.enabled == 1).all()
         sources_list = [
             {"name": s.name, "url": s.url,
@@ -46,10 +47,14 @@ def run_pipeline(db, record_id: int = None) -> dict:
              "enabled": bool(s.enabled)}
             for s in sources
         ]
-        logger.info(f"Pipeline: {len(sources_list)} enabled sources")
+        tickers_list = [
+            {"symbol": t.symbol, "name": t.name, "category": t.category or ""}
+            for t in db.query(WatchedTicker).filter(WatchedTicker.enabled == 1).all()
+        ]
+        logger.info(f"Pipeline: {len(sources_list)} sources, {len(tickers_list)} tickers")
 
         # 2. 采集
-        raw_data = collect_all(sources_list)
+        raw_data = collect_all(sources_list, tickers=tickers_list)
 
         # 3. 清洗
         cleaned = clean(raw_data)

@@ -194,6 +194,34 @@ class DataSourceResponse(BaseModel):
         from_attributes = True
 
 
+# ── Watched Tickers ──
+
+class WatchedTickerCreate(BaseModel):
+    symbol: str
+    name: str
+    category: str = "AI芯片"
+    enabled: bool = True
+    notes: str = ""
+
+class WatchedTickerUpdate(BaseModel):
+    symbol: Optional[str] = None
+    name: Optional[str] = None
+    category: Optional[str] = None
+    enabled: Optional[bool] = None
+    notes: Optional[str] = None
+
+class WatchedTickerResponse(BaseModel):
+    id: int
+    symbol: str
+    name: str
+    category: str
+    enabled: bool
+    notes: str
+    created_at: Optional[str] = ""
+    class Config:
+        from_attributes = True
+
+
 # ── Prompt Templates ──
 
 class PromptTemplateCreate(BaseModel):

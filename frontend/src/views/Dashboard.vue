@@ -30,7 +30,10 @@
             <div class="sys-divider"></div>
             <button class="sys-item" @click="showScheduledTasks = true">⏰ 定时任务</button>
             <button class="sys-item" @click="showDataSources = true">📡 采集数据配置</button>
+            <button class="sys-item" @click="showWatchedTickers = true">📈 行情监控标的</button>
             <button class="sys-item" @click="showPromptTemplates = true">📝 提示词模板</button>
+            <div class="sys-divider"></div>
+            <button class="sys-item" @click="showFrameworkEditor = true">🔬 产业链矩阵</button>
           </div>
         </div>
 
@@ -206,10 +209,22 @@
       @close="showDataSources = false"
     />
 
+    <!-- Watched Ticker Config -->
+    <WatchedTickerConfig
+      v-if="showWatchedTickers"
+      @close="showWatchedTickers = false"
+    />
+
     <!-- Prompt Template Config -->
     <PromptTemplateConfig
       v-if="showPromptTemplates"
       @close="showPromptTemplates = false"
+    />
+
+    <!-- Framework Editor -->
+    <FrameworkEditor
+      v-if="showFrameworkEditor"
+      @close="showFrameworkEditor = false"
     />
   </div>
 </template>
@@ -233,6 +248,8 @@ import PremarketModal from '../components/PremarketModal.vue'
 import PremarketHistoryModal from '../components/PremarketHistoryModal.vue'
 import ScheduledTaskConfig from '../components/ScheduledTaskConfig.vue'
 import DataSourceConfig from '../components/DataSourceConfig.vue'
+import WatchedTickerConfig from '../components/WatchedTickerConfig.vue'
+import FrameworkEditor from '../components/FrameworkEditor.vue'
 import PromptTemplateConfig from '../components/PromptTemplateConfig.vue'
 
 const router = useRouter()
@@ -249,6 +266,8 @@ const showPremarket = ref(false)
 const showPremarketHist = ref(false)
 const showScheduledTasks = ref(false)
 const showDataSources = ref(false)
+const showWatchedTickers   = ref(false)
+const showFrameworkEditor  = ref(false)
 const showPromptTemplates = ref(false)
 const activeTab = ref('ALL')
 const detailStock = ref(null)
