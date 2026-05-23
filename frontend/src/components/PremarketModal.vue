@@ -12,6 +12,9 @@
               &nbsp;·&nbsp;
               <span :class="['status-dot', report.status]"></span>
               {{ statusLabel }}
+              <span v-if="ttsState !== 'idle'" class="tts-reading-badge">
+                &nbsp;·&nbsp;{{ ttsState === 'loading' ? '合成中' : ttsState === 'playing' ? '朗读中' : '已暂停' }}
+              </span>
             </span>
           </div>
         </div>
@@ -20,6 +23,16 @@
             <span :class="['run-icon', { spinning: running }]">↻</span>
             {{ running ? '分析中...' : '立即运行' }}
           </button>
+          <template v-if="analysis && !analysis.error">
+            <select v-if="ttsState === 'idle'" v-model="selectedVoice" class="voice-select" title="选择朗读声音">
+              <option v-for="v in ttsVoices" :key="v.value" :value="v.value">{{ v.label }}</option>
+            </select>
+            <button class="btn btn-tts" :disabled="ttsState === 'loading'" @click="toggleTTS" :title="ttsBtnTitle">
+              <span v-if="ttsState === 'loading'" class="tts-loading-dot"></span>
+              {{ ttsState === 'idle' ? '🔊 朗读' : ttsState === 'loading' ? '合成中…' : ttsState === 'playing' ? '⏸ 暂停' : '▶ 继续' }}
+            </button>
+            <button v-if="ttsState !== 'idle'" class="btn btn-tts-stop" @click="stopTTS" title="停止朗读">⏹</button>
+          </template>
           <a v-if="reportUrl" :href="reportUrl" target="_blank" class="btn btn-view">查看完整报告 ↗</a>
           <button class="modal-close" @click="$emit('close')">✕</button>
         </div>
@@ -108,6 +121,34 @@
           </div>
         </div>
 
+        <!-- News Briefing -->
+        <div class="section" v-if="newsItems.length">
+          <div class="section-title">
+            📰 资讯简报
+            <span class="count-badge">{{ newsItems.length }} 条</span>
+            <button class="toggle-news-btn" @click="newsExpanded = !newsExpanded">
+              {{ newsExpanded ? '收起 ▲' : '展开 ▼' }}
+            </button>
+          </div>
+          <div v-if="newsExpanded" class="news-list">
+            <div v-for="(item, i) in newsItems" :key="i"
+                 :class="['news-item', `news-${item.signal_strength}`]">
+              <div class="news-title-row">
+                <span :class="['signal-pill', `signal-${item.signal_strength}`]">
+                  {{ item.signal_strength === 'high' ? '高' : item.signal_strength === 'medium' ? '中' : '低' }}
+                </span>
+                <a v-if="item.url" :href="item.url" target="_blank" rel="noopener"
+                   class="news-link">{{ item.title }}</a>
+                <span v-else class="news-title-plain">{{ item.title }}</span>
+              </div>
+              <div class="news-meta">
+                <span>{{ item.source }}</span>
+                <span>{{ item.published_at }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Watchlist -->
         <div class="section">
           <div class="section-title">
@@ -162,6 +203,9 @@
           </ul>
         </div>
 
+        <!-- TTS Error -->
+        <div v-if="ttsError" class="tts-error-tip">⚠️ {{ ttsError }}</div>
+
         <!-- Disclaimer -->
         <div class="disclaimer">
           本报告由 AI 自动生成，仅供参考，不构成投资建议。事实数据以代码采集为准，大模型仅做判断与解读。
@@ -173,9 +217,138 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { getLatestPremarket, triggerPremarket, getPremarketReport, getStreamText } from '../api'
+import { getLatestPremarket, triggerPremarket, getPremarketReport, getStreamText, synthesizeTTS } from '../api'
 
 const emit = defineEmits(['close'])
+
+// ── TTS (Microsoft Edge Neural Voice — iOS/Android/PC 全平台兼容) ───────────────
+// 使用 AudioContext 而非 HTMLAudioElement，绕过 iOS Safari 的异步播放限制：
+// iOS 要求音频必须在用户手势同步调用栈中启动；我们在按钮点击时同步创建并激活
+// AudioContext，后续异步网络请求完成后只做 decodeAudioData + source.start()，
+// 此时 iOS 不再拦截，全平台均可正常播放。
+const ttsState = ref('idle') // 'idle' | 'loading' | 'playing' | 'paused'
+const ttsError = ref('')
+let _audioCtx = null   // AudioContext，复用以减少资源开销
+let _audioSrc = null   // 当前 BufferSource，stopped 后不可复用
+
+const ttsBtnTitle = computed(() => {
+  const m = { idle: '朗读报告', loading: '正在合成语音…', playing: '暂停朗读', paused: '继续朗读' }
+  return m[ttsState.value] ?? '朗读报告'
+})
+
+const ttsVoices = [
+  { label: '小晓 (女声)', value: 'zh-CN-XiaoxiaoNeural' },
+  { label: '云杨 (男声)', value: 'zh-CN-YunyangNeural'  },
+  { label: '云希 (男声)', value: 'zh-CN-YunxiNeural'    },
+]
+const selectedVoice = ref('zh-CN-XiaoxiaoNeural')
+
+function buildSpeechText() {
+  if (!analysis.value) return ''
+  const parts = []
+  const sent = analysis.value.market_sentiment
+  if (sent?.tone) parts.push(`市场情绪基调：${sent.tone}。${sent.basis || ''}`)
+  const list = analysis.value.watchlist
+  if (list?.length) {
+    parts.push(`以下是观察清单，共${list.length}个标的。`)
+    list.forEach((item, i) => {
+      const layer = item.industry_layer ? `，${item.industry_layer}` : ''
+      parts.push(`第${i + 1}个标的：${item.name}${layer}。`)
+      if (item.trigger_event)         parts.push(`触发事件：${item.trigger_event}。`)
+      if (item.overnight_performance) parts.push(`隔夜表现：${item.overnight_performance}。`)
+      if (item.bull_case)             parts.push(`看多理由：${item.bull_case}。`)
+      if (item.bear_case)             parts.push(`看空理由：${item.bear_case}。`)
+      if (item.follow_up)             parts.push(`跟进问题：${item.follow_up}。`)
+    })
+  }
+  const outlook = analysis.value.premarket_outlook
+  if (outlook?.summary) {
+    parts.push(`A股开盘前情景判断：${outlook.summary}`)
+    if (outlook.key_watch_points?.length)
+      parts.push(`重点关注：${outlook.key_watch_points.join('；')}。`)
+    if (outlook.uncertainties?.length)
+      parts.push(`主要不确定性：${outlook.uncertainties.join('；')}。`)
+  }
+  return parts.join('\n')
+}
+
+// 同步激活 AudioContext（必须在用户手势调用栈内执行）
+function _ensureCtx() {
+  if (!_audioCtx) {
+    const Ctor = window.AudioContext || window.webkitAudioContext
+    if (!Ctor) return null
+    _audioCtx = new Ctor()
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume()
+  return _audioCtx
+}
+
+function _stopSource() {
+  if (_audioSrc) {
+    try { _audioSrc.stop(0) } catch { /* already stopped */ }
+    _audioSrc.disconnect()
+    _audioSrc.onended = null
+    _audioSrc = null
+  }
+}
+
+async function toggleTTS() {
+  if (ttsState.value === 'loading') return
+  if (ttsState.value === 'idle') {
+    // ① 同步激活 AudioContext（此处仍在用户手势调用栈中）
+    const ctx = _ensureCtx()
+    if (!ctx) { ttsError.value = '当前浏览器不支持音频播放'; return }
+    // ② 异步合成 + 播放
+    await _startTTS(ctx)
+  } else if (ttsState.value === 'playing') {
+    // 暂停：挂起 AudioContext，保留播放位置
+    await _audioCtx?.suspend()
+    ttsState.value = 'paused'
+  } else if (ttsState.value === 'paused') {
+    // 继续：恢复 AudioContext
+    await _audioCtx?.resume()
+    ttsState.value = 'playing'
+  }
+}
+
+async function _startTTS(ctx) {
+  const text = buildSpeechText()
+  if (!text) return
+  ttsState.value = 'loading'
+  ttsError.value = ''
+  try {
+    const res = await synthesizeTTS(text, selectedVoice.value)
+    // Blob → ArrayBuffer（兼容所有移动端）
+    const arrayBuffer = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload  = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsArrayBuffer(res.data)
+    })
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+    _stopSource()
+    // 若用户在合成期间点了停止，不再继续播放
+    if (ttsState.value !== 'loading') return
+    _audioSrc = ctx.createBufferSource()
+    _audioSrc.buffer = audioBuffer
+    _audioSrc.connect(ctx.destination)
+    _audioSrc.onended = () => { ttsState.value = 'idle'; _audioSrc = null }
+    if (ctx.state === 'suspended') await ctx.resume()
+    _audioSrc.start(0)
+    ttsState.value = 'playing'
+  } catch (e) {
+    ttsState.value = 'idle'
+    ttsError.value = '语音合成失败，请检查网络连接'
+    console.error('TTS error', e)
+  }
+}
+
+function stopTTS() {
+  _stopSource()
+  if (_audioCtx?.state === 'running') _audioCtx.suspend()
+  ttsState.value = 'idle'
+  ttsError.value = ''
+}
 
 const loading = ref(true)
 const running = ref(false)
@@ -183,6 +356,9 @@ const report = ref(null)
 const analysis = ref(null)
 const reportUrl = ref(null)
 const usMarket = ref(null)
+const newsExpanded = ref(false)
+
+const newsItems = computed(() => analysis.value?._news_items || [])
 
 const streamText = ref('')
 const streamDone = ref(false)
@@ -352,7 +528,12 @@ function stopTimers() {
 }
 
 onMounted(load)
-onUnmounted(stopTimers)
+onUnmounted(() => {
+  stopTimers()
+  _stopSource()
+  _audioCtx?.close()
+  _audioCtx = null
+})
 </script>
 
 <style scoped>
@@ -391,6 +572,25 @@ onUnmounted(stopTimers)
 .btn-run.large { background: #2563eb; color: #fff; padding: 10px 24px; font-size: 14px; margin-top: 12px; }
 .btn-view { background: #fff; color: #2563eb; text-decoration: none; }
 .btn-view:hover { background: #dbeafe; }
+.voice-select {
+  background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3);
+  border-radius: 7px; padding: 6px 8px; font-size: 12px; cursor: pointer; outline: none;
+  font-family: inherit;
+}
+.voice-select option { background: #1e3a8a; color: #fff; }
+.btn-tts { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3);
+           display: flex; align-items: center; gap: 5px; }
+.btn-tts:hover:not(:disabled) { background: rgba(255,255,255,.28); }
+.btn-tts:disabled { opacity: .55; cursor: not-allowed; }
+.btn-tts-stop { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2);
+                padding: 7px 10px; min-width: unset; }
+.btn-tts-stop:hover { background: rgba(255,255,255,.22); }
+.tts-reading-badge { color: #fde68a; font-size: 11px; animation: pulse 1.5s infinite; }
+.tts-loading-dot {
+  width: 10px; height: 10px; border: 2px solid rgba(255,255,255,.4);
+  border-top-color: #fff; border-radius: 50%;
+  animation: spin .7s linear infinite; flex-shrink: 0;
+}
 .run-icon { display: inline-block; margin-right: 4px; }
 .run-icon.spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -519,6 +719,46 @@ onUnmounted(stopTimers)
 .gap-list { margin: 0; padding-left: 18px; }
 .gap-list li { font-size: 13px; color: #6b7280; margin: 4px 0; }
 
+/* News briefing */
+.toggle-news-btn {
+  margin-left: auto; background: none; border: 1px solid #dbeafe; color: #2563eb;
+  border-radius: 6px; padding: 2px 10px; font-size: 11px; cursor: pointer;
+  font-weight: 600; transition: background .15s;
+}
+.toggle-news-btn:hover { background: #eff6ff; }
+
+.news-list { display: flex; flex-direction: column; gap: 0; }
+
+.news-item {
+  padding: 8px 12px; border-bottom: 1px solid #f3f4f6;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.news-item:last-child { border-bottom: none; }
+.news-item.news-high   { border-left: 3px solid #ef4444; }
+.news-item.news-medium { border-left: 3px solid #f59e0b; }
+.news-item.news-low    { border-left: 3px solid #9ca3af; }
+
+.news-title-row { display: flex; align-items: flex-start; gap: 7px; }
+
+.signal-pill {
+  flex-shrink: 0; padding: 1px 6px; border-radius: 8px; font-size: 10px;
+  font-weight: 700; margin-top: 1px;
+}
+.signal-high   { background: #fef2f2; color: #dc2626; }
+.signal-medium { background: #fffbeb; color: #d97706; }
+.signal-low    { background: #f0fdf4; color: #16a34a; }
+
+.news-link {
+  font-size: 13px; color: #111827; font-weight: 500; line-height: 1.5;
+  text-decoration: none; border-bottom: 1px solid #d1d5db; transition: color .15s;
+}
+.news-link:hover { color: #2563eb; border-bottom-color: #2563eb; }
+.news-title-plain { font-size: 13px; color: #374151; line-height: 1.5; }
+
+.news-meta { display: flex; gap: 10px; font-size: 11px; color: #9ca3af; padding-left: 27px; }
+
+.tts-error-tip { font-size: 12px; color: #d97706; background: #fffbeb; border: 1px solid #fde68a;
+                 border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }
 .disclaimer { font-size: 11px; color: #9ca3af; text-align: center;
               padding-top: 16px; border-top: 1px solid #f3f4f6; margin-top: 8px; }
 </style>

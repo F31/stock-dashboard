@@ -12,57 +12,39 @@
       <button v-if="activeTab === 'charts'" class="refresh-btn" :class="{ spinning: chartsLoading }" @click="refreshCharts" title="刷新图表数据">↻</button>
     </div>
 
-    <!-- ── Tab: 工业企业利润 ── -->
+    <!-- ── Tab: 工业企业利润（历史折线图）── -->
     <div v-if="activeTab === 'profit'">
-      <div v-if="profitLoading && !profitRows.length" class="loading-tip">数据加载中...</div>
-      <div v-else-if="profitError && !profitRows.length" class="error-tip">{{ profitError }}</div>
-      <div v-else class="profit-body">
-        <table class="profit-table">
-          <thead>
-            <tr>
-              <th class="th-label">指标</th>
-              <th v-for="p in profitPeriods" :key="p" class="th-period">{{ p }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr class="group-hdr-row">
-              <td colspan="4" class="group-hdr">全部工业企业</td>
-            </tr>
-            <tr>
-              <td class="td-label">利润总额（亿元）</td>
-              <td v-for="d in profitRows" :key="d.period + 'tp'" class="td-val">{{ fmt(d.total_profit) }}</td>
-            </tr>
-            <tr>
-              <td class="td-label td-sub">↳ 上年同期（亿元）</td>
-              <td v-for="d in profitRows" :key="d.period + 'tprev'" class="td-val td-muted">{{ fmt(d.total_prev) }}</td>
-            </tr>
-            <tr>
-              <td class="td-label">同比增长</td>
-              <td v-for="d in profitRows" :key="d.period + 'ty'" class="td-val">
-                <span :class="yoyClass(d.total_yoy)">{{ fmtPct(d.total_yoy) }}</span>
-              </td>
-            </tr>
-            <tr class="group-hdr-row">
-              <td colspan="4" class="group-hdr">计算机、通信和其他电子设备制造业</td>
-            </tr>
-            <tr>
-              <td class="td-label">利润总额（亿元）</td>
-              <td v-for="d in profitRows" :key="d.period + 'ep'" class="td-val">{{ fmt(d.elec_profit) }}</td>
-            </tr>
-            <tr>
-              <td class="td-label td-sub">↳ 上年同期（亿元）</td>
-              <td v-for="d in profitRows" :key="d.period + 'eprev'" class="td-val td-muted">{{ fmt(d.elec_prev) }}</td>
-            </tr>
-            <tr>
-              <td class="td-label">同比增长</td>
-              <td v-for="d in profitRows" :key="d.period + 'ey'" class="td-val">
-                <span :class="yoyClass(d.elec_yoy)">{{ fmtPct(d.elec_yoy) }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="data-source">数据来源：国家统计局</div>
-      </div>
+      <div v-if="profitLoading && !profitHistory" class="loading-tip">数据加载中，首次可能需要 10-30 秒…</div>
+      <div v-else-if="profitError && !profitHistory" class="error-tip">{{ profitError }}</div>
+      <template v-else-if="profitHistory">
+        <!-- Chart 1: Total industry -->
+        <div class="chart-block">
+          <div class="chart-header">
+            <span class="chart-title-main">工业企业营业利润 累计同比增速 (%)</span>
+            <span class="source-badge">国家统计局 · 最新{{ profitHistory.latest_period }}</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas ref="totalCanvas"></canvas>
+          </div>
+          <div class="chart-caption">
+            规模以上工业企业营业利润累计同比增速 · {{ profitDateRange('total') }} · 来源: 国家统计局月度数据 · 红虚线=零轴
+          </div>
+        </div>
+        <!-- Chart 2: Electronics sub-industry -->
+        <div v-if="profitHistory.elec?.length" class="chart-block">
+          <div class="chart-header">
+            <span class="chart-title-main">计算机、通信和其他电子设备制造业 营业利润 累计同比增速 (%)</span>
+            <span class="source-badge source-badge--purple">国家统计局 · 最新{{ profitHistory.latest_period }}</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas ref="elecCanvas"></canvas>
+          </div>
+          <div class="chart-caption">
+            规模以上计算机、通信和其他电子设备制造业营业利润累计同比 · {{ profitDateRange('elec') }} · 来源: 国家统计局 · 注: 受低基数效应影响部分期间增速偏高
+          </div>
+        </div>
+      </template>
+      <div v-else class="empty-tip">暂无数据（NBS服务可能受网络限制）</div>
     </div>
 
     <!-- ── Tab: 工业经济图表 ── -->
@@ -109,7 +91,10 @@ import {
   PointElement, LinearScale, CategoryScale,
   Tooltip, Legend, Filler,
 } from 'chart.js'
-import { fetchIndustrialProfit, refreshIndustrialProfit, fetchIndustrialCharts, refreshIndustrialCharts } from '../api/index.js'
+import {
+  fetchIndustrialProfitHistory, refreshIndustrialProfitHistory,
+  fetchIndustrialCharts, refreshIndustrialCharts,
+} from '../api/index.js'
 
 Chart.register(
   LineController, LineElement,
@@ -124,18 +109,134 @@ const tabs = [
 ]
 const activeTab = ref('profit')
 
-// ── Profit tab ──
-const profitRows = ref([])
+// ── Profit history tab ──
+const profitHistory = ref(null)
 const profitLoading = ref(false)
 const profitError = ref('')
-const profitPeriods = computed(() => profitRows.value.map(r => r.period))
+const totalCanvas = ref(null)
+const elecCanvas = ref(null)
+let totalChart = null
+let elecChart = null
+
+function profitDateRange(key) {
+  const arr = profitHistory.value?.[key]
+  if (!arr?.length) return ''
+  return `${arr[0].period}至${arr[arr.length - 1].period}`
+}
+
+// "2024-02" → "24-02"
+function toShortPeriod(p) { return p.slice(2) }
+
+function buildProfitChartData(points, label, lineColor, fillColor) {
+  const labels = points.map(p => toShortPeriod(p.period))
+  return {
+    labels,
+    datasets: [
+      {
+        label,
+        data: points.map(p => p.value),
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        tension: 0.3,
+        fill: true,
+        order: 1,
+      },
+      {
+        label: '',
+        data: labels.map(() => 0),
+        borderColor: 'rgba(239, 68, 68, 0.55)',
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 2,
+      },
+    ],
+  }
+}
+
+const _xScaleProfit = {
+  ticks: { font: { size: 10 }, maxTicksLimit: 16, maxRotation: 45 },
+  grid: { color: '#f3f4f6' },
+}
+
+function buildProfitChartOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          filter: item => item.text.length > 0,
+          font: { size: 11 },
+          boxWidth: 32,
+          padding: 10,
+        },
+      },
+      tooltip: {
+        filter: item => item.dataset.label.length > 0,
+        callbacks: {
+          label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1) ?? '--'}%`,
+        },
+      },
+    },
+    scales: {
+      x: _xScaleProfit,
+      y: {
+        ticks: {
+          font: { size: 10 },
+          callback: v => v + '%',
+        },
+        grid: { color: '#f3f4f6' },
+      },
+    },
+  }
+}
+
+function renderProfitCharts() {
+  if (profitHistory.value?.total?.length && totalCanvas.value) {
+    totalChart?.destroy()
+    totalChart = new Chart(totalCanvas.value, {
+      type: 'line',
+      data: buildProfitChartData(
+        profitHistory.value.total,
+        '工业营业利润累计同比(%)',
+        '#2563eb',
+        'rgba(37, 99, 235, 0.1)',
+      ),
+      options: buildProfitChartOptions(),
+    })
+  }
+  if (profitHistory.value?.elec?.length && elecCanvas.value) {
+    elecChart?.destroy()
+    elecChart = new Chart(elecCanvas.value, {
+      type: 'line',
+      data: buildProfitChartData(
+        profitHistory.value.elec,
+        '计算机通信电子营业利润累计同比(%)',
+        '#7c3aed',
+        'rgba(124, 58, 237, 0.1)',
+      ),
+      options: buildProfitChartOptions(),
+    })
+  }
+}
 
 async function loadProfit() {
   profitLoading.value = true
   profitError.value = ''
   try {
-    const resp = await fetchIndustrialProfit()
-    profitRows.value = resp.data || []
+    const resp = await fetchIndustrialProfitHistory()
+    const data = resp.data
+    profitHistory.value = (data?.total?.length) ? data : null
+    await nextTick()
+    renderProfitCharts()
   } catch {
     profitError.value = '数据获取失败'
   } finally {
@@ -147,8 +248,11 @@ async function refreshProfit() {
   profitLoading.value = true
   profitError.value = ''
   try {
-    const resp = await refreshIndustrialProfit()
-    profitRows.value = resp.data || []
+    const resp = await refreshIndustrialProfitHistory()
+    const data = resp.data
+    profitHistory.value = (data?.total?.length) ? data : null
+    await nextTick()
+    renderProfitCharts()
   } catch {
     profitError.value = '刷新失败'
   } finally {
@@ -175,7 +279,6 @@ function _allPeriods(indicator) {
   return Array.from(set).sort()
 }
 
-// 工业增加值：双折线（两条同比/累计同比线，单Y轴）
 function buildDualLineData(indicator) {
   const labels = _allPeriods(indicator)
   const datasets = indicator.series.map((s, i) => {
@@ -195,7 +298,6 @@ function buildDualLineData(indicator) {
   return { labels, datasets }
 }
 
-// 工业出口交货值：柱线组合（绝对值亿元=柱，同比%=折线，双Y轴）
 function buildBarLineData(indicator) {
   const labels = _allPeriods(indicator)
   const datasets = indicator.series.map((s, i) => {
@@ -227,16 +329,10 @@ function renderIndicatorChart(canvas, indicator, existingChart) {
   if (!canvas || !indicator?.series?.length) return existingChart
   if (existingChart) existingChart.destroy()
 
-  const chartType = indicator.chart_type || 'dual_line'
-  const isBarLine = chartType === 'bar_line'
-
+  const isBarLine = (indicator.chart_type || 'dual_line') === 'bar_line'
   const commonPlugins = {
     legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 14, padding: 10 } },
-    tooltip: {
-      callbacks: {
-        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y ?? '--'}`,
-      },
-    },
+    tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y ?? '--'}` } },
   }
 
   if (isBarLine) {
@@ -251,17 +347,13 @@ function renderIndicatorChart(canvas, indicator, existingChart) {
         scales: {
           x: _xScale,
           y: {
-            type: 'linear',
-            position: 'left',
-            ticks: { font: { size: 10 } },
-            grid: { color: '#f3f4f6' },
+            type: 'linear', position: 'left',
+            ticks: { font: { size: 10 } }, grid: { color: '#f3f4f6' },
             title: { display: true, text: '亿元', font: { size: 10 }, color: '#9ca3af' },
           },
           y1: {
-            type: 'linear',
-            position: 'right',
-            ticks: { font: { size: 10 } },
-            grid: { drawOnChartArea: false },
+            type: 'linear', position: 'right',
+            ticks: { font: { size: 10 } }, grid: { drawOnChartArea: false },
             title: { display: true, text: '%', font: { size: 10 }, color: '#9ca3af' },
           },
         },
@@ -279,10 +371,7 @@ function renderIndicatorChart(canvas, indicator, existingChart) {
       plugins: commonPlugins,
       scales: {
         x: _xScale,
-        y: {
-          ticks: { font: { size: 10 } },
-          grid: { color: '#f3f4f6' },
-        },
+        y: { ticks: { font: { size: 10 } }, grid: { color: '#f3f4f6' } },
       },
     },
   })
@@ -322,7 +411,11 @@ async function refreshCharts() {
 
 function switchTab(key) {
   activeTab.value = key
-  if (key === 'charts' && !chartsData.value) {
+  if (key === 'profit' && !profitHistory.value) {
+    loadProfit()
+  } else if (key === 'profit') {
+    nextTick(renderProfitCharts)
+  } else if (key === 'charts' && !chartsData.value) {
     loadCharts()
   } else if (key === 'charts') {
     nextTick(() => {
@@ -334,23 +427,11 @@ function switchTab(key) {
 
 onMounted(loadProfit)
 onUnmounted(() => {
+  totalChart?.destroy()
+  elecChart?.destroy()
   ivaChart?.destroy()
   expChart?.destroy()
 })
-
-// ── Formatters ──
-function fmt(v) {
-  if (v == null) return '--'
-  return v.toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-}
-function fmtPct(v) {
-  if (v == null) return '--'
-  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
-}
-function yoyClass(v) {
-  if (v == null) return 'yoy-neutral'
-  return v > 0 ? 'yoy-pos' : v < 0 ? 'yoy-neg' : 'yoy-neutral'
-}
 </script>
 
 <style scoped>
@@ -392,33 +473,42 @@ function yoyClass(v) {
   border-top: 1px solid #f3f4f6;
 }
 
-/* ── Profit table ── */
-.profit-body { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
-.profit-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
-.profit-table th, .profit-table td {
-  padding: 7px 12px; text-align: right; border-bottom: 1px solid #f3f4f6;
+/* ── Profit history charts ── */
+.chart-block {
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  overflow: hidden; margin-bottom: 14px;
 }
-.th-label, .td-label { text-align: left; color: #374151; font-weight: 500; white-space: nowrap; }
-.td-label.td-sub { color: #9ca3af; font-weight: 400; font-size: 0.92em; padding-left: 20px; }
-.th-period { color: #6b7280; font-weight: 600; font-size: 0.9em; white-space: nowrap; }
-.td-val { color: #111827; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.td-muted { color: #9ca3af; }
-.group-hdr-row .group-hdr {
-  background: #f9fafb; color: #6b7280; font-size: 0.82em; font-weight: 600;
-  text-align: left; padding: 5px 12px; border-bottom: 1px solid #e5e7eb;
+.chart-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 8px; padding: 10px 14px 6px;
+  border-bottom: 1px solid #f3f4f6;
 }
-.yoy-pos { color: #dc2626; font-weight: 600; }
-.yoy-neg { color: #16a34a; font-weight: 600; }
-.yoy-neutral { color: #6b7280; }
+.chart-title-main {
+  font-size: 0.82em; font-weight: 700; color: #1f2937; line-height: 1.4;
+}
+.source-badge {
+  flex-shrink: 0;
+  font-size: 0.72em; font-weight: 500;
+  color: #2563eb; background: #eff6ff;
+  border: 1px solid #bfdbfe; border-radius: 20px;
+  padding: 2px 9px; white-space: nowrap; margin-top: 1px;
+}
+.source-badge--purple {
+  color: #7c3aed; background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+.canvas-wrap { padding: 10px 14px 14px; height: 220px; position: relative; }
+.canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+.chart-caption {
+  padding: 5px 14px 8px; font-size: 0.68em; color: #9ca3af;
+  border-top: 1px solid #f9fafb; line-height: 1.5;
+}
 
 /* ── Charts tab ── */
 .charts-body { display: flex; flex-direction: column; gap: 16px; }
-.chart-block { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
 .chart-title {
   padding: 10px 14px 4px; font-size: 0.82em; font-weight: 700;
   color: #374151; border-bottom: 1px solid #f3f4f6;
 }
 .chart-unit { font-size: 0.88em; font-weight: 400; color: #9ca3af; }
-.canvas-wrap { padding: 10px 14px 14px; height: 220px; position: relative; }
-.canvas-wrap canvas { width: 100% !important; height: 100% !important; }
 </style>

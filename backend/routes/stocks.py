@@ -15,6 +15,10 @@ from services.stock_service import (
     get_stock_performance_intel,
     get_aindex_intel,
     search_stock as search_stock_service,
+    fetch_profit_growth_rate,
+    fetch_financial_snapshot,
+    compute_peg,
+    compute_signal,
 )
 from services.sector_service import (
     is_board_code,
@@ -22,6 +26,7 @@ from services.sector_service import (
     search_board,
     lookup_board_name,
 )
+from services.capex_service import get_capex_record_from_db, refresh_all_capex
 from database import get_db
 from models import WatchlistItem, StockReport
 from schemas import AddStockRequest, UpdateNotesRequest, UpdateNameRequest, StockDataResponse
@@ -60,6 +65,10 @@ class BatchStockData(BaseModel):
     market_cap: Optional[float] = None
     float_market_cap: Optional[float] = None
     amplitude: Optional[float] = None
+    profit_growth_rate: Optional[float] = None
+    peg: Optional[float] = None
+    signal: Optional[str] = None
+    capex: Optional[float] = None
     error: str = ""
 
 
@@ -90,12 +99,23 @@ async def get_stock_detail(stock_id: int, db: Session = Depends(get_db),
 
     realtime = await fetch_stock_realtime(stock.stock_code, stock.market)
     news = await fetch_stock_news(stock.stock_code, stock.market)
-    chart = await fetch_chart_data(stock.stock_code, stock.market)
+    snap = await fetch_financial_snapshot(stock.stock_code, stock.market)
+    pe = realtime.get("pe")
+    growth = snap.get("profit_growth_rate")
+    peg = compute_peg(pe, growth)
+    signal = compute_signal(pe, peg, growth, stock.market)
 
+    capex, capex_period = get_capex_record_from_db(stock.stock_code, stock.market, db)
     return StockDataResponse(
         id=stock.id, stock_code=stock.stock_code, market=stock.market,
         stock_name=stock.stock_name, notes=stock.notes,
-        **realtime, news=news, chart_data=chart,
+        **realtime, news=news,
+        profit_growth_rate=growth,
+        roe=snap.get("roe"),
+        debt_ratio=snap.get("debt_ratio"),
+        cash_profit_ratio=snap.get("cash_profit_ratio"),
+        peg=peg, signal=signal,
+        capex=capex, capex_period=capex_period,
     )
 
 
@@ -297,20 +317,18 @@ async def refresh_stocks(db: Session = Depends(get_db),
     if not stocks:
         return []
 
-    # Separate stock vs sector items
     stock_items = [s for s in stocks if (s.item_type or "stock") != "sector"]
     sector_items = [s for s in stocks if (s.item_type or "stock") == "sector"]
 
     data_map = {}
 
-    # Fetch stock data via Sina batch
+    # Fetch realtime quotes batch
     if stock_items:
         batch_items = [{"code": s.stock_code, "market": s.market} for s in stock_items]
         for r in await fetch_stocks_batch(batch_items):
             data_map[(r.get("code"), r.get("market"))] = r
 
-    # Fetch sector data in parallel with a hard per-sector timeout
-    # (akshare/eastmoney may be slow or blocked — must not stall the whole refresh)
+    # Fetch sector data
     sector_data = {}
     if sector_items:
         async def _fetch_sector_safe(code: str) -> tuple:
@@ -328,17 +346,19 @@ async def refresh_stocks(db: Session = Depends(get_db),
             if sr:
                 sector_data[code] = sr
 
-    # Parallel fetch news + chart for stock items only (with 60s total timeout)
+    # Fetch news only (no chart data)
     news_tasks = [fetch_stock_news(s.stock_code, s.market) for s in stock_items]
-    chart_tasks = [fetch_chart_data(s.stock_code, s.market) for s in stock_items]
     try:
         all_news = await asyncio.wait_for(asyncio.gather(*news_tasks), timeout=60) if news_tasks else []
     except (asyncio.TimeoutError, Exception):
-        all_news = []
+        all_news = [[] for _ in stock_items]
+
+    # Fetch financial snapshots in parallel (A-shares only, 24h cached)
+    snap_tasks = [fetch_financial_snapshot(s.stock_code, s.market) for s in stock_items]
     try:
-        all_charts = await asyncio.wait_for(asyncio.gather(*chart_tasks), timeout=60) if chart_tasks else []
+        all_snaps = await asyncio.wait_for(asyncio.gather(*snap_tasks), timeout=30) if snap_tasks else []
     except (asyncio.TimeoutError, Exception):
-        all_charts = []
+        all_snaps = [{} for _ in stock_items]
 
     result = []
     stock_idx = 0
@@ -362,17 +382,29 @@ async def refresh_stocks(db: Session = Depends(get_db),
         else:
             rt = data_map.get((s.stock_code, s.market), {})
             name = rt.get("stock_name") or s.stock_name or ""
+            snap = all_snaps[stock_idx] if stock_idx < len(all_snaps) else {}
+            growth = snap.get("profit_growth_rate")
+            pe = rt.get("pe")
+            peg = compute_peg(pe, growth)
+            signal = compute_signal(pe, peg, growth, s.market)
+            _cx, _cxp = get_capex_record_from_db(s.stock_code, s.market, db)
             result.append(StockDataResponse(
                 id=s.id, stock_code=s.stock_code, market=s.market,
                 stock_name=name, notes=s.notes, item_type="stock",
                 **{k: rt.get(k) for k in [
                     "price", "change", "change_pct", "prev_close",
                     "open", "high", "low", "volume", "amount",
-                    "turnover_rate", "pe", "market_cap", "float_market_cap",
+                    "turnover_rate", "pe", "pe_ttm", "market_cap", "float_market_cap",
                     "amplitude",
                 ]},
                 news=all_news[stock_idx] if stock_idx < len(all_news) else [],
-                chart_data=all_charts[stock_idx] if stock_idx < len(all_charts) else [],
+                profit_growth_rate=growth,
+                roe=snap.get("roe"),
+                debt_ratio=snap.get("debt_ratio"),
+                cash_profit_ratio=snap.get("cash_profit_ratio"),
+                peg=peg,
+                signal=signal,
+                capex=_cx, capex_period=_cxp,
             ))
             stock_idx += 1
 
@@ -417,3 +449,38 @@ async def get_sector_congestion():
     """Return real-time metrics for all tracked AI sectors (from bk_names.json)."""
     from services.sector_service import get_sector_congestion_data
     return await get_sector_congestion_data()
+
+
+@router.get("/sectors/{code}/top5")
+async def get_sector_top5(code: str, db: Session = Depends(get_db),
+                          user=Depends(get_current_user)):
+    """Top-5 constituent stocks of a sector (by total market cap)."""
+    from services.sector_service import fetch_sector_top5
+    top5 = await fetch_sector_top5(code)
+    return top5
+
+
+@router.post("/stocks/capex/refresh")
+async def refresh_capex(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Trigger a Capex refresh for all of this user's watchlist items (runs in background)."""
+    from database import SessionLocal
+    stocks = (db.query(WatchlistItem)
+              .filter(WatchlistItem.user_id == user.id)
+              .all())
+    # Snapshot the items so we don't depend on the request-scoped session
+    items_snapshot = list(stocks)
+    count = len(items_snapshot)
+
+    async def _run():
+        bg_db = SessionLocal()
+        try:
+            # Re-query with background session to get fresh ORM objects
+            bg_items = (bg_db.query(WatchlistItem)
+                        .filter(WatchlistItem.user_id == user.id)
+                        .all())
+            await refresh_all_capex(bg_items, bg_db)
+        finally:
+            bg_db.close()
+
+    asyncio.create_task(_run())
+    return {"msg": f"Capex refresh started for {count} items"}

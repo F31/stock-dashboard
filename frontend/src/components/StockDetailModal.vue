@@ -39,9 +39,45 @@
             <div class="metrics-grid">
               <div class="mg-item" v-for="m in metricsList" :key="m.label">
                 <div class="mg-label">{{ m.label }}</div>
-                <div class="mg-value">{{ m.value }}</div>
+                <div class="mg-value" :class="m.cls">
+                  <template v-if="m.isSignal && m.value !== '--'">
+                    <span :class="['sig-badge', sigClass(m.value)]">{{ m.value }}</span>
+                  </template>
+                  <template v-else>{{ m.value }}</template>
+                </div>
               </div>
             </div>
+            <!-- Sector Top5 Constituents -->
+            <div v-if="isSector" class="top5-section">
+              <div class="sec-ttl">🏆 Top5 成分股（按市值）</div>
+              <div v-if="top5Loading" class="empty-tip">加载中...</div>
+              <div v-else-if="top5Data.length === 0" class="empty-tip">暂无数据</div>
+              <table v-else class="top5-table">
+                <thead>
+                  <tr>
+                    <th>#</th><th>名称</th><th>价格</th><th>涨跌幅</th>
+                    <th>PE动态</th><th>PEG</th><th>净利增速</th><th>总市值</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in top5Data" :key="s.code">
+                    <td class="t5-rank">{{ s.rank }}</td>
+                    <td class="t5-name">{{ s.name }}</td>
+                    <td class="t5-num">{{ s.price != null ? s.price.toFixed(2) : '--' }}</td>
+                    <td :class="['t5-num', s.change_pct != null ? (s.change_pct >= 0 ? 'val-up' : 'val-down') : '']">
+                      {{ s.change_pct != null ? (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%' : '--' }}
+                    </td>
+                    <td class="t5-num">{{ s.pe != null ? s.pe.toFixed(1) + '×' : '--' }}</td>
+                    <td class="t5-num">{{ s.peg != null ? s.peg.toFixed(2) : '--' }}</td>
+                    <td :class="['t5-num', s.profit_growth_rate != null ? (s.profit_growth_rate >= 0 ? 'val-up' : 'val-down') : '']">
+                      {{ s.profit_growth_rate != null ? (s.profit_growth_rate >= 0 ? '+' : '') + s.profit_growth_rate.toFixed(1) + '%' : '--' }}
+                    </td>
+                    <td class="t5-num">{{ fmtCap(s.market_cap) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <!-- Sparkline -->
             <div class="sparkline-wrap" v-if="data.chart_data?.length >= 2">
               <svg :viewBox="`0 0 500 80`" class="sparkline">
@@ -134,7 +170,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport } from '../api/index.js'
+import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5 } from '../api/index.js'
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -153,6 +189,7 @@ const tabs = [
 // ── Derived ──
 const data = computed(() => props.stock.data)
 const market = computed(() => props.stock.market)
+const isSector = computed(() => props.stock.item_type === 'sector')
 const displayName = computed(() =>
   data.value?.stock_name || props.stock.stock_name || props.stock.stock_code
 )
@@ -180,34 +217,52 @@ function fmtVol(v) {
   return v.toFixed(0)
 }
 
+function fmtCapex(v) {
+  if (v == null) return '--'
+  if (v >= 1e12) return (v / 1e12).toFixed(1) + '万亿'
+  if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'
+  if (v >= 1e4) return (v / 1e4).toFixed(0) + '万'
+  return v.toFixed(0)
+}
+function fmtGrowth(v) {
+  if (v == null) return '--'
+  return (v > 0 ? '+' : '') + v.toFixed(1) + '%'
+}
+function sigClass(s) {
+  if (s === '买入') return 'sig-buy'
+  if (s === '关注') return 'sig-watch'
+  if (s === '减仓') return 'sig-reduce'
+  return 'sig-hold'
+}
+
 const metricsList = computed(() => {
   const d = data.value
   if (!d) return []
-  const isSector = props.stock.item_type === 'sector'
-  if (isSector) return [
-    { label: '昨收', value: fmt(d.prev_close) },
-    { label: '今开', value: fmt(d.open) },
-    { label: '最高', value: fmt(d.high) },
-    { label: '最低', value: fmt(d.low) },
-    { label: '总市值', value: fmtCap(d.market_cap) },
-    { label: '成交额', value: fmtCap(d.amount) },
-    { label: '上涨家数', value: d.up_count ?? '--' },
-    { label: '下跌家数', value: d.down_count ?? '--' },
-    { label: '换手率', value: fmt(d.turnover_rate, 2, '%') },
-    { label: '振幅', value: fmt(d.amplitude, 2, '%') },
-  ]
+  if (isSector.value) return []
+
+  const g = d.profit_growth_rate
+  const r = d.roe
+  const dr = d.debt_ratio
+  const cf = d.cash_profit_ratio
+
   return [
-    { label: '昨收', value: fmt(d.prev_close) },
-    { label: '今开', value: fmt(d.open) },
-    { label: '最高', value: fmt(d.high) },
-    { label: '最低', value: fmt(d.low) },
+    // ── 行情 ──
+    { label: '昨收',   value: fmt(d.prev_close) },
+    { label: '今开',   value: fmt(d.open) },
+    { label: '最高',   value: fmt(d.high) },
+    { label: '最低',   value: fmt(d.low) },
     { label: '总市值', value: fmtCap(d.market_cap) },
     { label: '流通市值', value: fmtCap(d.float_market_cap) },
-    { label: '市盈率 PE', value: fmt(d.pe, 1, '×') },
     { label: '换手率', value: fmt(d.turnover_rate, 2, '%') },
-    { label: '成交量', value: fmtVol(d.volume) },
-    { label: '成交额', value: fmtCap(d.amount) },
-    { label: '振幅', value: fmt(d.amplitude, 2, '%') },
+    // ── 估值 ──
+    { label: 'PE(动态)', value: d.pe != null ? d.pe.toFixed(1) + '×' : '--' },
+    { label: 'PEG',      value: d.peg != null ? d.peg.toFixed(2) : '--' },
+    { label: '净利增速', value: fmtGrowth(g), cls: g != null ? (g >= 0 ? 'val-up' : 'val-down') : '' },
+    // ── 基本面 ──
+    { label: 'ROE',    value: r != null ? r.toFixed(1) + '%' : '--',  cls: r != null ? (r >= 15 ? 'val-hi' : r < 8 ? 'val-lo' : '') : '' },
+    { label: '负债率', value: dr != null ? dr.toFixed(1) + '%' : '--', cls: dr != null && dr > 70 ? 'val-warn' : '' },
+    { label: '现金质量', value: cf != null ? cf.toFixed(0) + '%' : '--', cls: cf != null ? (cf >= 80 ? 'val-hi' : cf < 30 ? 'val-warn' : '') : '' },
+    { label: d.capex_period ? `Capex(${d.capex_period})` : 'Capex', value: fmtCapex(d.capex) },
   ]
 })
 
@@ -224,6 +279,26 @@ const chartPoints = computed(() => {
     return `${x},${y}`
   }).join(' ')
 })
+
+// ── Sector Top5 ──
+const top5Data = ref([])
+const top5Loading = ref(false)
+
+async function loadTop5() {
+  if (!isSector.value) return
+  top5Loading.value = true
+  try {
+    const res = await fetchSectorTop5(props.stock.stock_code)
+    top5Data.value = res.data
+  } catch {
+    top5Data.value = []
+  } finally {
+    top5Loading.value = false
+  }
+}
+
+watch(activeTab, v => { if (v === 'info' && isSector.value) loadTop5() })
+onMounted(() => { if (activeTab.value === 'info' && isSector.value) loadTop5() })
 
 // ── Notes ──
 const editingNotes = ref(props.stock.notes || '')
@@ -396,11 +471,43 @@ async function removeReport(r) {
   margin-bottom: 14px;
 }
 .mg-item { background: #fff; padding: 10px 8px; text-align: center; }
-.mg-label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; }
+.mg-label { font-size: 10px; color: #9ca3af; letter-spacing: .3px; margin-bottom: 4px; }
 .mg-value { font-size: 13px; font-weight: 700; color: #111827; }
+.val-up   { color: #dc2626; }
+.val-down { color: #16a34a; }
+.val-hi   { color: #15803d; }
+.val-lo   { color: #9ca3af; }
+.val-warn { color: #dc2626; }
+.sig-badge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+}
+.sig-buy    { background: #dcfce7; color: #15803d; }
+.sig-watch  { background: #dbeafe; color: #1d4ed8; }
+.sig-hold   { background: #f3f4f6; color: #6b7280; }
+.sig-reduce { background: #fee2e2; color: #dc2626; }
 
 .sparkline-wrap { height: 70px; margin-bottom: 14px; border: 1px solid #f3f4f6; border-radius: 8px; overflow: hidden; }
 .sparkline { width: 100%; height: 100%; }
+
+.top5-section { margin-bottom: 14px; }
+.top5-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;
+}
+.top5-table th {
+  background: #f9fafb; color: #6b7280; font-weight: 600;
+  padding: 7px 6px; text-align: right; white-space: nowrap;
+  border-bottom: 1px solid #e5e7eb;
+}
+.top5-table th:first-child,
+.top5-table th:nth-child(2) { text-align: left; }
+.top5-table td { padding: 7px 6px; border-bottom: 1px solid #f3f4f6; }
+.top5-table tr:last-child td { border-bottom: none; }
+.top5-table tr:hover td { background: #f8fafc; }
+.t5-rank { color: #9ca3af; font-weight: 700; width: 20px; }
+.t5-name { color: #111827; font-weight: 600; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t5-num { text-align: right; color: #374151; font-variant-numeric: tabular-nums; }
 
 .news-section { border-top: 1px solid #e5e7eb; padding-top: 12px; }
 .sec-ttl { font-size: 11px; font-weight: 700; color: #6b7280; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; }

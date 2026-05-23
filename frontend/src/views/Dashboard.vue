@@ -37,11 +37,6 @@
           </div>
         </div>
 
-        <button class="btn btn-refresh" :disabled="loading" @click="refresh">
-          <span :class="['refresh-icon', { spinning: loading }]">↻</span>
-          {{ loading ? '更新中...' : '刷新' }}
-        </button>
-        <button class="btn btn-add" @click="showAddModal = true">+ 添加</button>
         <button class="btn btn-logout" @click="logout">退出</button>
       </div>
     </header>
@@ -58,71 +53,93 @@
 
     <!-- Main Content -->
     <main class="main" v-if="visibleWatchlist.length > 0 || watchlist.length > 0">
-      <!-- Tab Bar -->
-      <div class="tab-bar-wrap">
-        <div class="tab-bar">
-          <button
-            v-for="tab in tabs"
-            :key="tab.key"
-            :class="['tab', { active: activeTab === tab.key }]"
-            @click="activeTab = tab.key"
+
+      <!-- ── Top-level Main Tabs ── -->
+      <div class="main-tab-bar">
+        <button :class="['main-tab', { active: mainTab === 'market' }]" @click="mainTab = 'market'">
+          📈 板块/个股行情
+        </button>
+        <button :class="['main-tab', { active: mainTab === 'macro' }]" @click="mainTab = 'macro'">
+          🌐 宏观经济数据
+        </button>
+      </div>
+
+      <!-- ── Panel: 板块/个股行情 ── -->
+      <div v-if="mainTab === 'market'">
+        <!-- A-share index row -->
+        <MarketIntel mode="indices" />
+
+        <!-- Market sub-tabs: A股 / 港股 / 美股 / 板块行情监控 -->
+        <div class="tab-bar-wrap">
+          <div class="tab-bar">
+            <button
+              v-for="tab in tabs"
+              :key="tab.key"
+              :class="['tab', { active: activeTab === tab.key }]"
+              @click="activeTab = tab.key"
+            >
+              {{ tab.label }}
+              <span class="tab-count">{{ tab.count }}</span>
+            </button>
+            <div class="tab-bar-r">
+              <select
+                v-if="signalOptions.length"
+                v-model="signalFilter"
+                class="signal-filter"
+                :class="{ 'signal-filter--active': signalFilter }"
+                title="按信号筛选"
+              >
+                <option value="">全部</option>
+                <option v-for="sig in signalOptions" :key="sig" :value="sig">{{ sig }}</option>
+              </select>
+              <button class="tab-action-btn tab-action-refresh" :disabled="loading" @click="refresh">
+                <span :class="['refresh-icon', { spinning: loading }]">↻</span>
+                {{ loading ? '更新中...' : '刷新' }}
+              </button>
+              <button class="tab-action-btn tab-action-add" @click="showAddModal = true">+ 添加</button>
+              <button class="tab-more" @click="showAllModal = true">☰ 列表</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stock Grid -->
+        <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+          <div
+            v-for="(stock, idx) in visibleStocks"
+            :key="stock.id"
+            class="card-wrap"
+            :class="{ 'drag-over': dragOverIdx === idx }"
+            draggable="true"
+            @dragstart="onDragStart(idx)"
+            @dragover.prevent="onDragOver(idx)"
+            @dragleave="onDragLeave"
+            @drop="onDrop($event, idx)"
+            @dragend="onDragEnd"
           >
-            {{ tab.label }}
-            <span class="tab-count">{{ tab.count }}</span>
-          </button>
-          <button class="tab-more" @click="showAllModal = true">
-            <template v-if="currentStocks.length > MAX_VISIBLE">
-              更多 ({{ currentStocks.length - MAX_VISIBLE }})
-            </template>
-            <template v-else>☰ 列表</template>
-          </button>
+            <div class="drag-handle" title="拖动排序">⠿</div>
+            <StockCard
+              :stock="stock"
+              @remove="handleRemove(stock.id)"
+              @rename="handleRename"
+              @open-detail="handleOpenDetail"
+            />
+          </div>
+        </div>
+
+        <!-- Pagination -->
+        <div v-if="totalPages > 1" class="pagination">
+          <button class="page-btn" :disabled="currentPage === 0" @click="prevPage">‹ 上一页</button>
+          <span class="page-info">{{ currentPage + 1 }} / {{ totalPages }}</span>
+          <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="nextPage">下一页 ›</button>
         </div>
       </div>
 
-      <!-- Stock Grid (fluid auto-fill, max 2 rows on desktop) -->
-      <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
-        <div
-          v-for="(stock, idx) in visibleStocks"
-          :key="stock.id"
-          class="card-wrap"
-          :class="{ 'drag-over': dragOverIdx === idx }"
-          draggable="true"
-          @dragstart="onDragStart(idx)"
-          @dragover.prevent="onDragOver(idx)"
-          @dragleave="onDragLeave"
-          @drop="onDrop($event, idx)"
-          @dragend="onDragEnd"
-        >
-          <div class="drag-handle" title="拖动排序">⠿</div>
-          <StockCard
-            :stock="stock"
-            @remove="handleRemove(stock.id)"
-            @update-notes="handleUpdateNotes"
-            @rename="handleRename"
-            @open-detail="handleOpenDetail"
-          />
-        </div>
+      <!-- ── Panel: 宏观经济数据 ── -->
+      <div v-if="mainTab === 'macro'" class="macro-panel">
+        <MacroMonitor />
+        <IndustrialProfitMonitor />
       </div>
 
-      <!-- Pagination Controls -->
-      <div v-if="totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="currentPage === 0" @click="prevPage">
-          ‹ 上一页
-        </button>
-        <span class="page-info">{{ currentPage + 1 }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="nextPage">
-          下一页 ›
-        </button>
-      </div>
-
-      <!-- Market Intelligence -->
-      <MarketIntel />
-      <!-- Congestion Monitor -->
-      <CongestionMonitor />
-      <!-- Macro Data Monitor -->
-      <MacroMonitor />
-      <!-- Industrial Profit Monitor -->
-      <IndustrialProfitMonitor />
     </main>
 
     <!-- Empty state -->
@@ -272,7 +289,9 @@ const showDataSources = ref(false)
 const showWatchedTickers   = ref(false)
 const showFrameworkEditor  = ref(false)
 const showPromptTemplates = ref(false)
-const activeTab = ref('ALL')
+const mainTab = ref('market')   // 'market' | 'macro'
+const activeTab = ref('A')
+const signalFilter = ref('')
 const detailStock = ref(null)
 
 // Decode JWT to get current user id and role (no extra network call needed)
@@ -309,16 +328,39 @@ const MAX_VISIBLE = computed(() =>
   gridCols.value <= 1 ? 9999 : gridCols.value * 2
 )
 
+// ── Signal filter ──
+const SIGNAL_ORDER = ['买入', '关注', '持有', '减仓']
+
+const signalOptions = computed(() => {
+  const sigs = new Set()
+  for (const s of currentStocks.value) {
+    if (s.data?.signal) sigs.add(s.data.signal)
+  }
+  return Array.from(sigs).sort((a, b) => {
+    const ia = SIGNAL_ORDER.indexOf(a)
+    const ib = SIGNAL_ORDER.indexOf(b)
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return a.localeCompare(b, 'zh')
+  })
+})
+
+const filteredStocks = computed(() => {
+  if (!signalFilter.value) return currentStocks.value
+  return currentStocks.value.filter(s => s.data?.signal === signalFilter.value)
+})
+
 // ── Pagination ──
 const currentPage = ref(0)
 const totalPages = computed(() =>
-  MAX_VISIBLE.value >= 9999 ? 1 : Math.max(1, Math.ceil(currentStocks.value.length / MAX_VISIBLE.value))
+  MAX_VISIBLE.value >= 9999 ? 1 : Math.max(1, Math.ceil(filteredStocks.value.length / MAX_VISIBLE.value))
 )
 const pageStart = computed(() => currentPage.value * MAX_VISIBLE.value)
-const pageEnd = computed(() => Math.min(pageStart.value + MAX_VISIBLE.value, currentStocks.value.length))
+const pageEnd = computed(() => Math.min(pageStart.value + MAX_VISIBLE.value, filteredStocks.value.length))
 
 const visibleStocks = computed(() =>
-  currentStocks.value.slice(pageStart.value, pageEnd.value)
+  filteredStocks.value.slice(pageStart.value, pageEnd.value)
 )
 
 const watchlist = computed(() => store.watchlistWithData)
@@ -340,19 +382,17 @@ const sectorStocks = computed(() => visibleWatchlist.value.filter(s => s.item_ty
 
 // Used for the grid — non-hidden only
 const currentStocks = computed(() => {
-  if (activeTab.value === 'ALL') return visibleWatchlist.value
   if (activeTab.value === 'A') return aStocks.value
   if (activeTab.value === 'HK') return hkStocks.value
   if (activeTab.value === 'US') return usStocks.value
   if (activeTab.value === 'SECTOR') return sectorStocks.value
-  return []
+  return visibleWatchlist.value
 })
 
 // Used for AllStocksModal — full list including hidden (modal sorts hidden to bottom)
 const allStocksForModal = computed(() => {
   const visible = currentStocks.value
   const hidden = watchlist.value.filter(s => s.hidden && (
-    activeTab.value === 'ALL' ||
     (activeTab.value === 'A' && s.market === 'A') ||
     (activeTab.value === 'HK' && s.market === 'HK') ||
     (activeTab.value === 'US' && s.market === 'US') ||
@@ -362,13 +402,13 @@ const allStocksForModal = computed(() => {
 })
 
 const tabs = computed(() => {
-  const items = [{ key: 'ALL', label: '全部', count: watchlist.value.length }]
+  const items = []
   if (aStocks.value.length) items.push({ key: 'A', label: 'A股', count: aStocks.value.length })
   if (hkStocks.value.length) items.push({ key: 'HK', label: '港股', count: hkStocks.value.length })
   if (usStocks.value.length) items.push({ key: 'US', label: '美股', count: usStocks.value.length })
-  if (sectorStocks.value.length) items.push({ key: 'SECTOR', label: '板块行情监控', count: sectorStocks.value.length })
-  if (!items.find(t => t.key === activeTab.value)) {
-    activeTab.value = 'ALL'
+  if (sectorStocks.value.length) items.push({ key: 'SECTOR', label: '概念板块', count: sectorStocks.value.length })
+  if (items.length && !items.find(t => t.key === activeTab.value)) {
+    activeTab.value = items[0].key
   }
   return items
 })
@@ -380,6 +420,7 @@ function fmtTime() {
 }
 
 function onDragStart(idx) {
+  if (signalFilter.value) return
   dragIdx.value = idx
 }
 
@@ -413,20 +454,15 @@ function onDrop(e, idx) {
 
   const newIds = newList.map(s => s.id)
 
-  let fullNewOrder
-  if (activeTab.value === 'ALL') {
-    fullNewOrder = newIds
-  } else {
-    const fullList = watchlist.value
-    const currentIdSet = new Set(list.map(s => s.id))
-    let filteredIdx = 0
-    fullNewOrder = fullList.map(s => {
-      if (currentIdSet.has(s.id)) {
-        return newIds[filteredIdx++]
-      }
-      return s.id
-    })
-  }
+  const fullList = watchlist.value
+  const currentIdSet = new Set(list.map(s => s.id))
+  let filteredIdx = 0
+  const fullNewOrder = fullList.map(s => {
+    if (currentIdSet.has(s.id)) {
+      return newIds[filteredIdx++]
+    }
+    return s.id
+  })
 
   store.reorder(fullNewOrder)
   dragIdx.value = -1
@@ -457,10 +493,6 @@ async function handleRemove(id) {
 
 function handleShowStock(id) {
   store.showStock(id)
-}
-
-function handleUpdateNotes(id, notes) {
-  store.updateStockNotes(id, notes)
 }
 
 function handleRename(id, name) {
@@ -511,8 +543,9 @@ function onTouchEnd(e) {
   else prevPage()
 }
 
-// Reset to first page when switching tabs or when page count shrinks below current page
-watch(activeTab, () => { currentPage.value = 0 })
+// Reset to first page when switching tabs or filter; shrink page if needed
+watch(activeTab, () => { currentPage.value = 0; signalFilter.value = '' })
+watch(signalFilter, () => { currentPage.value = 0 })
 watch(totalPages, (newTotal) => {
   if (currentPage.value >= newTotal) currentPage.value = Math.max(0, newTotal - 1)
 })
@@ -626,12 +659,6 @@ onUnmounted(() => {
   font-weight: 600;
 }
 .btn-add:hover { background: #e0e7ff; }
-
-.btn-refresh {
-  background: rgba(255,255,255,0.15);
-  color: #fff;
-}
-.btn-refresh:hover:not(:disabled) { background: rgba(255,255,255,0.25); }
 
 .refresh-icon { display: inline-block; margin-right: 4px; }
 .refresh-icon.spinning { animation: spin 1s linear infinite; }
@@ -774,7 +801,46 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
-/* ── Tab Bar ── */
+/* ── Main Tabs (板块/个股行情 | 宏观经济数据) ── */
+.main-tab-bar {
+  display: flex;
+  gap: 8px;
+  padding: 16px 0 0;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 0;
+}
+
+.main-tab {
+  padding: 10px 22px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: none;
+  font-size: 0.95em;
+  font-weight: 700;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: -2px;
+  border-radius: 6px 6px 0 0;
+  white-space: nowrap;
+}
+
+.main-tab:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.main-tab.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+  background: #fff;
+}
+
+.macro-panel {
+  padding-top: 16px;
+}
+
+/* ── Market Sub-Tab Bar ── */
 .tab-bar-wrap {
   padding: 16px 0 0;
   border-bottom: 1px solid #e5e7eb;
@@ -837,9 +903,72 @@ onUnmounted(() => {
   touch-action: pan-y;
 }
 
+/* ── Tab bar right-side action group ── */
+.tab-bar-r {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tab-action-btn {
+  padding: 5px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.82em;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.tab-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.tab-action-refresh {
+  color: #374151;
+}
+.tab-action-refresh:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #6b7280;
+}
+
+.tab-action-add {
+  color: #2563eb;
+  font-weight: 600;
+  border-color: #bfdbfe;
+}
+.tab-action-add:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+/* ── Signal filter dropdown ── */
+.signal-filter {
+  padding: 5px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.82em;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+  max-width: 76px;
+  appearance: auto;
+}
+.signal-filter:hover { border-color: #6b7280; }
+.signal-filter:focus { border-color: #2563eb; }
+.signal-filter--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
 /* ── "列表" button in tab bar ── */
 .tab-more {
-  margin-left: auto;
   padding: 5px 12px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
@@ -850,7 +979,6 @@ onUnmounted(() => {
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s;
-  flex-shrink: 0;
 }
 .tab-more:hover {
   background: #f3f4f6;
@@ -1066,9 +1194,18 @@ onUnmounted(() => {
     flex-shrink: 0;
   }
   .tab-count { font-size: 0.7em; padding: 0 5px; }
+  .tab-action-btn {
+    padding: 4px 9px;
+    font-size: 0.75em;
+  }
   .tab-more {
     padding: 4px 10px;
     font-size: 0.75em;
+  }
+  .signal-filter {
+    padding: 4px 4px;
+    font-size: 0.75em;
+    max-width: 64px;
   }
 
   .stock-grid {

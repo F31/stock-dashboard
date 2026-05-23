@@ -349,7 +349,7 @@ def _call_llm_streaming(cfg, prompt: str, on_chunk=None) -> str:
         "model": cfg.model_name,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 8192,
+        "max_tokens": 16384,
         "stream": True,
     }
     url = _make_url(cfg.base_url)
@@ -386,7 +386,7 @@ def _call_llm(cfg, prompt: str) -> str:
         "model": cfg.model_name,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 8192,
+        "max_tokens": 16384,
         "stream": False,
     }
     r = requests.post(_make_url(cfg.base_url), headers=_make_headers(cfg.api_key),
@@ -395,12 +395,36 @@ def _call_llm(cfg, prompt: str) -> str:
     return r.json()["choices"][0]["message"]["content"]
 
 
+def _repair_json(text: str) -> str:
+    """修复 LLM 常见 JSON 输出错误，使其可被标准解析器接受。"""
+    # null/true/false 后面跟了多余的引号：null" → null
+    text = re.sub(r'\b(null|true|false)(")', lambda m: m.group(1), text)
+    # 冒号后的纯数字值跟了多余引号：: 0.0",  → : 0.0,
+    # 注意：只匹配 value 位置（冒号后），避免误删字符串末尾的闭引号
+    text = re.sub(r'(:\s*-?\d+(?:\.\d+)?)"\s*([,}\]])', r'\1\2', text)
+    # 尾随逗号（对象/数组末尾）
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
+    return text
+
+
+def _try_parse(candidate: str) -> dict | None:
+    """先直接解析，失败则修复后再试，都失败返回 None。"""
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return json.loads(_repair_json(candidate))
+    except json.JSONDecodeError:
+        return None
+
+
 def _extract_json(raw: str) -> dict:
     """
     从 LLM 输出中提取 JSON，按优先级依次尝试：
-    1. markdown code fence 内的 JSON
-    2. 全文直接解析
-    3. 全文中第一个 {...} 块
+    1. markdown code fence 内的 JSON（含修复）
+    2. 全文直接解析（含修复）
+    3. 全文中第一个 {...} 块（含修复）
     4. 降级：将原始文本包装为 {"analysis_text": ...} 返回，避免前端报错
     """
     text = raw.strip()
@@ -408,25 +432,21 @@ def _extract_json(raw: str) -> dict:
     # ① markdown code fence
     m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
     if m:
-        candidate = m.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+        result = _try_parse(m.group(1).strip())
+        if result is not None:
+            return result
 
     # ② 全文
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+    result = _try_parse(text)
+    if result is not None:
+        return result
 
     # ③ 第一个 {...} 块（贪婪匹配到最后一个 }）
     m2 = re.search(r"\{[\s\S]+\}", text)
     if m2:
-        try:
-            return json.loads(m2.group(0))
-        except json.JSONDecodeError:
-            pass
+        result = _try_parse(m2.group(0))
+        if result is not None:
+            return result
 
     # ④ 降级：原始文本原样返回，前端可按 analysis_text 渲染
     logger.warning("LLM response is not valid JSON, returning as plain text. len=%d", len(raw))

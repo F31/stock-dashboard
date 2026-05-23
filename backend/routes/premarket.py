@@ -1,7 +1,10 @@
 """盘前分析主路由：手动触发、查询历史、获取最新报告。"""
+import io
 import json
 import logging
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -99,6 +102,43 @@ def get_stream_text(
     from premarket.analyzer import get_stream_snapshot
     snapshot = get_stream_snapshot(record_id)
     return {"text": snapshot["text"], "done": snapshot["done"]}
+
+
+class _TTSReq(BaseModel):
+    text: str
+    voice: str = "zh-CN-XiaoxiaoNeural"
+    rate: str = "-5%"
+
+
+@router.post("/tts")
+async def text_to_speech(req: _TTSReq, _: User = Depends(get_current_user)):
+    """使用 Microsoft Edge TTS 合成高质量中文语音，返回 MP3 音频流。"""
+    try:
+        import edge_tts
+    except ImportError:
+        raise HTTPException(500, "edge-tts 未安装，请运行 pip install edge-tts")
+
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    if len(text) > 8000:
+        text = text[:8000]
+
+    try:
+        communicate = edge_tts.Communicate(text, voice=req.voice, rate=req.rate)
+        buf = bytearray()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf.extend(chunk["data"])
+        if not buf:
+            raise HTTPException(500, "TTS 合成返回空音频")
+        return Response(content=bytes(buf), media_type="audio/mpeg",
+                        headers={"Cache-Control": "no-store"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("TTS synthesis failed: %s", e)
+        raise HTTPException(500, f"语音合成失败：{e}")
 
 
 @router.get("/reports/{report_id}")

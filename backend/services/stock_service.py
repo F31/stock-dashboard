@@ -132,8 +132,9 @@ async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
 
     Tencent field layout (~ separated):
       [1]=name, [3]=price, [4]=prev_close, [5]=open, [6]=volume(手),
-      [32]=high, [33]=low, [37]=amount(万元), [38]=turnover_rate(%),
-      [39]=PE, [41]=market_cap(亿元), [42]=float_market_cap(亿元)
+      [31]=change, [32]=change_pct, [33]=high, [34]=low,
+      [37]=amount(万元), [38]=turnover_rate(%),
+      [39]=PE(动态), [44]=market_cap(亿元), [45]=float_market_cap(亿元)
     """
     if not symbols:
         return {}
@@ -181,21 +182,22 @@ async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
             price = fp(3)
             prev_close = fp(4)
             open_ = fp(5)
-            volume = fp(6)   # 手 (lots), consistent with Sina field [8] which is also 手
-            high = fp(32)
-            low = fp(33)
+            volume = fp(6)   # 手 (lots)
+            high = fp(33)
+            low = fp(34)
 
             # amount: Tencent field [37] is in 万元 → convert to 元
             amt_raw = fp(37)
             amount = amt_raw * 1e4 if amt_raw is not None else None
 
             turnover_rate = fp(38)
-            pe = fp(39)
+            pe = fp(52)      # PE-TTM (trailing twelve months) — 主显示值，与主流终端一致
+            pe_ttm = fp(39)  # 动态PE (annualised from latest quarter) — 保留备用
 
-            # market_cap / float_market_cap: Tencent fields [41]/[42] in 亿元 → 元
-            mc_raw = fp(41)
+            # market_cap / float_market_cap: Tencent fields [44]/[45] in 亿元 → 元
+            mc_raw = fp(44)
             market_cap = mc_raw * 1e8 if mc_raw is not None else None
-            fmc_raw = fp(42)
+            fmc_raw = fp(45)
             float_market_cap = fmc_raw * 1e8 if fmc_raw is not None else None
 
             change, change_pct = None, None
@@ -220,6 +222,7 @@ async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
                 "amount": amount,
                 "turnover_rate": turnover_rate,
                 "pe": pe,
+                "pe_ttm": pe_ttm,
                 "market_cap": market_cap,
                 "float_market_cap": float_market_cap,
                 "amplitude": amplitude,
@@ -686,7 +689,8 @@ def _float_market_cap_fallback(entries: List[dict]):
 
 async def _enrich_with_finance(entries: List[dict]):
     """Enrich entries with PE, market cap, turnover rate, float_market_cap.
-    ONE Market_Center call per market (up to 200 stocks sorted by amount).
+    Phase 0 (A-shares): Tencent batch — provides 动态PE + market cap for ALL A-shares.
+    Phase 1: ONE Market_Center call per market (up to 200 stocks sorted by amount).
     Falls back to parallel per-stock calls for any stocks not found in the batch.
     Modifies entries in-place.
 
@@ -699,6 +703,30 @@ async def _enrich_with_finance(entries: List[dict]):
     # Group by market
     from collections import defaultdict
     by_market: Dict[str, List[dict]] = defaultdict(list)
+    for e in valid_entries:
+        by_market[e["market"]].append(e)
+
+    # Phase 0: Tencent batch for A-shares — field [39]=动态PE, [41]=总市值, [42]=流通市值
+    a_entries = [e for e in valid_entries if e.get("market") == "A"]
+    if a_entries:
+        a_symbols = [_sina_symbol(e["code"], "A") for e in a_entries]
+        tq = await _fetch_tencent_quotes(a_symbols)
+        for e, sym in zip(a_entries, a_symbols):
+            td = tq.get(sym)
+            if not td:
+                continue
+            for field in ("pe", "pe_ttm", "market_cap", "float_market_cap",
+                          "turnover_rate", "amplitude"):
+                if e.get(field) is None and td.get(field) is not None:
+                    e[field] = td[field]
+
+    # Re-check which still need data
+    valid_entries = [e for e in entries if e.get("stock_name") and (e.get("pe") is None or e.get("market_cap") is None)]
+    if not valid_entries:
+        _float_market_cap_fallback(entries)
+        return
+
+    by_market = defaultdict(list)
     for e in valid_entries:
         by_market[e["market"]].append(e)
 
@@ -767,6 +795,171 @@ async def _enrich_with_finance(entries: List[dict]):
 
     # Phase 3: Final fallback
     _float_market_cap_fallback(entries)
+
+
+EASTMONEY_FINANCIAL_URL = "https://datacenter.eastmoney.com/api/data/get"
+CACHE_TTL_GROWTH = 86400   # 24 h — earnings data changes quarterly
+
+_EM_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://data.eastmoney.com/",
+}
+
+
+async def _fetch_em_fundamentals(code: str) -> dict:
+    """Fetch profit growth rate (SJLTZ) + ROE (WEIGHTAVG_ROE) from East Money."""
+    try:
+        params = {
+            "type": "RPT_LICO_FN_CPD",
+            "sty": "SECURITY_CODE,REPORTDATE,SJLTZ,WEIGHTAVG_ROE",
+            "filter": f'(SECURITY_CODE="{code}")',
+            "sr": "-1", "st": "REPORTDATE", "p": "1", "ps": "1",
+        }
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get(EASTMONEY_FINANCIAL_URL, params=params, headers=_EM_HEADERS)
+            resp.raise_for_status()
+            data = resp.json()
+            rows = (data.get("result") or {}).get("data") or []
+            if rows:
+                row = rows[0]
+                result = {}
+                if row.get("SJLTZ") is not None:
+                    result["profit_growth_rate"] = round(float(row["SJLTZ"]), 2)
+                if row.get("WEIGHTAVG_ROE") is not None:
+                    result["roe"] = round(float(row["WEIGHTAVG_ROE"]), 2)
+                return result
+    except Exception as e:
+        logger.debug(f"EM fundamentals error for {code}: {e}")
+    return {}
+
+
+def _fetch_akshare_fundamentals(code: str) -> dict:
+    """Fetch debt ratio + cash-flow quality from akshare via THS financial abstract.
+
+    Uses stock_financial_abstract_ths (按报告期) which returns Chinese-formatted
+    strings. Extracts:
+      - 资产负债率: "40.79%" → debt_ratio=40.8
+      - cash_profit_ratio = 每股经营现金流 / 基本每股收益 × 100  (= op CF / net profit %)
+    """
+    try:
+        import akshare as ak
+        import math
+
+        df = ak.stock_financial_abstract_ths(symbol=code, indicator='按报告期')
+        if df is None or df.empty:
+            return {}
+
+        # Rows are ascending by date; last row = most recent period
+        row = df.iloc[-1]
+        result = {}
+
+        def _parse_float(v) -> Optional[float]:
+            if v is None or v is False:
+                return None
+            s = str(v).strip().rstrip('%')
+            if not s or s in ('nan', 'None', 'False', '-'):
+                return None
+            try:
+                f = float(s)
+                return None if math.isnan(f) else f
+            except (ValueError, TypeError):
+                return None
+
+        debt = _parse_float(row.get('资产负债率'))   # already a percentage, e.g. 40.79
+        if debt is not None:
+            result['debt_ratio'] = round(debt, 1)
+
+        # cash quality = operating CF / net profit (both on per-share basis)
+        cps = _parse_float(row.get('每股经营现金流'))   # yuan per share
+        eps = _parse_float(row.get('基本每股收益'))     # yuan per share
+        if cps is not None and eps is not None and eps != 0:
+            result['cash_profit_ratio'] = round(cps / eps * 100, 1)
+
+        return result
+    except Exception as e:
+        logger.debug(f"akshare fundamentals error for {code}: {e}")
+    return {}
+
+
+async def fetch_financial_snapshot(code: str, market: str) -> dict:
+    """Fetch key financial indicators for one A-share stock. Cached 24 h.
+    Returns dict with keys: profit_growth_rate, roe, debt_ratio, cash_profit_ratio.
+    """
+    if market != "A":
+        return {}
+    cache_key = f"finsnapshot:{code}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    loop = asyncio.get_event_loop()
+    em_task = _fetch_em_fundamentals(code)
+    ak_task = loop.run_in_executor(None, _fetch_akshare_fundamentals, code)
+    em_data, ak_data = await asyncio.gather(em_task, ak_task)
+
+    snapshot = {**em_data, **ak_data}
+    ttl = CACHE_TTL_GROWTH if snapshot else 3600
+    _set_cache(cache_key, snapshot, ttl)
+    return snapshot
+
+
+async def fetch_profit_growth_rate(code: str, market: str) -> Optional[float]:
+    """Backward-compatible wrapper — returns only the growth rate from fetch_financial_snapshot."""
+    snapshot = await fetch_financial_snapshot(code, market)
+    return snapshot.get("profit_growth_rate")
+
+
+def compute_peg(pe: Optional[float], growth_rate: Optional[float]) -> Optional[float]:
+    """PEG = PE / annualised growth rate (%). Only valid when both are positive."""
+    if pe is None or growth_rate is None:
+        return None
+    if pe <= 0 or growth_rate <= 0:
+        return None
+    return round(pe / growth_rate, 2)
+
+
+def compute_signal(
+    pe: Optional[float],
+    peg: Optional[float],
+    growth_rate: Optional[float],
+    market: str,
+) -> str:
+    """
+    Rule-based trading signal: 买入 | 关注 | 持有 | 减仓
+    Priority: PEG rules > growth rules > PE-only rules.
+    """
+    # Loss-making (negative PE)
+    if pe is not None and pe < 0:
+        return "关注" if (growth_rate is not None and growth_rate > 50) else "减仓"
+
+    # Extreme overvaluation
+    if pe is not None and pe > 80:
+        return "减仓"
+
+    # PEG-based (most reliable when data available)
+    if peg is not None:
+        if peg < 0.8 and growth_rate is not None and growth_rate > 15:
+            return "买入"
+        if peg < 1.2 and growth_rate is not None and growth_rate > 10:
+            return "关注"
+        if peg > 3.0:
+            return "减仓"
+
+    # Growth-based
+    if growth_rate is not None:
+        if growth_rate < -20:
+            return "减仓"
+        if growth_rate > 30 and (pe is None or pe < 60):
+            return "关注"
+
+    # PE-only (HK/US or when growth not available)
+    if pe is not None:
+        if pe < 15:
+            return "关注"
+        if pe > 60:
+            return "减仓"
+
+    return "持有"
 
 
 async def fetch_stock_realtime(stock_code: str, market: str) -> dict:
@@ -1024,6 +1217,7 @@ async def get_aindex_intel() -> list:
         ("sh000001", "上证指数"),
         ("sz399001", "深证成指"),
         ("sz399006", "创业板指"),
+        ("sh000688", "科创50"),
     ]
     symbols = [s for s, _ in index_map]
 

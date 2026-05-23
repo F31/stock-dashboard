@@ -175,11 +175,21 @@ def _news_briefing(news_items: list) -> str:
                 f'{summary[:160]}{"…" if len(summary) > 160 else ""}</p>'
             ) if summary else ""
 
+            url = item.get("url", "") or ""
+            if url:
+                title_html = f'<a href="{url}" target="_blank" rel="noopener" class="nl">{title}</a>'
+            else:
+                search_url = f"https://www.baidu.com/s?wd={title[:60]}"
+                title_html = (
+                    f'{title} '
+                    f'<a href="{search_url}" target="_blank" rel="noopener" class="nl-search" title="搜索相关新闻">🔍</a>'
+                )
+
             cards += f"""
 <div style="border-left:3px solid {'#dc2626' if strength=='high' else '#d97706' if strength=='medium' else '#9ca3af'};
      padding:10px 14px;margin-bottom:10px;background:#fafafa;border-radius:0 8px 8px 0;">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-    <div style="font-size:13px;font-weight:600;color:#111827;line-height:1.5;flex:1;">{title}</div>
+    <div style="font-size:13px;font-weight:600;color:#111827;line-height:1.5;flex:1;">{title_html}</div>
     <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;">
       {_strength_badge(strength)}
       {_sentiment_badge(sentiment)}
@@ -651,6 +661,58 @@ def _watchlist_card(item: dict, idx: int) -> str:
 </div>"""
 
 
+# ── Speech text builder ───────────────────────────────────────────────────────
+
+def _build_speech_text(analysis: dict) -> str:
+    """将分析报告的关键内容组装为适合语音朗读的纯文本。"""
+    parts = []
+
+    summary = _coerce_str(analysis.get("report_summary", ""))
+    if summary:
+        parts.append(f"核心研判：{summary}")
+
+    ms = analysis.get("market_sentiment", {})
+    if isinstance(ms, dict):
+        tone  = _coerce_str(ms.get("tone", ""))
+        basis = _coerce_str(ms.get("basis", ""))
+        if tone:
+            parts.append(f"市场情绪基调：{tone}。{basis}")
+
+    watchlist = analysis.get("watchlist", [])
+    if watchlist:
+        parts.append(f"以下是观察清单，共{len(watchlist)}个标的。")
+        for i, item in enumerate(watchlist):
+            if not isinstance(item, dict):
+                continue
+            name  = item.get("name", "")
+            layer = f"，{item.get('industry_layer', '')}" if item.get("industry_layer") else ""
+            parts.append(f"第{i + 1}个标的：{name}{layer}。")
+            if item.get("trigger_event"):
+                parts.append(f"触发事件：{item['trigger_event']}。")
+            if item.get("overnight_performance"):
+                parts.append(f"隔夜表现：{item['overnight_performance']}。")
+            if item.get("bull_case"):
+                parts.append(f"看多理由：{item['bull_case']}。")
+            if item.get("bear_case"):
+                parts.append(f"看空理由：{item['bear_case']}。")
+            if item.get("follow_up"):
+                parts.append(f"跟进问题：{item['follow_up']}。")
+
+    outlook = analysis.get("premarket_outlook", {})
+    if isinstance(outlook, dict):
+        s = _coerce_str(outlook.get("summary", ""))
+        if s:
+            parts.append(f"A股开盘前情景判断：{s}")
+        kw = outlook.get("key_watch_points") or []
+        if kw:
+            parts.append(f"重点关注：{'；'.join(str(p) for p in kw)}。")
+        un = outlook.get("uncertainties") or []
+        if un:
+            parts.append(f"主要不确定性：{'；'.join(str(u) for u in un)}。")
+
+    return "\n".join(parts)
+
+
 # ── Main generate ─────────────────────────────────────────────────────────────
 
 def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
@@ -753,7 +815,36 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   .card-title{{font-size:14px;font-weight:700;color:#1e3a8a;margin-bottom:14px;
                display:flex;align-items:center;gap:8px;border-bottom:1px solid #f3f4f6;
                padding-bottom:10px;}}
-  footer{{text-align:center;padding:20px;font-size:11px;color:#9ca3af;}}
+  footer{{text-align:center;padding:20px 20px 90px;font-size:11px;color:#9ca3af;}}
+  a.nl{{color:#1d4ed8;text-decoration:none;border-bottom:1px solid #bfdbfe;}}
+  a.nl:hover{{color:#1e40af;text-decoration:underline;border-bottom-color:transparent;}}
+  a.nl-search{{color:#6b7280;text-decoration:none;font-size:11px;border-bottom:1px dashed #d1d5db;}}
+  a.nl-search:hover{{color:#1d4ed8;border-bottom-color:#1d4ed8;}}
+  /* ── TTS Panel ── */
+  #tts-panel{{position:fixed;bottom:20px;right:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}}
+  #tts-error{{display:none;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;
+              padding:6px 12px;font-size:12px;color:#92400e;max-width:220px;text-align:center;
+              box-shadow:0 2px 8px rgba(0,0,0,.12);}}
+  #tts-progress{{display:none;color:#93c5fd;font-size:11px;font-weight:600;text-align:right;padding:0 4px;}}
+  #tts-controls{{display:flex;align-items:center;gap:6px;
+                 background:#1e3a8a;border-radius:12px;padding:8px 12px;
+                 box-shadow:0 4px 16px rgba(30,58,138,.35);}}
+  #tts-voice{{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);
+              border-radius:7px;padding:5px 7px;font-size:12px;cursor:pointer;outline:none;font-family:inherit;}}
+  #tts-voice option{{background:#1e3a8a;}}
+  .tts-btn{{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.3);
+            border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;
+            font-family:inherit;transition:background .15s;white-space:nowrap;display:flex;align-items:center;gap:5px;}}
+  .tts-btn:hover:not(:disabled){{background:rgba(255,255,255,.3);}}
+  .tts-btn:disabled{{opacity:.55;cursor:not-allowed;}}
+  #tts-stop{{padding:7px 10px;min-width:unset;display:none;}}
+  .tts-spin{{width:11px;height:11px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;
+             border-radius:50%;animation:tspin .7s linear infinite;}}
+  @keyframes tspin{{to{{transform:rotate(360deg);}}}}
+  @media(max-width:480px){{
+    #tts-panel{{bottom:12px;right:10px;}}
+    #tts-controls{{padding:7px 10px;gap:5px;border-radius:10px;}}
+  }}
 </style>
 </head>
 <body>
@@ -840,6 +931,198 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
 <footer>
   本报告由 AI 自动生成，仅供参考，不构成投资建议。事实数据以代码采集为准，大模型仅做判断与解读。
 </footer>
+
+<!-- ── TTS Panel ── -->
+<div id="tts-panel">
+  <div id="tts-error"></div>
+  <div id="tts-progress"></div>
+  <div id="tts-controls">
+    <select id="tts-voice">
+      <option value="zh-CN-XiaoxiaoNeural">小晓 (女声)</option>
+      <option value="zh-CN-YunyangNeural">云杨 (男声)</option>
+      <option value="zh-CN-YunxiNeural">云希 (男声)</option>
+    </select>
+    <button class="tts-btn" id="tts-play" onclick="toggleTTS()">🔊 朗读</button>
+    <button class="tts-btn" id="tts-stop" onclick="stopTTS()" title="停止朗读">⏹</button>
+  </div>
+</div>
+
+<script>
+(function(){{
+  /* ── 全文分块流式朗读
+     策略：运行时从 DOM 提取文本 → 按句切成 ~700 字块 →
+           始终预取前方 LOOKAHEAD 块，当前块播完立即衔接下一块。  */
+  var CHUNK_MAX  = 700;
+  var LOOKAHEAD  = 2;   // 超前预取块数
+
+  var _ctx = null, _src = null, _state = 'idle';
+  var _chunks = [], _playIdx = 0;
+  var _buffers = {{}};   // idx → AudioBuffer
+  var _fetching = {{}};  // idx → true（正在请求中）
+  var _session = 0;      // 每次 start/stop 递增，使过期回调失效
+
+  // ── 文本提取 ──────────────────────────────────────────────────────────────
+  function _extractText() {{
+    var el = document.querySelector('.container');
+    if (!el) el = document.body;
+    var clone = el.cloneNode(true);
+    ['#tts-panel','script','style','noscript'].forEach(function(s) {{
+      clone.querySelectorAll(s).forEach(function(n) {{ n.remove(); }});
+    }});
+    return (clone.innerText || clone.textContent || '').replace(/[ \\t]+/g,' ').trim();
+  }}
+
+  function _buildChunks(text) {{
+    var chunks = [], t = text;
+    while (t.length > 0) {{
+      if (t.length <= CHUNK_MAX) {{ chunks.push(t); break; }}
+      var cut = CHUNK_MAX;
+      for (var i = Math.min(CHUNK_MAX, t.length-1); i > CHUNK_MAX*0.5; i--) {{
+        var c = t[i];
+        if (c==='。'||c==='！'||c==='？'||c==='\\n') {{ cut=i+1; break; }}
+        if ((c==='；'||c==='，') && i > CHUNK_MAX*0.75) {{ cut=i+1; break; }}
+      }}
+      chunks.push(t.slice(0,cut).trim());
+      t = t.slice(cut).trim();
+    }}
+    return chunks.filter(function(c){{ return c.length>0; }});
+  }}
+
+  // ── AudioContext ──────────────────────────────────────────────────────────
+  function _ensureCtx() {{
+    if (!_ctx) {{
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      _ctx = new C();
+    }}
+    if (_ctx.state === 'suspended') _ctx.resume();
+    return _ctx;
+  }}
+
+  function _killSrc() {{
+    if (_src) {{
+      try {{ _src.stop(0); }} catch(e) {{}}
+      _src.disconnect(); _src.onended = null; _src = null;
+    }}
+  }}
+
+  // ── UI ────────────────────────────────────────────────────────────────────
+  function _setState(s) {{
+    _state = s;
+    var playBtn = document.getElementById('tts-play');
+    var stopBtn = document.getElementById('tts-stop');
+    var progEl  = document.getElementById('tts-progress');
+    var labels  = {{idle:'🔊 朗读全文',loading:'合成中…',playing:'⏸ 暂停',paused:'▶ 继续'}};
+    playBtn.innerHTML = (s==='loading'?'<span class="tts-spin"></span>':'') + (labels[s]||'🔊 朗读全文');
+    playBtn.disabled  = s === 'loading';
+    stopBtn.style.display  = s !== 'idle' ? 'flex' : 'none';
+    progEl.style.display   = (s !== 'idle' && _chunks.length > 1) ? 'block' : 'none';
+    if (s !== 'idle' && _chunks.length > 0) {{
+      progEl.textContent = '第 ' + (_playIdx+1) + ' / ' + _chunks.length + ' 段';
+    }}
+  }}
+
+  function _showErr(msg) {{
+    var el = document.getElementById('tts-error');
+    el.textContent = msg; el.style.display = 'block';
+    setTimeout(function(){{ el.style.display='none'; }}, 6000);
+  }}
+
+  // ── 预取 ──────────────────────────────────────────────────────────────────
+  function _fetchChunk(idx) {{
+    if (idx < 0 || idx >= _chunks.length) return;
+    if (_buffers[idx] !== undefined || _fetching[idx]) return;
+    var mySid = _session;
+    var voice = document.getElementById('tts-voice').value;
+    var token = localStorage.getItem('token') || '';
+    _fetching[idx] = true;
+    fetch('/api/premarket/tts', {{
+      method : 'POST',
+      headers: {{'Content-Type':'application/json','Authorization':'Bearer '+token}},
+      body   : JSON.stringify({{text:_chunks[idx], voice:voice, rate:'-5%'}})
+    }}).then(function(r) {{
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      return r.arrayBuffer();
+    }}).then(function(ab) {{
+      return _ctx.decodeAudioData(ab);
+    }}).then(function(buf) {{
+      if (_session !== mySid) return;   // 已停止，丢弃
+      _buffers[idx] = buf;
+      delete _fetching[idx];
+      if (_state === 'loading' && idx === _playIdx) _playBuf(idx);
+    }}).catch(function(e) {{
+      if (_session !== mySid) return;
+      delete _fetching[idx];
+      if (_state === 'loading' && idx === _playIdx) {{
+        _setState('idle');
+        _showErr('第 '+(idx+1)+' 段合成失败，请重试');
+        console.error('TTS chunk '+idx, e);
+      }}
+    }});
+  }}
+
+  function _prefetch() {{
+    for (var i = 0; i < LOOKAHEAD; i++) _fetchChunk(_playIdx + i);
+  }}
+
+  // ── 播放 ──────────────────────────────────────────────────────────────────
+  function _playBuf(idx) {{
+    if (!_ctx || !_buffers[idx] || (_state!=='loading'&&_state!=='playing')) return;
+    _killSrc();
+    _src = _ctx.createBufferSource();
+    _src.buffer = _buffers[idx];
+    _src.connect(_ctx.destination);
+    var mySid = _session;
+    _src.onended = function() {{
+      if (_session !== mySid || _state !== 'playing') return;
+      delete _buffers[idx];
+      _playIdx++;
+      if (_playIdx >= _chunks.length) {{ _setState('idle'); return; }}
+      _setState('playing');  // 刷新进度
+      _prefetch();
+      if (_buffers[_playIdx] !== undefined) _playBuf(_playIdx);
+      else _setState('loading');  // 等待下一块到达
+    }};
+    if (_ctx.state === 'suspended') _ctx.resume();
+    _src.start(0);
+    _setState('playing');
+    _prefetch();
+  }}
+
+  function _start() {{
+    var text = _extractText();
+    if (!text) {{ _showErr('未找到可朗读的内容'); return; }}
+    _chunks  = _buildChunks(text);
+    if (!_chunks.length) return;
+    _session++;
+    _playIdx = 0; _buffers = {{}}; _fetching = {{}};
+    _setState('loading');
+    _prefetch();
+  }}
+
+  // ── 公开接口 ──────────────────────────────────────────────────────────────
+  window.toggleTTS = function() {{
+    if (_state === 'loading') return;
+    if (_state === 'idle') {{
+      var ctx = _ensureCtx();   // 同步解锁 AudioContext（iOS 必须在用户手势栈内）
+      if (!ctx) {{ _showErr('当前浏览器不支持音频播放'); return; }}
+      _start();
+    }} else if (_state === 'playing') {{
+      _ctx.suspend().then(function(){{ _setState('paused'); }});
+    }} else if (_state === 'paused') {{
+      _ctx.resume().then(function(){{ _setState('playing'); }});
+    }}
+  }};
+
+  window.stopTTS = function() {{
+    _session++;
+    _killSrc();
+    _buffers = {{}}; _fetching = {{}};
+    if (_ctx && _ctx.state === 'running') _ctx.suspend();
+    _setState('idle');
+  }};
+}})();
+</script>
 
 </body>
 </html>"""

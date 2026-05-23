@@ -62,10 +62,24 @@ def run_pipeline(db, record_id: int = None) -> dict:
         # 4. 分析（优先按名称匹配模板；record_id 用于流式输出缓冲）
         analysis = analyze(cleaned, db, template_name="AI产业链盘前分析", record_id=record.id)
 
-        # 5. 将美股行情注入 analysis，前端直接读取
+        # 5. 将美股行情 + 新闻（含 URL）注入 analysis，前端直接读取
         us_market = cleaned.get("us_market")
-        if us_market and isinstance(analysis, dict) and "error" not in analysis:
-            analysis["_us_market"] = us_market
+        if isinstance(analysis, dict) and "error" not in analysis:
+            if us_market:
+                analysis["_us_market"] = us_market
+            news_items = cleaned.get("news", [])
+            if news_items:
+                analysis["_news_items"] = [
+                    {
+                        "title":           item.get("title", ""),
+                        "url":             item.get("url", ""),
+                        "source":          item.get("source", ""),
+                        "published_at":    (item.get("published_at") or "")[:16],
+                        "signal_strength": item.get("signal_strength", "low"),
+                        "sentiment":       item.get("sentiment", ""),
+                    }
+                    for item in news_items[:60]
+                ]
 
         # 6. 生成 HTML
         report_path = generate(analysis, cleaned, today)

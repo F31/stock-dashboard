@@ -22,7 +22,7 @@ from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
     DataSource, PromptTemplate, PremarketReport, ScheduledTask, WatchedTicker,
-    AnalysisFramework, SystemSetting,
+    AnalysisFramework, SystemSetting, StockCapex,
 )
 from sqlalchemy.orm import Session
 
@@ -352,9 +352,27 @@ async def _daily_macro_refresh():
         await asyncio.sleep(24 * 3600)
 
 
+async def _daily_capex_refresh():
+    """Background task: refresh Capex for all watchlist items once per day."""
+    await asyncio.sleep(60)  # start after app is fully up
+    while True:
+        try:
+            from services.capex_service import refresh_all_capex
+            from models import WatchlistItem
+            db = next(get_db())
+            items = db.query(WatchlistItem).all()
+            await refresh_all_capex(items, db)
+            db.close()
+            logging.info(f"Daily Capex refresh completed ({len(items)} items)")
+        except Exception as exc:
+            logging.warning(f"Daily Capex refresh error: {exc}")
+        await asyncio.sleep(24 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task_macro = asyncio.create_task(_daily_macro_refresh())
+    task_capex = asyncio.create_task(_daily_capex_refresh())
     task_cleanup = asyncio.create_task(_periodic_stale_cleanup())
     # 启动盘前分析调度器
     try:
@@ -365,7 +383,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.warning(f"Scheduler start error: {e}")
     yield
-    for t in (task_macro, task_cleanup):
+    for t in (task_macro, task_capex, task_cleanup):
         t.cancel()
         try:
             await t

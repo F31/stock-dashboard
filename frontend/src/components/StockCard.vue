@@ -4,6 +4,7 @@
     <div class="card-hdr">
       <div class="card-hdr-l">
         <div v-if="!renamingName" class="sname">
+          <span v-if="!isSector" :class="['mkt-tag', badgeClass]">{{ marketLabel }}</span>
           <span class="sname-text" @click.stop="$emit('open-detail', stock)">{{ stock.data?.stock_name || stock.stock_name || stock.stock_code }}</span>
           <button class="report-btn" @click.stop="$emit('open-detail', stock, 'reports')" title="查看分析报告">分析报告</button>
           <button v-if="isSector" class="rename-btn" @click.stop="startRename" title="修改名称">✎</button>
@@ -24,19 +25,18 @@
       </div>
       <div class="card-hdr-r">
         <span v-if="isSector" class="badge badge-sector">板块</span>
-        <span :class="['badge', badgeClass]" v-else>{{ marketLabel }}</span>
+        <span v-if="!isSector && stock.data?.signal" :class="['sig-badge', signalClass]">{{ stock.data.signal }}</span>
         <button class="del-btn" @click="$emit('remove')" title="删除">×</button>
       </div>
     </div>
 
-    <!-- Sector: sub-type line (行业/概念) -->
+    <!-- Sector: sub-type line -->
     <div class="sector-sub" v-if="isSector && stock.data?.board_type">
       {{ stock.data.board_type === 'concept' ? '概念板块' : '行业板块' }}
     </div>
 
     <!-- Price Area -->
     <div class="price-area">
-      <!-- Sector: show change_pct if available; fallback to "no data" -->
       <template v-if="isSector">
         <div v-if="stock.data?.price != null" class="price-row">
           <div :class="['cprice', priceTrend]">{{ fmtSectorIndex(stock.data.price) }}</div>
@@ -46,14 +46,11 @@
           <span :class="['chg-pct-big', priceTrend]">{{ fmtChangePct(stock.data.change_pct) }}</span>
           <span class="chg-hint">今日涨跌</span>
         </div>
-        <div v-else class="no-data-notice">
-          行情数据加载中...
-        </div>
+        <div v-else class="no-data-notice">行情数据加载中...</div>
         <div class="prev-close" v-if="stock.data?.prev_close">
           昨收 {{ fmtSectorIndex(stock.data.prev_close) }}
         </div>
       </template>
-      <!-- Regular stock -->
       <template v-else>
         <div class="price-row" v-if="stock.data">
           <div :class="['cprice', priceTrend]">
@@ -73,80 +70,49 @@
       </template>
     </div>
 
-    <!-- Chart Area -->
-    <div class="chart-wrap" v-if="!isSector">
-      <svg v-if="stock.data?.chart_data && stock.data.chart_data.length >= 2"
-        :viewBox="`0 0 ${chartW} ${chartH}`" class="sparkline">
-        <polyline
-          :points="chartPoints"
-          :fill="chartColor + '22'"
-          :stroke="chartColor"
-          stroke-width="1.5"
-        />
-      </svg>
-      <div v-else class="chart-ph">暂无历史数据</div>
-    </div>
-
-    <!-- Metrics Row (stock: PE/mktcap/turnover; sector: up/down counts) -->
+    <!-- Stock Metrics: PE(动态) | PEG | 净利增速 | 总市值 -->
     <div class="metrics" v-if="!isSector">
       <div class="met">
-        <div class="met-l">市盈率 PE</div>
+        <div class="met-l">PE(动态)</div>
         <div class="met-v">{{ stock.data?.pe != null ? stock.data.pe.toFixed(1) + '×' : '--' }}</div>
       </div>
       <div class="met">
+        <div class="met-l">PEG</div>
+        <div class="met-v">{{ stock.data?.peg != null ? stock.data.peg.toFixed(2) : '--' }}</div>
+      </div>
+      <div class="met">
+        <div class="met-l">净利增速</div>
+        <div class="met-v" :class="growthClass">{{ stock.data?.profit_growth_rate != null ? (stock.data.profit_growth_rate > 0 ? '+' : '') + stock.data.profit_growth_rate.toFixed(1) + '%' : '--' }}</div>
+      </div>
+      <div class="met">
         <div class="met-l">总市值</div>
         <div class="met-v">{{ stock.data?.market_cap != null ? fmtMarketCap(stock.data.market_cap) : '--' }}</div>
       </div>
+    </div>
+
+    <!-- Financial Fundamentals: ROE | 负债率 | 现金质量 | Capex -->
+    <div class="metrics fin-row" v-if="!isSector && (stock.data?.roe != null || stock.data?.debt_ratio != null || stock.data?.cash_profit_ratio != null || stock.data?.capex != null)">
       <div class="met">
-        <div class="met-l">换手率</div>
-        <div class="met-v">{{ stock.data?.turnover_rate != null ? stock.data.turnover_rate.toFixed(2) + '%' : '--' }}</div>
-      </div>
-      <div class="met">
-        <div class="met-l">今日波动</div>
-        <div class="met-v met-v-sm">
-          {{ stock.data?.high != null ? fmtPrice(stock.data.high) : '--' }}<br>
-          {{ stock.data?.low != null ? fmtPrice(stock.data.low) : '--' }}
+        <div class="met-l">ROE</div>
+        <div class="met-v" :class="stock.data?.roe >= 15 ? 'roe-hi' : stock.data?.roe >= 8 ? '' : 'roe-lo'">
+          {{ stock.data?.roe != null ? stock.data.roe.toFixed(1) + '%' : '--' }}
         </div>
       </div>
-    </div>
-
-    <!-- Sector Metrics: constituent stock counts -->
-    <div class="metrics" v-if="isSector">
       <div class="met">
-        <div class="met-l">上涨家数</div>
-        <div class="met-v up">{{ stock.data?.up_count != null ? stock.data.up_count : '--' }}</div>
+        <div class="met-l">负债率</div>
+        <div class="met-v" :class="stock.data?.debt_ratio > 70 ? 'debt-hi' : ''">
+          {{ stock.data?.debt_ratio != null ? stock.data.debt_ratio.toFixed(1) + '%' : '--' }}
+        </div>
       </div>
       <div class="met">
-        <div class="met-l">下跌家数</div>
-        <div class="met-v down">{{ stock.data?.down_count != null ? stock.data.down_count : '--' }}</div>
+        <div class="met-l">现金质量</div>
+        <div class="met-v" :class="stock.data?.cash_profit_ratio >= 80 ? 'cf-hi' : stock.data?.cash_profit_ratio < 30 ? 'cf-lo' : ''">
+          {{ stock.data?.cash_profit_ratio != null ? stock.data.cash_profit_ratio.toFixed(0) + '%' : '--' }}
+        </div>
       </div>
       <div class="met">
-        <div class="met-l">总市值</div>
-        <div class="met-v">{{ stock.data?.market_cap != null ? fmtMarketCap(stock.data.market_cap) : '--' }}</div>
-      </div>
-      <div class="met">
-        <div class="met-l">成交额</div>
-        <div class="met-v">{{ stock.data?.amount != null ? fmtAmount(stock.data.amount) : '--' }}</div>
-      </div>
-    </div>
-
-    <!-- Extra Metrics Row (only for stocks) -->
-    <div class="metrics metrics-extra" v-if="!isSector">
-      <div class="met">
-        <div class="met-l">成交量</div>
-        <div class="met-v">{{ stock.data?.volume != null ? fmtVolume(stock.data.volume) : '--' }}</div>
-      </div>
-      <div class="met">
-        <div class="met-l">成交额</div>
-        <div class="met-v">{{ stock.data?.amount != null ? fmtAmount(stock.data.amount) : '--' }}</div>
-      </div>
-      <div class="met">
-        <div class="met-l">流通市值</div>
-        <div class="met-v">{{ stock.data?.float_market_cap != null ? fmtMarketCap(stock.data.float_market_cap) : '--' }}</div>
-      </div>
-      <div class="met">
-        <div class="met-l">振幅</div>
-        <div class="met-v">{{ stock.data?.amplitude != null ? stock.data.amplitude.toFixed(2) + '%' : '--' }}</div>
+        <div class="met-l">{{ stock.data?.capex_period ? `Capex(${stock.data.capex_period})` : 'Capex' }}</div>
+        <div class="met-v">{{ fmtCapex(stock.data?.capex) }}</div>
       </div>
     </div>
 
@@ -161,47 +127,6 @@
       </div>
     </div>
 
-    <!-- Notes Area -->
-    <div class="notes-area">
-      <div class="sec-ttl-row">
-        <div class="sec-ttl">📝 研究笔记</div>
-        <button class="btn-enlarge" @click="openNotesModal" title="放大编辑">⛶</button>
-      </div>
-      <textarea
-        class="notes-ta"
-        :placeholder="notesPlaceholder"
-        :value="stock.notes"
-        @change="updateNotes"
-      ></textarea>
-    </div>
-
-    <!-- Notes Editor Modal -->
-    <Teleport to="body">
-      <div class="notes-modal-overlay" v-if="showNotesModal" @click.self="closeNotesModal">
-        <div class="notes-modal">
-          <div class="notes-modal-hdr">
-            <h3>📝 {{ notesModalTitle }} 研究笔记</h3>
-            <button class="close-btn" @click="closeNotesModal">×</button>
-          </div>
-          <div class="notes-modal-body">
-            <textarea
-              ref="notesTextareaRef"
-              class="notes-modal-ta"
-              :value="editingNotes"
-              @input="editingNotes = $event.target.value"
-              placeholder="记录研究笔记、投资逻辑、目标价位..."
-            ></textarea>
-          </div>
-          <div class="notes-modal-ftr">
-            <span class="notes-char-count">{{ editingNotes.length }} 字</span>
-            <div class="notes-modal-actions">
-              <button class="btn btn-cancel" @click="closeNotesModal">取消</button>
-              <button class="btn btn-save" @click="saveNotes">保存</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -209,14 +134,8 @@
 import { ref, computed, nextTick } from 'vue'
 
 const props = defineProps({ stock: Object })
-const emit = defineEmits(['remove', 'update-notes', 'rename', 'open-detail'])
+const emit = defineEmits(['remove', 'rename', 'open-detail'])
 
-// Notes editor modal
-const showNotesModal = ref(false)
-const editingNotes = ref('')
-const notesTextareaRef = ref(null)
-
-// Inline rename (for sector cards)
 const renamingName = ref(false)
 const renameValue = ref('')
 const renameInputRef = ref(null)
@@ -235,29 +154,6 @@ function saveRename() {
 
 function cancelRename() {
   renamingName.value = false
-}
-
-const notesModalTitle = computed(() => {
-  return props.stock.data?.stock_name || props.stock.stock_name || props.stock.stock_code
-})
-
-function openNotesModal() {
-  editingNotes.value = props.stock.notes || ''
-  showNotesModal.value = true
-  nextTick(() => {
-    notesTextareaRef.value?.focus()
-  })
-}
-
-function closeNotesModal() {
-  showNotesModal.value = false
-  editingNotes.value = ''
-}
-
-function saveNotes() {
-  emit('update-notes', props.stock.id, editingNotes.value)
-  showNotesModal.value = false
-  editingNotes.value = ''
 }
 
 const marketLabel = computed(() => {
@@ -279,45 +175,27 @@ const badgeClass = computed(() => {
 const priceTrend = computed(() => {
   const d = props.stock.data
   if (!d) return 'flat'
-  // For sectors, change may be null but change_pct is available
   const val = d.change ?? d.change_pct
   if (val == null) return 'flat'
   return val >= 0 ? 'up' : 'down'
 })
 
-const notesPlaceholder = computed(() => {
-  const name = props.stock.data?.stock_name || props.stock.stock_name || props.stock.stock_code
-  return `记录${name}的研究笔记、投资逻辑、目标价位...`
+const signalClass = computed(() => {
+  const s = props.stock.data?.signal
+  if (s === '买入') return 'sig-buy'
+  if (s === '关注') return 'sig-watch'
+  if (s === '减仓') return 'sig-reduce'
+  return 'sig-hold'
+})
+
+const growthClass = computed(() => {
+  const g = props.stock.data?.profit_growth_rate
+  if (g == null) return ''
+  return g >= 0 ? 'up' : 'down'
 })
 
 const isSector = computed(() => {
   return props.stock.item_type === 'sector' || props.stock.data?.item_type === 'sector'
-})
-
-// Sparkline
-const chartW = 360
-const chartH = 60
-
-const chartColor = computed(() => {
-  const d = props.stock.data
-  if (!d || d.change == null) return '#6b7280'
-  return d.change >= 0 ? '#dc2626' : '#16a34a'
-})
-
-const chartPoints = computed(() => {
-  const data = props.stock.data?.chart_data
-  if (!data || data.length < 2) return ''
-  const min = Math.min(...data)
-  const max = Math.max(...data)
-  const range = max - min || 1
-  const stepX = chartW / (data.length - 1)
-  return data
-    .map((v, i) => {
-      const x = i * stepX
-      const y = chartH - ((v - min) / range) * (chartH - 8) - 4
-      return `${x},${y}`
-    })
-    .join(' ')
 })
 
 function fmtPrice(v) {
@@ -345,15 +223,9 @@ function fmtChange(pct, abs) {
 
 function fmtMarketCap(v) {
   if (v == null) return '--'
-  if (v >= 1e12) return (v / 1e12).toFixed(2) + '万亿'
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  return (v / 1e4).toFixed(2) + '万'
-}
-
-function fmtVolume(v) {
-  if (v == null) return '--'
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  if (v >= 1e4) return (v / 1e4).toFixed(2) + '万'
+  if (v >= 1e12) return (v / 1e12).toFixed(1) + '万亿'
+  if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'
+  if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'
   return v.toFixed(0)
 }
 
@@ -365,9 +237,14 @@ function fmtAmount(v) {
   return v.toFixed(2)
 }
 
-function updateNotes(e) {
-  emit('update-notes', props.stock.id, e.target.value)
+function fmtCapex(v) {
+  if (v == null) return '--'
+  if (v >= 1e12) return (v / 1e12).toFixed(1) + '万亿'
+  if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'
+  if (v >= 1e4) return (v / 1e4).toFixed(0) + '万'
+  return v.toFixed(0)
 }
+
 </script>
 
 <style scoped>
@@ -406,16 +283,11 @@ function updateNotes(e) {
   flex-shrink: 0;
   transition: all .15s;
 }
-.report-btn:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
-  color: #2563eb;
-}
+.report-btn:hover { background: #eff6ff; border-color: #93c5fd; color: #2563eb; }
 .rename-btn {
   background: none; border: none; cursor: pointer;
   font-size: 12px; color: #9ca3af; padding: 0 2px;
-  line-height: 1; opacity: 0.6;
-  flex-shrink: 0;
+  line-height: 1; opacity: 0.6; flex-shrink: 0;
 }
 .rename-btn:hover { color: #3b82f6; opacity: 1; }
 
@@ -424,33 +296,34 @@ function updateNotes(e) {
   flex: 1; min-width: 0;
   font-size: 13px; font-weight: 700; color: #111827;
   border: 1px solid #3b82f6; border-radius: 4px;
-  padding: 2px 6px; background: #eff6ff;
-  font-family: inherit;
+  padding: 2px 6px; background: #eff6ff; font-family: inherit;
 }
 .rename-input:focus { outline: none; }
 .rename-save, .rename-cancel {
   background: none; border: none; cursor: pointer;
-  font-size: 14px; padding: 0 3px; line-height: 1;
-  flex-shrink: 0;
+  font-size: 14px; padding: 0 3px; line-height: 1; flex-shrink: 0;
 }
 .rename-save { color: #16a34a; }
 .rename-save:hover { color: #15803d; }
 .rename-cancel { color: #9ca3af; }
 .rename-cancel:hover { color: #dc2626; }
 
-.card-hdr-r { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 6px; }
+.card-hdr-r { display: flex; align-items: center; gap: 5px; flex-shrink: 0; margin-left: 6px; }
 
 .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+.badge-sector { background: #fce7f3; color: #9d174d; }
+
+/* Market tag inline before stock name */
+.mkt-tag {
+  font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 8px;
+  flex-shrink: 0; white-space: nowrap; line-height: 1.6;
+}
 .ba { background: #fef3c7; color: #92400e; }
 .bh { background: #dbeafe; color: #1e40af; }
 .bu { background: #ede9fe; color: #5b21b6; }
-.badge-sector { background: #fce7f3; color: #9d174d; }
 
-.sector-sub {
-  padding: 0 12px 4px;
-  font-size: 11px;
-  color: #9ca3af;
-}
+.sector-sub { padding: 0 12px 4px; font-size: 11px; color: #9ca3af; }
 
 .del-btn {
   background: none; border: none; cursor: pointer;
@@ -474,38 +347,13 @@ function updateNotes(e) {
 
 .prev-close { font-size: 12px; color: #6b7280; margin-top: 3px; }
 
-.sector-chg-only {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 0 2px;
-}
-.chg-pct-big {
-  font-size: 28px;
-  font-weight: 900;
-  line-height: 1;
-}
+.sector-chg-only { display: flex; align-items: baseline; gap: 10px; padding: 4px 0 2px; }
+.chg-pct-big { font-size: 28px; font-weight: 900; line-height: 1; }
 .chg-pct-big.up { color: #dc2626; }
 .chg-pct-big.down { color: #16a34a; }
 .chg-pct-big.flat { color: #6b7280; }
-.chg-hint {
-  font-size: 11px;
-  color: #9ca3af;
-  font-weight: 500;
-}
-.no-data-notice {
-  padding: 8px 0 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #9ca3af;
-}
-
-.chart-wrap { padding: 0 12px 6px; height: 54px; }
-.chart-ph {
-  height: 100%; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: #9ca3af;
-}
-.sparkline { width: 100%; height: 100%; }
+.chg-hint { font-size: 11px; color: #9ca3af; font-weight: 500; }
+.no-data-notice { padding: 8px 0 4px; font-size: 13px; font-weight: 500; color: #9ca3af; }
 
 .metrics {
   display: flex;
@@ -514,47 +362,36 @@ function updateNotes(e) {
 }
 .met { flex: 1; padding: 6px 2px; text-align: center; }
 .met + .met { border-left: 1px solid #e5e7eb; }
-.met-l { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 3px; }
+.met-l { font-size: 9.5px; color: #6b7280; letter-spacing: .2px; margin-bottom: 3px; }
 .met-v { font-size: 13px; font-weight: 700; color: #111827; }
-.met-v-sm { font-size: 11px; line-height: 1.4; }
+.met-v.up { color: #dc2626; }
+.met-v.down { color: #16a34a; }
 
-.metrics-extra {
-  border-top: none;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+/* Signal badge */
+.sig-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
 }
-.metrics-extra .met { padding: 4px 2px; }
-.metrics-extra .met-l { font-size: 9px; }
-.metrics-extra .met-v { font-size: 11px; }
+.sig-buy   { background: #dcfce7; color: #15803d; }
+.sig-watch { background: #dbeafe; color: #1d4ed8; }
+.sig-hold  { background: #f3f4f6; color: #6b7280; }
+.sig-reduce{ background: #fee2e2; color: #dc2626; }
 
-.news-area, .notes-area { padding: 8px 12px; }
-.notes-area { padding-bottom: 10px; border-top: 1px solid #e5e7eb; }
+/* Financial fundamentals row */
+.fin-row { background: #f9fafb; }
+.roe-hi  { color: #15803d; }
+.roe-lo  { color: #9ca3af; }
+.debt-hi { color: #dc2626; }
+.cf-hi   { color: #15803d; }
+.cf-lo   { color: #f59e0b; }
 
-/* Section title row with enlarge button */
-.sec-ttl-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
+
+.news-area { padding: 8px 12px; }
 .sec-ttl { font-size: 11px; font-weight: 700; color: #6b7280; letter-spacing: .5px; text-transform: uppercase; }
-
-.btn-enlarge {
-  background: none;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  color: #9ca3af;
-  font-size: 13px;
-  cursor: pointer;
-  padding: 1px 6px;
-  line-height: 1.2;
-  transition: all 0.15s;
-}
-.btn-enlarge:hover {
-  background: #f3f4f6;
-  border-color: #3b82f6;
-  color: #3b82f6;
-}
 
 .ni { padding: 6px 0; border-bottom: 1px solid #e5e7eb; }
 .ni:last-child { border-bottom: none; }
@@ -566,129 +403,13 @@ function updateNotes(e) {
 .ni-t a:hover { color: #3b82f6; }
 .ni-m { font-size: 11px; color: #9ca3af; margin-top: 2px; }
 
-.notes-ta {
-  width: 100%; border: 1px solid #e5e7eb; border-radius: 8px;
-  padding: 8px 10px; font-size: 13px; font-family: inherit;
-  color: #111827; background: #f0f2f5; resize: vertical;
-  min-height: 44px; max-height: 100px; line-height: 1.5;
-}
-.notes-ta:focus { outline: none; border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
-.notes-ta::placeholder { color: #9ca3af; }
-
-/* ── Notes Editor Modal ── */
-.notes-modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 500;
-}
-.notes-modal {
-  background: #fff;
-  border-radius: 12px;
-  width: 90vw;
-  max-width: 720px;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-}
-.notes-modal-hdr {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
-  flex-shrink: 0;
-}
-.notes-modal-hdr h3 {
-  margin: 0;
-  font-size: 1em;
-  color: #1f2937;
-  font-weight: 700;
-}
-.notes-modal-body {
-  flex: 1;
-  padding: 16px 20px;
-  overflow-y: auto;
-}
-.notes-modal-ta {
-  width: 100%;
-  min-height: 250px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 12px 14px;
-  font-size: 14px;
-  font-family: inherit;
-  color: #1f2937;
-  background: #f9fafb;
-  resize: vertical;
-  line-height: 1.7;
-  box-sizing: border-box;
-}
-.notes-modal-ta:focus {
-  outline: none;
-  border-color: #3b82f6;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.1);
-}
-.notes-modal-ta::placeholder { color: #9ca3af; }
-.notes-modal-ftr {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  border-top: 1px solid #e5e7eb;
-  flex-shrink: 0;
-}
-.notes-char-count {
-  font-size: 0.82em;
-  color: #9ca3af;
-}
-.notes-modal-actions {
-  display: flex;
-  gap: 8px;
-}
-.btn-cancel {
-  padding: 8px 20px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #6b7280;
-  font-size: 0.88em;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-.btn-cancel:hover {
-  background: #f3f4f6;
-}
-.btn-save {
-  padding: 8px 24px;
-  border: none;
-  border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
-  font-size: 0.88em;
-  cursor: pointer;
-  font-weight: 600;
-  transition: all 0.15s;
-}
-.btn-save:hover {
-  background: #1d4ed8;
-}
 .close-btn {
-  background: none; border: none;
-  font-size: 22px; color: #9ca3af;
-  cursor: pointer;
-  width: 30px; height: 30px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 6px;
+  background: none; border: none; font-size: 22px; color: #9ca3af;
+  cursor: pointer; width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px;
 }
 .close-btn:hover { background: #f3f4f6; color: #374151; }
 
-/* ── Responsive: Mobile ── */
 @media (max-width: 640px) {
   .card { border-radius: 8px; }
   .card-hdr { padding: 10px 10px 2px; }
@@ -699,22 +420,14 @@ function updateNotes(e) {
   .cprice { font-size: 22px; }
   .ctag { font-size: 12px; padding: 3px 8px; }
   .chg-pct-big { font-size: 24px; }
-  .chart-wrap { height: 44px; }
   .metrics { flex-wrap: wrap; }
   .met { padding: 5px 2px; min-width: 25%; }
   .met-l { font-size: 9px; }
   .met-v { font-size: 12px; }
   .news-area { padding: 6px 10px; display: none; }
-  .notes-area { padding: 8px 10px 10px; }
-  .notes-ta { min-height: 40px; font-size: 13px; }
-  .btn-enlarge { font-size: 12px; padding: 2px 6px; min-height: 28px; }
-  .metrics-extra .met { min-width: 25%; }
-  .metrics-extra .met-l { font-size: 8px; }
-  .metrics-extra .met-v { font-size: 11px; }
   .prev-close { font-size: 11px; }
 }
 
-/* ── Tablet: 2 columns, show news ── */
 @media (min-width: 641px) and (max-width: 960px) {
   .card-hdr { padding: 10px 12px 4px; }
   .sname { font-size: 13px; }

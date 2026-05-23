@@ -1,5 +1,19 @@
 <template>
-  <div class="intel-section" v-if="items.length">
+  <!-- Compact index bar (板块/个股行情 top) -->
+  <div v-if="mode === 'indices'" class="index-bar" v-show="indexItems.length">
+    <div
+      v-for="item in indexItems"
+      :key="item.id"
+      :class="['idx-pill', `dir-${item.direction}`]"
+    >
+      <span class="idx-name">{{ item.title }}</span>
+      <span :class="['idx-val', `dir-${item.direction}`]">{{ item.value }}</span>
+      <span :class="['idx-chg', `dir-${item.direction}`]">{{ item.subtitle }}</span>
+    </div>
+  </div>
+
+  <!-- Full market intel grid (宏观经济数据 panel) -->
+  <div v-else class="intel-section" v-if="items.length">
     <div class="intel-hdr">
       <span class="intel-ttl">📊 市场情报</span>
     </div>
@@ -18,10 +32,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchMarketIntel } from '../api'
 
+const props = defineProps({ mode: { type: String, default: '' } })
+
+const INDEX_IDS = new Set(['sh000001', 'sz399001', 'sz399006', 'sh000688'])
 const items = ref([])
+const indexItems = computed(() => items.value.filter(i => INDEX_IDS.has(i.id)))
+
 let timer = null
 
 async function load() {
@@ -35,7 +54,7 @@ async function load() {
 
 onMounted(() => {
   load()
-  timer = setInterval(load, 60000) // refresh every 60s
+  timer = setInterval(load, 60000)
 })
 
 onUnmounted(() => {
@@ -44,6 +63,53 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ── Index bar (compact horizontal row) ── */
+.index-bar {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0 12px;
+  flex-wrap: wrap;
+}
+
+.idx-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 180px;
+  flex: 1;
+}
+
+.idx-name {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.idx-val {
+  font-size: 16px;
+  font-weight: 900;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  margin-left: auto;
+}
+.idx-val.dir-up  { color: #dc2626; }
+.idx-val.dir-down { color: #16a34a; }
+
+.idx-chg {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.idx-chg.dir-up   { background: #fee2e2; color: #dc2626; }
+.idx-chg.dir-down { background: #dcfce7; color: #16a34a; }
+
+/* ── Full intel grid ── */
 .intel-section {
   padding: 0 0 16px;
 }

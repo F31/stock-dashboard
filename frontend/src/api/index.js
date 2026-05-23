@@ -103,6 +103,14 @@ export function fetchSectorCongestion() {
   return api.get('/sector-congestion')
 }
 
+export function fetchSectorTop5(code) {
+  return api.get(`/sectors/${encodeURIComponent(code)}/top5`)
+}
+
+export function triggerCapexRefresh() {
+  return api.post('/stocks/capex/refresh')
+}
+
 export function fetchMacroData() {
   return api.get('/macro')
 }
@@ -125,6 +133,14 @@ export function fetchIndustrialCharts() {
 
 export function refreshIndustrialCharts() {
   return api.post('/macro/industrial-charts/refresh')
+}
+
+export function fetchIndustrialProfitHistory() {
+  return api.get('/macro/profit-history')
+}
+
+export function refreshIndustrialProfitHistory() {
+  return api.post('/macro/profit-history/refresh')
 }
 
 // ── Analysis Reports ──
@@ -251,3 +267,6 @@ export function getLatestPremarket() { return api.get('/premarket/latest') }
 export function listPremarketReports(limit = 20, offset = 0) { return api.get('/premarket/reports', { params: { limit, offset } }) }
 export function getPremarketReport(id) { return api.get(`/premarket/reports/${id}`) }
 export function getStreamText(id) { return api.get(`/premarket/stream-text/${id}`) }
+export function synthesizeTTS(text, voice = 'zh-CN-XiaoxiaoNeural', rate = '-5%') {
+  return api.post('/premarket/tts', { text, voice, rate }, { responseType: 'blob', timeout: 120000 })
+}

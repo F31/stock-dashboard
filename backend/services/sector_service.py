@@ -107,6 +107,7 @@ def _make_client(timeout: float = 8) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=timeout,
         mounts={
+            "https://push2.eastmoney.com": None,
             "https://push2his.eastmoney.com": None,
             "https://push2ex.eastmoney.com": None,
             "https://quote.eastmoney.com": None,
@@ -419,6 +420,76 @@ async def get_sector_congestion_data() -> list:
 
     # Sort: sectors with data first, descending change_pct
     result.sort(key=lambda x: (x["change_pct"] is None, -(x["change_pct"] or 0)))
+    return result
+
+
+async def fetch_sector_top5(code: str) -> list:
+    """Return top-5 constituents of a sector by total market cap.
+
+    Calls EastMoney clist API (fltt=2, sorted by f20 desc), then fetches
+    financial snapshots for PEG / profit_growth_rate.
+    Cached 60 s.
+    """
+    code_up = code.upper()
+    cache_key = f"sector_top5:{code_up}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1", "pz": "5", "po": "1", "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2", "invt": "2", "fid": "f20",
+        "fs": f"b:{code_up}",
+        "fields": "f2,f3,f9,f12,f13,f14,f20",
+    }
+
+    try:
+        async with _make_client(timeout=8) as client:
+            resp = await client.get(url, params=params, headers=_HEADERS_EM)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.warning(f"sector_top5 fetch error {code}: {e}")
+        return []
+
+    diff = (data.get("data") or {}).get("diff") or []
+    result = []
+    for rank, item in enumerate(diff, 1):
+        raw_code = str(item.get("f12", "")).zfill(6)
+        pe = _float(item.get("f9"))
+        if pe is not None and pe < 0:
+            pe = None  # loss-making — suppress display
+        result.append({
+            "rank": rank,
+            "code": raw_code,
+            "market": "A",
+            "name": item.get("f14", ""),
+            "price": _float(item.get("f2")),
+            "change_pct": _float(item.get("f3")),
+            "pe": pe,
+            "market_cap": _float(item.get("f20")),  # yuan
+            "peg": None,
+            "profit_growth_rate": None,
+        })
+
+    if result:
+        from services.stock_service import fetch_financial_snapshot, compute_peg
+        snap_tasks = [fetch_financial_snapshot(r["code"], "A") for r in result]
+        try:
+            snaps = await asyncio.wait_for(
+                asyncio.gather(*snap_tasks, return_exceptions=True), timeout=10
+            )
+            for r, snap in zip(result, snaps):
+                if isinstance(snap, dict):
+                    growth = snap.get("profit_growth_rate")
+                    r["profit_growth_rate"] = growth
+                    r["peg"] = compute_peg(r["pe"], growth)
+        except asyncio.TimeoutError:
+            pass
+
+    _set_cache(cache_key, result, 60)
     return result
 
 

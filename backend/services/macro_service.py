@@ -29,8 +29,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _cache: Dict[str, tuple] = {}
-CACHE_TTL_BONDS = 3600    # 1 hour
-CACHE_TTL_MACRO = 43200   # 12 hours (monthly data)
+CACHE_TTL_BONDS = 86400   # 24 hours — yields fetched once per day
+CACHE_TTL_MACRO = 86400   # 24 hours — monthly releases, once per day
 
 _ak_sem = asyncio.Semaphore(2)
 
@@ -41,17 +41,107 @@ _EM_HEADERS = {
 }
 
 
+# ── Two-layer cache: L1 (memory) + L2 (SQLite, survives restarts) ──────────
+
+def _get_cached_db(key: str):
+    """L2 cache lookup. On hit, also restores L1 with remaining TTL."""
+    try:
+        import json
+        from database import SessionLocal
+        from models import MacroCache
+        db = SessionLocal()
+        try:
+            rec = db.query(MacroCache).filter(MacroCache.cache_key == key).first()
+            if rec and rec.expires_at > datetime.utcnow():
+                val = json.loads(rec.data_json)
+                remaining = (rec.expires_at - datetime.utcnow()).total_seconds()
+                _cache[key] = (val, time.time(), remaining)
+                logger.debug(f"DB cache hit: {key}, TTL remaining {remaining:.0f}s")
+                return val
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"DB cache read error {key}: {e}")
+    return None
+
+
+def _set_cache_db(key: str, val, ttl: int):
+    """Write value to L2 DB cache (upsert)."""
+    try:
+        import json
+        from database import SessionLocal
+        from models import MacroCache
+        db = SessionLocal()
+        try:
+            expires_at = datetime.utcnow() + timedelta(seconds=ttl)
+            data_json = json.dumps(val, ensure_ascii=False, default=str)
+            rec = db.query(MacroCache).filter(MacroCache.cache_key == key).first()
+            if rec:
+                rec.data_json = data_json
+                rec.expires_at = expires_at
+                rec.updated_at = datetime.utcnow()
+            else:
+                db.add(MacroCache(cache_key=key, data_json=data_json, expires_at=expires_at))
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"DB cache write error {key}: {e}")
+
+
+def _clear_db_cache(key: str):
+    try:
+        from database import SessionLocal
+        from models import MacroCache
+        db = SessionLocal()
+        try:
+            db.query(MacroCache).filter(MacroCache.cache_key == key).delete()
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"DB cache clear error {key}: {e}")
+
+
+def _clear_all_db_cache():
+    try:
+        from database import SessionLocal
+        from models import MacroCache
+        db = SessionLocal()
+        try:
+            db.query(MacroCache).delete()
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"DB cache clear-all error: {e}")
+
+
 def _get_cached(key: str):
+    """Check L1 (memory), then L2 (DB)."""
     if key in _cache:
         val, ts, ttl = _cache[key]
         if time.time() - ts < ttl:
             return val
         del _cache[key]
-    return None
+    return _get_cached_db(key)
 
 
 def _set_cache(key: str, val, ttl: int):
+    """Write to both L1 and L2."""
     _cache[key] = (val, time.time(), ttl)
+    _set_cache_db(key, val, ttl)
+
+
+def clear_macro_cache(keys: list = None) -> None:
+    """Clear L1 + L2 cache. keys=None clears all; pass a list for specific keys."""
+    if keys is None:
+        _cache.clear()
+        _clear_all_db_cache()
+    else:
+        for k in keys:
+            _cache.pop(k, None)
+            _clear_db_cache(k)
 
 
 async def _run_ak(fn_name: str, *args, **kwargs):
@@ -130,20 +220,36 @@ async def fetch_all_yields() -> Dict[str, Any]:
         return cached
 
     try:
+        import math
         start = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         df = await _run_ak("bond_zh_us_rate", start_date=start)
         if df is None or df.empty:
             raise ValueError("empty DataFrame")
 
-        latest = df.iloc[-1]
-        date_str = _fmt_date(latest["日期"])
+        def _last_valid_row(anchor_col: str):
+            """Return the last row where anchor_col is a finite number."""
+            for _, row in df.iloc[::-1].iterrows():
+                try:
+                    v = float(row[anchor_col])
+                    if not math.isnan(v):
+                        return row
+                except (TypeError, ValueError, KeyError):
+                    pass
+            return None
 
-        def _get(col) -> Optional[float]:
-            v = latest.get(col)
+        us_row = _last_valid_row("美国国债收益率10年")
+        cn_row = _last_valid_row("中国国债收益率10年")
+
+        # Display date: latest of the two valid rows
+        date_str = _fmt_date(df.iloc[-1]["日期"])
+
+        def _get(row, col) -> Optional[float]:
+            if row is None:
+                return None
             try:
-                f = float(v)
-                return round(f, 4) if f == f else None
-            except (TypeError, ValueError):
+                v = float(row[col])
+                return round(v, 4) if not math.isnan(v) else None
+            except (TypeError, ValueError, KeyError):
                 return None
 
         us_yields, cn_yields = [], []
@@ -153,15 +259,15 @@ async def fetch_all_yields() -> Dict[str, Any]:
             ("10Y", "中国国债收益率10年", "美国国债收益率10年"),
             ("30Y", "中国国债收益率30年", "美国国债收益率30年"),
         ]:
-            cn_v = _get(cn_col)
-            us_v = _get(us_col)
+            cn_v = _get(cn_row, cn_col)
+            us_v = _get(us_row, us_col)
             if cn_v is not None:
                 cn_yields.append({"term": term, "value": cn_v})
             if us_v is not None:
                 us_yields.append({"term": term, "value": us_v})
 
-        cn10 = next((y["value"] for y in cn_yields if y["term"] == "10Y"), None)
-        us10 = next((y["value"] for y in us_yields if y["term"] == "10Y"), None)
+        cn10 = _get(cn_row, "中国国债收益率10年")
+        us10 = _get(us_row, "美国国债收益率10年")
         spread = round(cn10 - us10, 4) if (cn10 is not None and us10 is not None) else None
 
         result = {
@@ -963,6 +1069,149 @@ async def _fetch_nbs_industrial_charts_from_releases(
         }
 
     return out
+
+
+async def fetch_industrial_profit_history() -> dict:
+    """
+    Fetch historical series of industrial profit cumulative YoY rates (~27 months).
+    Returns:
+      {"total": [{"period": "2024-02", "value": 10.2}, ...],
+       "elec":  [{"period": "2024-02", "value": 249.1}, ...],
+       "latest_period": "2026-03"}
+    """
+    cache_key = "macro:industrial_profit_history"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    result = await _fetch_profit_history_nbs_easyquery()
+    if not result:
+        result = await _fetch_profit_history_from_releases(count=30)
+
+    if result:
+        _set_cache(cache_key, result, CACHE_TTL_MACRO)
+    return result or {}
+
+
+async def _fetch_profit_history_nbs_easyquery() -> dict:
+    """China-only: compute cumulative YoY series from NBS easyquery absolute values."""
+    import math
+
+    df = None
+    for path in [
+        "工业 > 按行业分工业企业主要经济指标(2018-至今) > 工业企业利润总额",
+        "工业 > 按行业分工业企业主要经济指标 (2018-至今) > 工业企业利润总额",
+    ]:
+        try:
+            df = await _run_ak("macro_china_nbs_nation", kind="月度数据", path=path, period="LAST48")
+            if df is not None and not df.empty:
+                break
+        except Exception as e:
+            logger.debug(f"NBS profit history easyquery path={path!r}: {e}")
+
+    if df is None or df.empty:
+        return {}
+
+    period_cols = []
+    for col in df.columns:
+        k = _nbs_period_sort_key(col)
+        if re.match(r'\d{4}-\d{2}', k):
+            period_cols.append((k, col))
+    period_cols = sorted(dict(period_cols).items())
+    if not period_cols:
+        return {}
+
+    col_by_key = {k: c for k, c in period_cols}
+
+    total_idx = elec_idx = None
+    for idx in df.index:
+        name = str(idx).strip()
+        if total_idx is None and name in ('总计', '合计', '全部工业企业', '全部'):
+            total_idx = idx
+        if elec_idx is None and '计算机' in name and ('通信' in name or '电子' in name):
+            elec_idx = idx
+
+    if total_idx is None:
+        return {}
+
+    def _get(idx, col):
+        try:
+            f = float(df.loc[idx, col])
+            return None if math.isnan(f) else round(f, 1)
+        except Exception:
+            return None
+
+    total_pts: List[dict] = []
+    elec_pts: List[dict] = []
+
+    for sort_key, col in period_cols:
+        y, mo = sort_key.split('-')
+        prior_col = col_by_key.get(f"{int(y)-1}-{mo}")
+        if prior_col is None:
+            continue
+        total = _get(total_idx, col)
+        total_prev = _get(total_idx, prior_col)
+        if total is not None and total_prev is not None and total_prev != 0:
+            yoy = round((total - total_prev) / abs(total_prev) * 100, 1)
+            total_pts.append({"period": sort_key, "value": yoy})
+        if elec_idx:
+            elec = _get(elec_idx, col)
+            elec_prev = _get(elec_idx, prior_col)
+            if elec is not None and elec_prev is not None and elec_prev != 0:
+                yoy = round((elec - elec_prev) / abs(elec_prev) * 100, 1)
+                elec_pts.append({"period": sort_key, "value": yoy})
+
+    if not total_pts:
+        return {}
+
+    latest = max(p["period"] for p in total_pts)
+    logger.info(f"NBS profit history easyquery: {len(total_pts)} periods, latest={latest}")
+    return {"total": total_pts, "elec": elec_pts, "latest_period": latest}
+
+
+async def _fetch_profit_history_from_releases(count: int = 30) -> dict:
+    """Batch-scrape NBS profit press releases to build historical YoY series."""
+    release_urls = await _nbs_find_profit_releases(max_pages=25, count=count)
+    if not release_urls:
+        return {}
+
+    sem = asyncio.Semaphore(5)
+
+    async def _parse_one(url):
+        async with sem:
+            try:
+                return await _nbs_parse_profit_release(url)
+            except Exception as e:
+                logger.debug(f"profit history release {url}: {e}")
+                return None
+
+    raw = await asyncio.gather(*[_parse_one(u) for u in release_urls], return_exceptions=True)
+
+    total_pts: List[dict] = []
+    elec_pts: List[dict] = []
+
+    for res in raw:
+        if isinstance(res, Exception) or res is None:
+            continue
+        period_label = res.get("period", "")
+        pm = re.search(r'(\d{4})年(?:\d+[—\-])?(\d{1,2})月份', period_label)
+        if not pm:
+            continue
+        period_key = f"{pm.group(1)}-{pm.group(2).zfill(2)}"
+        if res.get("total_yoy") is not None:
+            total_pts.append({"period": period_key, "value": res["total_yoy"]})
+        if res.get("elec_yoy") is not None:
+            elec_pts.append({"period": period_key, "value": res["elec_yoy"]})
+
+    total_pts.sort(key=lambda x: x["period"])
+    elec_pts.sort(key=lambda x: x["period"])
+
+    if not total_pts:
+        return {}
+
+    latest = max(p["period"] for p in total_pts)
+    logger.info(f"NBS profit history scraper: {len(total_pts)} periods, latest={latest}")
+    return {"total": total_pts, "elec": elec_pts, "latest_period": latest}
 
 
 async def fetch_nbs_industrial_charts() -> Dict[str, Any]:

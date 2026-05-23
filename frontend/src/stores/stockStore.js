@@ -177,6 +177,7 @@ export const useStockStore = defineStore('stocks', {
             amount: item.amount,
             turnover_rate: item.turnover_rate,
             pe: item.pe,
+            pe_ttm: item.pe_ttm ?? null,
             market_cap: item.market_cap,
             float_market_cap: item.float_market_cap,
             amplitude: item.amplitude,
@@ -186,6 +187,14 @@ export const useStockStore = defineStore('stocks', {
             board_type: item.board_type || '',
             up_count: item.up_count,
             down_count: item.down_count,
+            profit_growth_rate: item.profit_growth_rate ?? null,
+            roe: item.roe ?? null,
+            debt_ratio: item.debt_ratio ?? null,
+            cash_profit_ratio: item.cash_profit_ratio ?? null,
+            peg: item.peg ?? null,
+            signal: item.signal ?? null,
+            capex: item.capex ?? null,
+            capex_period: item.capex_period ?? '',
           }
           // Sync stock_name into local stocks array for cards that rely on stock.stock_name
           const local = this.stocks.find(s => s.id === item.id)

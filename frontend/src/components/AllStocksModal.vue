@@ -32,9 +32,9 @@
               <th class="th-name">名称</th>
               <th class="th-price">最新价</th>
               <th class="th-change">涨跌幅</th>
-              <th class="th-pe">市盈率</th>
+              <th class="th-pe">PE(动态)</th>
               <th class="th-mc">总市值</th>
-              <th class="th-vol">成交量</th>
+              <th class="th-vol">成交额</th>
               <th class="th-act">操作</th>
             </tr>
           </thead>
@@ -84,7 +84,7 @@
                 </td>
                 <td class="td-num">{{ s.data?.pe != null ? s.data.pe.toFixed(1) : '--' }}</td>
                 <td class="td-num">{{ s.data?.market_cap != null ? fmtCap(s.data.market_cap) : '--' }}</td>
-                <td class="td-num">{{ s.data?.volume != null ? fmtVol(s.data.volume) : '--' }}</td>
+                <td class="td-num">{{ s.data?.amount != null ? fmtCap(s.data.amount) : '--' }}</td>
                 <td class="td-act">
                   <button v-if="s.hidden" class="show-btn" @click="$emit('show-stock', s.id)">显示</button>
                   <button v-else class="del-btn" @click="$emit('remove', s.id)">删除</button>

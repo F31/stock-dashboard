@@ -1,15 +1,12 @@
 <template>
   <div class="congestion-section">
     <div class="congestion-hdr">
-      <span class="congestion-ttl">🔥 AI板块拥挤度监控</span>
+      <span class="congestion-ttl">🔥 AI板块监控</span>
       <span class="congestion-sub" v-if="sectors.length">
         {{ upCount }}涨 · {{ downCount }}跌 · {{ sectors.length }}板块
       </span>
       <div class="hdr-right">
         <span class="update-hint" v-if="lastUpdate">{{ lastUpdate }}</span>
-        <button class="detail-toggle" @click="showAssessment = !showAssessment">
-          {{ showAssessment ? '收起评估' : '展开拥挤度评估' }}
-        </button>
       </div>
     </div>
 
@@ -57,34 +54,6 @@
       暂无板块数据，请先在自选股中添加 BK 板块，或等待数据刷新
     </div>
 
-    <!-- Qualitative assessment (collapsible) -->
-    <transition name="slide">
-      <div class="assessment-section" v-show="showAssessment">
-        <div class="assessment-title">📊 拥挤度综合评估（研究判断，非实时数据）</div>
-        <div class="congestion-table-wrap">
-          <table class="congestion-table">
-            <thead>
-              <tr>
-                <th class="col-dim">维度</th>
-                <th class="col-reading">当前状态</th>
-                <th class="col-level">风险等级</th>
-                <th class="col-desc">解读</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in assessments" :key="item.id">
-                <td class="col-dim">{{ item.dimension }}</td>
-                <td class="col-reading">{{ item.reading }}</td>
-                <td class="col-level">
-                  <span :class="['level-badge', levelClass(item.level)]">{{ item.level }}</span>
-                </td>
-                <td class="col-desc">{{ item.description }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
 
@@ -94,7 +63,6 @@ import { fetchSectorCongestion } from '../api'
 
 const sectors = ref([])
 const loading = ref(false)
-const showAssessment = ref(false)
 const lastUpdate = ref('')
 let timer = null
 
@@ -167,58 +135,6 @@ function fmtFlow(v) {
   return '--'
 }
 
-function levelClass(level) {
-  if (level.startsWith('✓')) return 'level-low'
-  if (level.startsWith('⚠')) return 'level-mid'
-  if (level.startsWith('✗')) return 'level-high'
-  return ''
-}
-
-// ── Static qualitative assessments ──
-const assessments = [
-  {
-    id: 'fund_holding',
-    dimension: '公募基金持仓',
-    reading: '头部基金高配',
-    level: '⚠ 中',
-    description: '主动权益基金对光模块、AI芯片配置比例处于历史高位，但尚未出现"断崖式重仓"。',
-  },
-  {
-    id: 'northbound',
-    dimension: '北向资金',
-    reading: '仍在净流入',
-    level: '✓ 低',
-    description: '外资持续买入算力链龙头，与2021年抱团末期"内热外冷"特征不同，风险信号较低。',
-  },
-  {
-    id: 'etf_issue',
-    dimension: '新发基金主题',
-    reading: 'AI主题密集',
-    level: '⚠ 中高',
-    description: '2026年以来AI主题ETF与主动基金密集发行，是阶段4后段的典型行为，需保持警惕。',
-  },
-  {
-    id: 'valuation',
-    dimension: '估值历史分位',
-    reading: '龙头分化',
-    level: '✓ 中',
-    description: '龙头PE处于历史70–90分位，PEG因业绩高增长仍合理；二三线高估值标的分位数已接近95+。',
-  },
-  {
-    id: 'story_stocks',
-    dimension: '"故事股"信号',
-    reading: '↑ 活跃度上升',
-    level: '✗ 中高',
-    description: '未盈利主题概念股交易活跃度上升，是拥挤度进入第5阶段的早期信号，建议压缩此类敞口。',
-  },
-  {
-    id: 'margin_debt',
-    dimension: '融资余额',
-    reading: '抬升中',
-    level: '⚠ 中',
-    description: '杠杆资金参与度上升，放大双向波动，但绝对水平尚未到危险区间。',
-  },
-]
 </script>
 
 <style scoped>
@@ -257,23 +173,6 @@ const assessments = [
 .update-hint {
   font-size: 0.72em;
   color: #9ca3af;
-}
-
-.detail-toggle {
-  padding: 3px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 5px;
-  background: #fff;
-  color: #6b7280;
-  font-size: 0.78em;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s;
-}
-.detail-toggle:hover {
-  background: #f3f4f6;
-  border-color: #2563eb;
-  color: #2563eb;
 }
 
 /* ── Summary bar ── */
@@ -390,90 +289,6 @@ const assessments = [
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   margin-bottom: 10px;
-}
-
-/* ── Qualitative assessment ── */
-.assessment-section {
-  margin-top: 8px;
-}
-
-.assessment-title {
-  font-size: 0.78em;
-  font-weight: 600;
-  color: #6b7280;
-  margin-bottom: 6px;
-  padding: 0 2px;
-}
-
-.congestion-table-wrap {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.congestion-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82em;
-}
-
-.congestion-table th {
-  background: #f9fafb;
-  padding: 8px 12px;
-  text-align: left;
-  font-weight: 600;
-  color: #6b7280;
-  border-bottom: 1px solid #e5e7eb;
-  white-space: nowrap;
-}
-
-.congestion-table td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #f3f4f6;
-  vertical-align: top;
-  line-height: 1.5;
-  color: #374151;
-}
-
-.congestion-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.congestion-table tbody tr:hover {
-  background: #f9fafb;
-}
-
-.col-dim     { width: 120px; min-width: 100px; font-weight: 600; color: #1f2937; }
-.col-reading { width: 100px; min-width: 80px; }
-.col-level   { width: 70px; min-width: 60px; }
-.col-desc    { color: #6b7280; }
-
-.level-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.8em;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.level-low  { background: #dcfce7; color: #15803d; }
-.level-mid  { background: #fef9c3; color: #a16207; }
-.level-high { background: #fee2e2; color: #b91c1c; }
-
-/* ── Transition ── */
-.slide-enter-active, .slide-leave-active {
-  transition: all 0.25s ease;
-  overflow: hidden;
-}
-.slide-enter-from, .slide-leave-to {
-  opacity: 0;
-  max-height: 0;
-}
-.slide-enter-to, .slide-leave-from {
-  opacity: 1;
-  max-height: 1000px;
 }
 
 /* ── Responsive ── */

@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models."""
 import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, UniqueConstraint
 from database import Base
 
 
@@ -133,6 +133,26 @@ class AnalysisFramework(Base):
     keyword_dict = Column(Text, default="{}")       # JSON object: {layer_id: [keywords]}
     entity_matrix = Column(Text, default="[]")      # JSON array: company→matrix entries (derived)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class StockCapex(Base):
+    __tablename__ = "stock_capex"
+    id = Column(Integer, primary_key=True, index=True)
+    stock_code = Column(String(20), nullable=False, index=True)
+    market = Column(String(10), nullable=False)          # A / HK / US / SECTOR
+    report_year = Column(String(10), default="")          # e.g. "2024"
+    capex = Column(Float, nullable=True)                  # yuan, absolute value
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    __table_args__ = (UniqueConstraint("stock_code", "market", name="uq_capex_code_market"),)
+
+
+class MacroCache(Base):
+    __tablename__ = "macro_cache"
+    id = Column(Integer, primary_key=True)
+    cache_key = Column(String(100), unique=True, nullable=False, index=True)
+    data_json = Column(Text, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
