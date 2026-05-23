@@ -1043,4 +1043,12 @@ onMounted(() => {
   font-size: 0.63em; color: #9ca3af; border-top: 1px solid #f3f4f6;
   padding-top: 10px; text-align: center;
 }
+
+/* ── Detail modal 移动端 ── */
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .detail-modal { max-width: 100vw; border-radius: 20px 20px 0 0; max-height: 96dvh; }
+  .fund-grid { grid-template-columns: repeat(2, 1fr); }
+  .rules-modal { max-width: 100vw; max-height: 100dvh; border-radius: 0; }
+}
 </style>

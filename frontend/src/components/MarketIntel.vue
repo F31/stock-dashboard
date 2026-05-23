@@ -166,4 +166,9 @@ onUnmounted(() => {
   color: #6b7280;
   line-height: 1.3;
 }
+
+@media (max-width: 640px) {
+  .idx-pill { min-width: 140px; padding: 7px 10px; }
+  .intel-grid { grid-template-columns: 1fr; }
+}
 </style>

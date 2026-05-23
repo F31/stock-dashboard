@@ -620,4 +620,23 @@ async function removeReport(r) {
 .btn-outline:hover { background: #f3f4f6; border-color: #9ca3af; }
 .btn-ghost { background: none; color: #6b7280; border: 1px solid transparent; }
 .btn-ghost:hover { background: #f3f4f6; }
+
+/* ── 移动端响应式 ── */
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    border-radius: 20px 20px 0 0; max-width: 100vw;
+    max-height: 96dvh;
+  }
+  .modal-hdr { padding: 12px 14px; }
+  .stock-name { font-size: 15px; }
+  .hdr-right { gap: 5px; }
+  .tab-nav { padding: 0 10px; gap: 0; overflow-x: auto; }
+  .tab-item { padding: 9px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+  .tab-body { padding: 12px 14px; }
+  .big-price { font-size: 24px; }
+  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .top5-table { font-size: 11px; }
+  .btn { padding: 7px 12px; font-size: 12px; }
+}
 </style>
