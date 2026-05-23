@@ -841,9 +841,21 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   .tts-spin{{width:11px;height:11px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;
              border-radius:50%;animation:tspin .7s linear infinite;}}
   @keyframes tspin{{to{{transform:rotate(360deg);}}}}
-  @media(max-width:480px){{
+  @media(max-width:640px){{
+    .header{{padding:16px;}}
+    .header h1{{font-size:1.1rem;}}
+    .container{{padding:12px 10px;}}
+    .card{{padding:14px;margin-bottom:12px;border-radius:8px;}}
+    .card-title{{font-size:13px;}}
+    /* 表格横向滚动 */
+    table{{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}}
+    /* 并排 flex 布局折行 */
+    div[style*="display:flex"]{{flex-wrap:wrap;}}
     #tts-panel{{bottom:12px;right:10px;}}
     #tts-controls{{padding:7px 10px;gap:5px;border-radius:10px;}}
+    /* 语音选择收窄 */
+    #tts-voice{{max-width:80px;font-size:11px;}}
+    .tts-btn{{font-size:12px;padding:6px 10px;}}
   }}
 </style>
 </head>
@@ -1060,6 +1072,7 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     var mySid = _session;
     var prevUrl = _audio.src;
     _audio.onended = null;
+    _audio.pause();           // 确保停止静音解锁音频或上一块
     _audio.src = _buffers[idx];
     _audio.onended = function() {{
       if (_session !== mySid || _state !== 'playing') return;
@@ -1095,6 +1108,9 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   }}
 
   // ── 公开接口 ──────────────────────────────────────────────────────────────
+  // iOS Safari: 最小静音 WAV，用于在用户手势栈中同步解锁 HTMLAudioElement
+  var _SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
   window.toggleTTS = function() {{
     if (_state === 'loading') return;
     if (_state === 'idle') {{
@@ -1102,6 +1118,10 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
         _audio = new Audio();
         _audio.preload = 'auto';
       }}
+      // 在用户手势栈内同步 play 静音音频，解锁元素（iOS/Android Safari 必须）
+      _audio.src = _SILENT;
+      var unlockP = _audio.play();
+      if (unlockP) unlockP.catch(function() {{}});
       _start();
     }} else if (_state === 'playing') {{
       _audio.pause();

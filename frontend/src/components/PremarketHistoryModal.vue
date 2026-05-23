@@ -128,7 +128,7 @@
             <button class="close-btn" @click="reportUrl = null">✕</button>
           </div>
         </div>
-        <iframe :src="reportUrl" class="report-iframe" frameborder="0"></iframe>
+        <iframe :src="reportUrl" class="report-iframe" frameborder="0" allow="autoplay"></iframe>
       </div>
     </div>
   </Teleport>
@@ -439,4 +439,33 @@ function parsedWatchlist(r) {
 }
 .btn-share:hover { background: #dcfce7; }
 .btn-share.copied { background: #dcfce7; color: #15803d; border-color: #86efac; cursor: default; }
+
+/* ── 移动端响应式 ── */
+@media (max-width: 640px) {
+  .modal-box {
+    width: 100vw; max-width: 100vw; max-height: 100dvh;
+    border-radius: 0;
+  }
+  .modal-header { padding: 12px 14px; }
+  .modal-title { font-size: 14px; }
+  .report-item { padding: 10px 14px; }
+  .report-main { flex-wrap: wrap; gap: 6px; }
+  /* 触屏设备上始终显示"查看完整报告"按钮 */
+  .row-report-btn { opacity: 1 !important; }
+
+  .report-viewer-overlay { align-items: flex-end; }
+  .report-viewer-box {
+    width: 100vw; height: 96dvh; border-radius: 16px 16px 0 0;
+  }
+  .report-viewer-header {
+    padding: 10px 12px; flex-wrap: wrap; gap: 6px;
+  }
+  .report-viewer-title { font-size: 12px; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .report-viewer-actions { gap: 6px; }
+  .btn-sm { font-size: 11px; padding: 4px 8px; }
+  /* 移动端隐藏"复制分享链接"按钮，节省空间 */
+  .btn-share { display: none; }
+  .preview-panel { max-height: 200px; }
+}
 </style>

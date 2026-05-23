@@ -334,6 +334,7 @@ function _playChunk(idx) {
   if (!_audio || _buffers[idx] === undefined) return
   const mySid = _session
   const oldSrc = _audio.src
+  _audio.pause()          // 确保停止静音解锁音频或上一块
   _audio.src = _buffers[idx]
   // 释放上一块的 Blob URL
   if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
@@ -375,11 +376,15 @@ async function toggleTTS() {
     const text = buildSpeechText()
     if (!text) return
 
-    // 在用户手势调用栈中同步创建 Audio 元素（iOS 必须）
+    // iOS Safari: 在用户手势栈中同步创建并 play 一次静音音频，解锁 HTMLAudioElement。
+    // 此后异步调用 play() 仍可正常播放（元素已信任）。
     if (!_audio) {
       _audio = new Audio()
       _audio.preload = 'auto'
     }
+    const SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
+    _audio.src = SILENT
+    try { await _audio.play(); _audio.pause() } catch { /* 忽略自动播放策略拒绝 */ }
 
     _chunks  = _buildChunks(text)
     if (!_chunks.length) return
@@ -603,9 +608,7 @@ function stopTimers() {
 onMounted(load)
 onUnmounted(() => {
   stopTimers()
-  _stopSource()
-  _audioCtx?.close()
-  _audioCtx = null
+  stopTTS()
 })
 </script>
 
@@ -834,4 +837,30 @@ onUnmounted(() => {
                  border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }
 .disclaimer { font-size: 11px; color: #9ca3af; text-align: center;
               padding-top: 16px; border-top: 1px solid #f3f4f6; margin-top: 8px; }
+
+/* ── 移动端响应式 ── */
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    border-radius: 20px 20px 0 0; max-width: 100vw;
+    max-height: 96dvh; display: flex; flex-direction: column;
+  }
+  .modal-header { padding: 12px 14px; gap: 6px; }
+  .modal-header h2 { font-size: 0.95rem; }
+  .title-icon { font-size: 1.2rem; }
+  .header-actions { gap: 5px; }
+  .btn { padding: 6px 10px; font-size: 12px; }
+  /* 移动端隐藏"查看完整报告"按钮（已在历史弹窗中提供） */
+  .btn-view { display: none; }
+  /* 声音选择下拉收窄 */
+  .voice-select { max-width: 90px; font-size: 11px; padding: 4px 6px; }
+  .modal-body { padding: 14px 14px; max-height: unset; flex: 1; overflow-y: auto; }
+  .running-state { padding: 20px 14px 16px; }
+  .running-header { flex-direction: column; gap: 12px; }
+  .market-grid { gap: 6px; }
+  .market-card { min-width: 80px; padding: 8px 10px; }
+  .watch-grid { grid-template-columns: 1fr; }
+  .stream-content { font-size: 11px; max-height: 200px; }
+  .sentiment-row { flex-direction: column; gap: 8px; }
+}
 </style>
