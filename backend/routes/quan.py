@@ -1,8 +1,10 @@
 """Quantitative analysis score endpoints."""
+import asyncio
 import json
 import logging
 import re
 import sqlite3
+import subprocess
 import time
 from typing import Optional
 
@@ -92,6 +94,206 @@ def _batch_prices(codes: list[str]) -> dict[str, dict]:
     return {c: _price_cache[c] for c in codes if c in _price_cache}
 
 
+# ── Technical levels cache ────────────────────────────────────────────────
+_levels_cache: dict[str, dict] = {}   # code → {"data": dict, "ts": float}
+_LEVELS_TTL  = 3600                    # 1 h — levels change slowly
+_QLIB_PYTHON = "/root/qlib/qvenv/bin/python"
+_FEATURE_STORE_PATH = "/root/projects/stock_quan/data/feature_store.db"
+
+# Self-contained qlib script; INSTRUMENT_CODE is replaced before execution.
+_QLIB_SCRIPT_TPL = r"""
+import sys, json, warnings
+warnings.filterwarnings('ignore')
+sys.path.insert(0, '/root/qlib/qvenv/lib/python3.10/site-packages')
+import qlib, pandas as pd, numpy as np
+
+try:
+    qlib.init(provider_uri='/root/.qlib/qlib_data/cn_data', region='cn')
+    instrument = 'INSTRUMENT_CODE'
+    df = qlib.data.D.features(
+        [instrument], ['$close', '$high', '$low'],
+        start_time='2025-01-01', end_time=None, freq='day',
+    )
+    df = df.droplevel('instrument')
+    close, high, low = df['$close'], df['$high'], df['$low']
+
+    prev = close.shift(1)
+    tr = pd.concat([high-low, (high-prev).abs(), (low-prev).abs()], axis=1).max(axis=1)
+    atr14 = float(tr.rolling(14).mean().iloc[-1])
+
+    d = close.diff()
+    gain = d.clip(lower=0).rolling(14).mean()
+    loss = (-d.clip(upper=0)).rolling(14).mean()
+    rsi14 = float((100 - 100/(1 + gain/(loss+1e-9))).iloc[-1])
+
+    result = {
+        'ok': True,
+        'ma5':   float(close.rolling(5).mean().iloc[-1]),
+        'ma20':  float(close.rolling(20).mean().iloc[-1]),
+        'ma60':  float(close.rolling(60).mean().iloc[-1]),
+        'ma120': float(close.rolling(120).mean().iloc[-1]),
+        'atr14': atr14, 'rsi14': rsi14,
+        'h52w':  float(high.rolling(252).max().iloc[-1]),
+        'l52w':  float(low.rolling(252).min().iloc[-1]),
+        'last_adj': float(close.iloc[-1]),
+    }
+    print(json.dumps(result))
+except Exception as e:
+    print(json.dumps({'ok': False, 'error': str(e)}))
+"""
+
+
+def _run_qlib_levels(code: str) -> dict | None:
+    """Blocking: call qlib subprocess to compute technical indicators."""
+    prefix = "SH" if code.startswith("6") else "SZ"
+    script = _QLIB_SCRIPT_TPL.replace("INSTRUMENT_CODE", prefix + code)
+    try:
+        r = subprocess.run(
+            [_QLIB_PYTHON, "-c", script],
+            capture_output=True, text=True, timeout=40,
+        )
+        for line in reversed(r.stdout.strip().split("\n")):
+            if line.strip().startswith("{"):
+                data = json.loads(line.strip())
+                if data.get("ok"):
+                    return data
+                logger.warning("qlib levels error for %s: %s", code, data.get("error"))
+                return None
+        logger.warning("qlib levels: no JSON for %s | stderr=%s", code, r.stderr[:300])
+        return None
+    except Exception as e:
+        logger.error("qlib levels subprocess failed for %s: %s", code, e)
+        return None
+
+
+def _fetch_tencent_detail(code: str) -> dict:
+    """Fetch extended real-time quote: price, PE, PB, market cap."""
+    prefix = "sh" if code.startswith("6") else "sz"
+    try:
+        r = requests.get(
+            f"https://qt.gtimg.cn/q={prefix}{code}",
+            headers=_TQ_HEADERS, timeout=8,
+        )
+        r.encoding = "gbk"
+        parts = r.text.strip().split("~")
+        if len(parts) < 50:
+            return {}
+        price      = float(parts[3])  if parts[3]  else None
+        prev_close = float(parts[4])  if parts[4]  else None
+        pe         = float(parts[39]) if parts[39] else None
+        pb         = float(parts[46]) if parts[46] else None
+        mktcap     = float(parts[45]) if parts[45] else None   # 亿元
+        chg = round((price - prev_close) / prev_close * 100, 2) if price and prev_close else None
+        return {"price": price, "change_pct": chg, "pe": pe, "pb": pb, "mktcap": mktcap}
+    except Exception as e:
+        logger.warning("Tencent detail error for %s: %s", code, e)
+        return {}
+
+
+def _get_fundamentals(code: str) -> dict:
+    """Return latest quarterly fundamentals from feature_store.db."""
+    try:
+        conn = sqlite3.connect(_FEATURE_STORE_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """SELECT report_date, profit_yoy, revenue_yoy,
+                      roe, gross_margin, cash_profit_ratio
+               FROM fin_quarterly WHERE stock_code=?
+               ORDER BY report_date DESC LIMIT 1""",
+            (code,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else {}
+    except Exception:
+        return {}
+
+
+def _derive_levels(
+    price: float,
+    ma5: float, ma20: float, ma60: float, ma120: float,
+    atr14: float, rsi14: float,
+    h52w: float, l52w: float,
+    pe: float | None, profit_yoy: float | None,
+    label: str,
+) -> dict:
+    """Derive buy zones, targets, stop-loss and sentiment from technical data."""
+    if rsi14 >= 80:   rsi_tag = "强烈超买"
+    elif rsi14 >= 70: rsi_tag = "超买"
+    elif rsi14 >= 60: rsi_tag = "偏强"
+    elif rsi14 >= 40: rsi_tag = "中性"
+    elif rsi14 >= 30: rsi_tag = "偏弱"
+    else:             rsi_tag = "超卖"
+
+    ma20_pct = round((price - ma20) / ma20 * 100, 1)
+    ma60_pct = round((price - ma60) / ma60 * 100, 1)
+
+    if rsi14 > 70 or ma20_pct > 15:
+        sentiment, sentiment_level = "不建议追高", "warn"
+    elif label in ("强烈推荐", "推荐") and rsi14 < 60:
+        sentiment, sentiment_level = "可建仓", "buy"
+    elif label in ("强烈推荐", "推荐"):
+        sentiment, sentiment_level = "可关注", "neutral"
+    else:
+        sentiment, sentiment_level = "等待回调", "neutral"
+
+    # Buy zones anchored to MA levels
+    z1_low  = round(ma5 * 0.97, 2)
+    z1_high = round(ma5 * 1.01, 2)
+    z2_low  = round(ma20 * 0.97, 2)
+    z2_high = round(ma20 * 1.03, 2)
+    z3_low  = round(ma60 * 0.97, 2)
+    z3_high = round(ma60 * 1.03, 2)
+
+    buy_zones = [
+        {"tier": 1, "label": "观察买点", "low": z1_low,  "high": z1_high,
+         "basis": "MA5支撑 / 约1×ATR回调",        "note": "轻仓试探，需放量企稳"},
+        {"tier": 2, "label": "中线买点", "low": z2_low,  "high": z2_high,
+         "basis": "MA20均线支撑，情绪降温后主要买点", "note": "可建半仓"},
+        {"tier": 3, "label": "最优买点", "low": z3_low,  "high": z3_high,
+         "basis": "MA60强支撑，性价比最高",          "note": "可重仓，需确认基本面"},
+    ]
+
+    targets = [{"tier": 1, "label": "第一目标", "price": round(h52w * 1.05, 2),
+                 "basis": "52周高点上方5%，逢高减仓1/3"}]
+
+    if pe and profit_yoy and profit_yoy > 0:
+        ttm_eps  = price / pe
+        next_eps = ttm_eps * (1 + profit_yoy / 100)
+        fair_pe  = min(80, max(25, profit_yoy * 2))
+        t2 = round(next_eps * fair_pe, 2)
+        if t2 > price:
+            targets.append({"tier": 2, "label": "扩展目标", "price": t2,
+                             "basis": f"预期EPS×{fair_pe:.0f}x（PEG≈2）"})
+
+    stop_loss = [
+        {"label": "MA20止损", "price": round(ma20 * 0.95, 2),
+         "basis": "收盘跌破MA20 -5%时减仓"},
+        {"label": "MA60止损", "price": round(ma60 * 0.97, 2),
+         "basis": "深度回调跌破MA60 -3%时清仓"},
+    ]
+
+    return {
+        "sentiment":       sentiment,
+        "sentiment_level": sentiment_level,
+        "rsi_tag":         rsi_tag,
+        "rsi14":           round(rsi14, 1),
+        "atr14":           round(atr14, 2),
+        "ma20_pct":        ma20_pct,
+        "ma60_pct":        ma60_pct,
+        "ma": {
+            "ma5":   round(ma5,   2),
+            "ma20":  round(ma20,  2),
+            "ma60":  round(ma60,  2),
+            "ma120": round(ma120, 2),
+        },
+        "h52w":      round(h52w, 2),
+        "l52w":      round(l52w, 2),
+        "buy_zones": buy_zones,
+        "targets":   targets,
+        "stop_loss": stop_loss,
+    }
+
+
 def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -129,6 +331,10 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
     sql = """
         SELECT q.stock_code, q.trade_date, q.model_name,
                q.raw_score, q.percentile_score, q.label, q.rank,
+               COALESCE(q.growth_score, 0)              AS growth_score,
+               COALESCE(q.quality_score, 0)             AS quality_score,
+               COALESCE(q.valuation_score, 0)           AS valuation_score,
+               COALESCE(q.momentum_score, 0)            AS momentum_score,
                COALESCE(q.sector_warning, '')           AS sector_warning,
                COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
                COALESCE(i.industry, '')                 AS industry
@@ -324,3 +530,91 @@ async def get_chain_filters(current_user: User = Depends(get_current_user)):
         })
 
     return {"chains": chains}
+
+
+@router.get("/quan/scores/{stock_code}/levels")
+async def get_stock_levels(
+    stock_code: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return buy/sell levels, technical indicators, and valuation for one stock.
+
+    Calls qlib subprocess (result cached 1 h) + Tencent API for live price/PE.
+    """
+    now = time.time()
+    cached = _levels_cache.get(stock_code)
+
+    # Live quote is always fresh; only reuse heavy tech computation from cache
+    detail = _fetch_tencent_detail(stock_code)
+    actual_price = detail.get("price")
+
+    if cached and now - cached["ts"] < _LEVELS_TTL and actual_price:
+        return {**cached["data"], "price": actual_price,
+                "change_pct": detail.get("change_pct")}
+
+    if not actual_price:
+        return {"error": "无法获取实时价格", "stock_code": stock_code}
+
+    # Run qlib in thread pool to avoid blocking the event loop
+    tech = await asyncio.to_thread(_run_qlib_levels, stock_code)
+
+    if not tech:
+        return {"error": "技术指标计算失败（该股可能未收录于qlib数据集）",
+                "stock_code": stock_code}
+
+    # Scale qlib backward-adjusted prices → actual market prices
+    scale  = actual_price / tech["last_adj"]
+    ma5    = round(tech["ma5"]   * scale, 2)
+    ma20   = round(tech["ma20"]  * scale, 2)
+    ma60   = round(tech["ma60"]  * scale, 2)
+    ma120  = round(tech["ma120"] * scale, 2)
+    atr14  = round(tech["atr14"] * scale, 2)
+    rsi14  = tech["rsi14"]
+    h52w   = round(tech["h52w"]  * scale, 2)
+    l52w   = round(tech["l52w"]  * scale, 2)
+
+    fund = _get_fundamentals(stock_code)
+
+    # Get quant score from DB (try both universes)
+    score_data: dict = {}
+    with _get_conn() as conn:
+        for model in ("factor", "factor_star50"):
+            td = _resolve_date(conn, None, model)
+            if not td:
+                continue
+            rows = _fetch_scores(conn, td, model, 0.0, 1, [stock_code])
+            if rows:
+                score_data = rows[0]
+                break
+
+    levels = _derive_levels(
+        price=actual_price,
+        ma5=ma5, ma20=ma20, ma60=ma60, ma120=ma120,
+        atr14=atr14, rsi14=rsi14, h52w=h52w, l52w=l52w,
+        pe=detail.get("pe"),
+        profit_yoy=fund.get("profit_yoy"),
+        label=score_data.get("label", ""),
+    )
+
+    data = {
+        "stock_code": stock_code,
+        "price":      actual_price,
+        "change_pct": detail.get("change_pct"),
+        "pe":         detail.get("pe"),
+        "pb":         detail.get("pb"),
+        "mktcap":     detail.get("mktcap"),
+        "score": {
+            "percentile_score": score_data.get("percentile_score"),
+            "label":            score_data.get("label", "—"),
+            "sector_warning":   score_data.get("sector_warning", ""),
+            "trade_date":       score_data.get("trade_date"),
+        },
+        "fundamentals": {
+            k: (round(v, 2) if isinstance(v, float) else v)
+            for k, v in fund.items()
+        },
+        **levels,
+    }
+
+    _levels_cache[stock_code] = {"data": data, "ts": now}
+    return data

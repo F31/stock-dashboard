@@ -93,7 +93,7 @@
           <span>股价 / 涨跌</span><span>百分位</span><span>评级</span>
         </div>
         <div v-for="row in pagedScores" :key="row.stock_code"
-             class="tbl-row" :class="labelCls(row.label)">
+             class="tbl-row" :class="labelCls(row.label)" @click="openDetail(row)" style="cursor:pointer">
           <span class="rank-num">#{{ row.rank }}</span>
           <div class="code-col">
             <span class="code-text">{{ row.stock_code }}</span>
@@ -156,7 +156,7 @@
               <span>股价 / 涨跌</span><span>百分位</span><span>评级</span>
             </div>
             <div v-for="row in filteredModalStocks" :key="row.stock_code"
-                 class="tbl-row modal-tbl-row" :class="labelCls(row.label)">
+                 class="tbl-row modal-tbl-row" :class="labelCls(row.label)" @click="openDetail(row)" style="cursor:pointer">
               <span class="rank-num">#{{ row.rank }}</span>
               <div class="code-col">
                 <span class="code-text code-text--dark">{{ row.stock_code }}</span>
@@ -187,12 +187,210 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Stock detail / buy-sell levels modal -->
+    <Teleport to="body">
+      <div v-if="detailModal.show" class="modal-overlay" @click.self="detailModal.show = false">
+        <div class="modal detail-modal">
+          <div class="modal-hdr">
+            <div class="detail-hdr-info">
+              <span class="detail-name">{{ detailModal.stock?.stock_name || detailModal.stock?.stock_code }}</span>
+              <span class="detail-code">{{ detailModal.stock?.stock_code }}</span>
+              <span v-if="detailModal.stock?.label" :class="['label-tag', labelCls(detailModal.stock.label)]">
+                {{ detailModal.stock.label }}
+              </span>
+              <span v-if="detailModal.stock?.sector_warning"
+                    :class="['warn-tag', warnCls(detailModal.stock.sector_warning)]">
+                {{ detailModal.stock.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
+              </span>
+            </div>
+            <button class="close-btn" @click="detailModal.show = false">×</button>
+          </div>
+
+          <div class="modal-body detail-body">
+            <!-- Factor score breakdown (always shown when stock data available) -->
+            <div v-if="detailModal.stock && (detailModal.stock.growth_score || detailModal.stock.quality_score || detailModal.stock.valuation_score || detailModal.stock.momentum_score)"
+                 class="factor-breakdown">
+              <div class="detail-sec-title">因子得分 <span class="fb-total">综合 {{ detailModal.stock.percentile_score?.toFixed(0) }} 分</span></div>
+              <div class="fb-bars">
+                <div v-for="f in [
+                  { key: 'growth_score',    label: '成长', w: 35 },
+                  { key: 'quality_score',   label: '质量', w: 25 },
+                  { key: 'valuation_score', label: '估值', w: 20 },
+                  { key: 'momentum_score',  label: '动量', w: 20 },
+                ]" :key="f.key" class="fb-row">
+                  <span class="fb-label">{{ f.label }}<span class="fb-weight">×{{ f.w }}%</span></span>
+                  <div class="fb-bar-bg">
+                    <div :class="['fb-bar-fill', fbCls(detailModal.stock[f.key])]"
+                         :style="{ width: (detailModal.stock[f.key] || 0) + '%' }"></div>
+                  </div>
+                  <span :class="['fb-val', fbCls(detailModal.stock[f.key])]">
+                    {{ detailModal.stock[f.key]?.toFixed(0) ?? '—' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Loading -->
+            <div v-if="detailModal.loading" class="detail-state">
+              <div class="detail-spinner"></div>
+              <span>正在计算技术指标（首次约20秒）…</span>
+            </div>
+
+            <!-- Error -->
+            <div v-else-if="detailModal.error" class="detail-state detail-err">
+              {{ detailModal.error }}
+            </div>
+
+            <template v-else-if="detailModal.levels">
+              <!-- Quote strip -->
+              <div class="detail-quote">
+                <div class="dq-item">
+                  <span class="dq-val" :class="chgCls(detailModal.levels.change_pct)">
+                    {{ detailModal.levels.price?.toFixed(2) ?? '—' }}
+                  </span>
+                  <span class="dq-lbl">当前价</span>
+                </div>
+                <div class="dq-item">
+                  <span class="dq-val" :class="chgCls(detailModal.levels.change_pct)">
+                    {{ fmtChg(detailModal.levels.change_pct) }}
+                  </span>
+                  <span class="dq-lbl">涨跌幅</span>
+                </div>
+                <div class="dq-item" v-if="detailModal.levels.pe">
+                  <span class="dq-val">{{ detailModal.levels.pe?.toFixed(1) }}x</span>
+                  <span class="dq-lbl">动态PE</span>
+                </div>
+                <div class="dq-item" v-if="detailModal.levels.pb">
+                  <span class="dq-val">{{ detailModal.levels.pb?.toFixed(2) }}x</span>
+                  <span class="dq-lbl">PB</span>
+                </div>
+                <div class="dq-item" v-if="detailModal.levels.mktcap">
+                  <span class="dq-val">{{ detailModal.levels.mktcap?.toFixed(0) }}亿</span>
+                  <span class="dq-lbl">市值</span>
+                </div>
+                <div class="dq-item" v-if="detailModal.levels.fundamentals?.profit_yoy != null">
+                  <span class="dq-val" :class="detailModal.levels.fundamentals.profit_yoy >= 0 ? 'c-up' : 'c-dn'">
+                    {{ (detailModal.levels.fundamentals.profit_yoy >= 0 ? '+' : '') + detailModal.levels.fundamentals.profit_yoy?.toFixed(1) + '%' }}
+                  </span>
+                  <span class="dq-lbl">净利润同比</span>
+                </div>
+              </div>
+
+              <!-- Sentiment bar -->
+              <div class="detail-sentiment" :class="`senti-${detailModal.levels.sentiment_level}`">
+                <span class="senti-icon">
+                  {{ detailModal.levels.sentiment_level === 'warn' ? '⚠️' :
+                     detailModal.levels.sentiment_level === 'buy'  ? '✅' : '⏳' }}
+                </span>
+                <span class="senti-text">{{ detailModal.levels.sentiment }}</span>
+                <span class="senti-sub">
+                  RSI {{ detailModal.levels.rsi14 }} · {{ detailModal.levels.rsi_tag }} &nbsp;|&nbsp; ATR {{ detailModal.levels.atr14 }} 元/日
+                </span>
+              </div>
+
+              <!-- MA grid -->
+              <div class="detail-sec-title">均线位置</div>
+              <div class="ma-grid">
+                <div v-for="(val, key) in detailModal.levels.ma" :key="key" class="ma-item">
+                  <div class="ma-row">
+                    <span class="ma-name">{{ key.toUpperCase() }}</span>
+                    <span class="ma-val">{{ val?.toFixed(2) }}</span>
+                    <span :class="['ma-dev', maPct(val) >= 0 ? 'dev-above' : 'dev-below']">
+                      {{ (maPct(val) >= 0 ? '+' : '') + maPct(val) }}%
+                    </span>
+                  </div>
+                  <div class="ma-bar-bg">
+                    <div class="ma-bar-fill" :class="maBarCls(maPct(val))"
+                         :style="{ width: Math.min(Math.abs(maPct(val)) * 3, 100) + '%' }"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Buy zones -->
+              <div class="detail-sec-title">买入区间参考</div>
+              <div class="zones-list">
+                <div v-for="z in detailModal.levels.buy_zones" :key="z.tier"
+                     class="zone-card" :class="`zone-t${z.tier}`">
+                  <div class="zone-hdr">
+                    <span class="zone-num">{{ ['①','②','③'][z.tier-1] }}</span>
+                    <span class="zone-label">{{ z.label }}</span>
+                    <span class="zone-range">{{ z.low?.toFixed(2) }} ~ {{ z.high?.toFixed(2) }}</span>
+                  </div>
+                  <div class="zone-detail">{{ z.basis }} · <em>{{ z.note }}</em></div>
+                </div>
+              </div>
+
+              <!-- Targets & Stop in 2 cols -->
+              <div class="ts-row">
+                <div class="ts-col">
+                  <div class="detail-sec-title">目标价</div>
+                  <div v-for="t in detailModal.levels.targets" :key="t.tier" class="ts-item target-item">
+                    <span class="ts-num">{{ ['①','②'][t.tier-1] }}</span>
+                    <span class="ts-price target-price">{{ t.price?.toFixed(2) }}</span>
+                    <span class="ts-basis">{{ t.basis }}</span>
+                  </div>
+                </div>
+                <div class="ts-col">
+                  <div class="detail-sec-title">止损线</div>
+                  <div v-for="s in detailModal.levels.stop_loss" :key="s.label" class="ts-item stop-item">
+                    <span class="ts-num stop-dot">·</span>
+                    <span class="ts-price stop-price">{{ s.price?.toFixed(2) }}</span>
+                    <span class="ts-basis">{{ s.basis }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Fundamentals -->
+              <template v-if="detailModal.levels.fundamentals && Object.keys(detailModal.levels.fundamentals).length > 1">
+                <div class="detail-sec-title">
+                  基本面
+                  <span v-if="detailModal.levels.fundamentals.report_date" class="fund-period">
+                    {{ detailModal.levels.fundamentals.report_date }}
+                  </span>
+                </div>
+                <div class="fund-grid">
+                  <div class="fund-item" v-if="detailModal.levels.fundamentals.profit_yoy != null">
+                    <span class="fund-val" :class="detailModal.levels.fundamentals.profit_yoy >= 0 ? 'c-up' : 'c-dn'">
+                      {{ (detailModal.levels.fundamentals.profit_yoy >= 0 ? '+' : '') + detailModal.levels.fundamentals.profit_yoy?.toFixed(1) + '%' }}
+                    </span>
+                    <span class="fund-lbl">净利润同比</span>
+                  </div>
+                  <div class="fund-item" v-if="detailModal.levels.fundamentals.revenue_yoy != null">
+                    <span class="fund-val" :class="detailModal.levels.fundamentals.revenue_yoy >= 0 ? 'c-up' : 'c-dn'">
+                      {{ (detailModal.levels.fundamentals.revenue_yoy >= 0 ? '+' : '') + detailModal.levels.fundamentals.revenue_yoy?.toFixed(1) + '%' }}
+                    </span>
+                    <span class="fund-lbl">营收同比</span>
+                  </div>
+                  <div class="fund-item" v-if="detailModal.levels.fundamentals.roe != null">
+                    <span class="fund-val">{{ detailModal.levels.fundamentals.roe?.toFixed(2) + '%' }}</span>
+                    <span class="fund-lbl">ROE</span>
+                  </div>
+                  <div class="fund-item" v-if="detailModal.levels.fundamentals.gross_margin != null">
+                    <span class="fund-val">{{ detailModal.levels.fundamentals.gross_margin?.toFixed(1) + '%' }}</span>
+                    <span class="fund-lbl">毛利率</span>
+                  </div>
+                  <div class="fund-item" v-if="detailModal.levels.fundamentals.cash_profit_ratio != null">
+                    <span class="fund-val" :class="detailModal.levels.fundamentals.cash_profit_ratio >= 0 ? '' : 'c-dn'">
+                      {{ detailModal.levels.fundamentals.cash_profit_ratio?.toFixed(1) + '%' }}
+                    </span>
+                    <span class="fund-lbl">TTM现金利润率</span>
+                  </div>
+                </div>
+              </template>
+
+              <div class="detail-disclaimer">以上建议基于量化模型计算，不构成投资建议，仅供参考。</div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { fetchQuanScores, fetchQuanChainFilters } from '../api/index.js'
+import { fetchQuanScores, fetchQuanChainFilters, fetchQuanStockLevels } from '../api/index.js'
 
 const props = defineProps({
   watchlistCodes:  { type: Array, default: () => [] },
@@ -211,6 +409,7 @@ const activeUniverse = ref('csi300')
 const modalSearch    = ref('')
 const listModal      = ref({ show: false, title: '', stocks: [] })
 const rulesModal     = ref(false)
+const detailModal    = ref({ show: false, stock: null, levels: null, loading: false, error: null })
 
 // Chain filter
 const chainList      = ref([])   // [{id, name, count, codes: []}]
@@ -339,6 +538,41 @@ function chgCls(v) { return v == null ? '' : v >= 0 ? 'c-up' : 'c-dn' }
 function fmtChg(v) {
   if (v == null) return '—'
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
+}
+
+// ── Detail modal helpers ────────────────────────────────────────────────────
+function fbCls(v) {
+  if (v == null) return ''
+  if (v >= 75) return 'fb-high'
+  if (v >= 50) return 'fb-mid'
+  return 'fb-low'
+}
+function maPct(val) {
+  const price = detailModal.value.levels?.price
+  if (!price || !val) return 0
+  return Math.round((price - val) / val * 1000) / 10   // 1 decimal
+}
+function maBarCls(pct) {
+  if (pct > 20) return 'bar-far-above'
+  if (pct > 5)  return 'bar-above'
+  if (pct > -5) return 'bar-near'
+  return 'bar-below'
+}
+
+async function openDetail(row) {
+  detailModal.value = { show: true, stock: row, levels: null, loading: true, error: null }
+  try {
+    const res = await fetchQuanStockLevels(row.stock_code)
+    if (res.data?.error) {
+      detailModal.value.error = res.data.error
+    } else {
+      detailModal.value.levels = res.data
+    }
+  } catch {
+    detailModal.value.error = '获取数据失败，请稍后重试'
+  } finally {
+    detailModal.value.loading = false
+  }
 }
 
 async function loadChains() {
@@ -663,5 +897,150 @@ onMounted(() => {
   .search-input { width: 110px; }
   .modal-tbl-head, .modal-tbl-row { grid-template-columns: 36px 130px 0 70px 1fr 88px; }
   .warn-tag { font-size: 0.60em; padding: 1px 4px; }
+}
+
+/* ── Detail modal ─────────────────────────────────────────────────────── */
+.detail-modal {
+  max-width: 580px;
+}
+.detail-hdr-info {
+  display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap;
+}
+.detail-name {
+  font-size: 1em; font-weight: 800; color: #111827;
+}
+.detail-code {
+  font-size: 0.75em; font-family: monospace; color: #6b7280;
+  background: #f3f4f6; border-radius: 5px; padding: 1px 7px;
+}
+.detail-body { display: flex; flex-direction: column; gap: 14px; }
+
+/* Loading/error */
+.detail-state {
+  display: flex; align-items: center; gap: 10px; justify-content: center;
+  padding: 32px 0; color: #6b7280; font-size: 0.85em;
+}
+.detail-err { color: #dc2626; }
+.detail-spinner {
+  width: 18px; height: 18px; border: 2px solid #e5e7eb;
+  border-top-color: #6366f1; border-radius: 50%;
+  animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+
+/* Quote strip */
+.detail-quote {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  background: #f9fafb; border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 10px 14px;
+}
+.dq-item {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 64px; flex: 1;
+}
+.dq-val { font-size: 1.05em; font-weight: 800; color: #111827; }
+.dq-lbl { font-size: 0.6em; color: #9ca3af; margin-top: 2px; }
+
+/* Sentiment bar */
+.detail-sentiment {
+  display: flex; align-items: center; gap: 10px;
+  border-radius: 10px; padding: 10px 14px; flex-wrap: wrap;
+}
+.senti-warn { background: #fef3c7; border: 1px solid #fcd34d; }
+.senti-buy  { background: #dcfce7; border: 1px solid #86efac; }
+.senti-neutral { background: #eff6ff; border: 1px solid #bfdbfe; }
+.senti-icon { font-size: 1.1em; }
+.senti-text { font-size: 0.9em; font-weight: 800; color: #111827; }
+.senti-sub  { font-size: 0.72em; color: #6b7280; margin-left: auto; }
+
+/* Section titles */
+/* ── Factor breakdown ── */
+.factor-breakdown {
+  background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.fb-total { font-size: 0.85em; font-weight: 600; color: #4f46e5; text-transform: none; letter-spacing: 0; }
+.fb-bars  { display: flex; flex-direction: column; gap: 6px; }
+.fb-row   { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 8px; }
+.fb-label { font-size: 0.75em; font-weight: 600; color: #374151; white-space: nowrap; }
+.fb-weight { font-size: 0.82em; font-weight: 400; color: #9ca3af; margin-left: 2px; }
+.fb-bar-bg { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+.fb-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; background: linear-gradient(90deg,#22c55e,#4ade80); }
+.fb-bar-fill.fb-high { background: linear-gradient(90deg,#22c55e,#4ade80); }
+.fb-bar-fill.fb-mid  { background: linear-gradient(90deg,#f59e0b,#fbbf24); }
+.fb-bar-fill.fb-low  { background: linear-gradient(90deg,#ef4444,#f87171); }
+.fb-val { font-size: 0.75em; font-weight: 700; text-align: right; }
+.fb-val.fb-high { color: #16a34a; }
+.fb-val.fb-mid  { color: #d97706; }
+.fb-val.fb-low  { color: #dc2626; }
+
+.detail-sec-title {
+  font-size: 0.72em; font-weight: 700; color: #374151;
+  letter-spacing: .4px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 8px;
+}
+.fund-period {
+  font-size: 0.9em; font-weight: 400; color: #9ca3af;
+  text-transform: none; letter-spacing: 0;
+}
+
+/* MA grid */
+.ma-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.ma-item { display: flex; flex-direction: column; gap: 4px; }
+.ma-row  { display: flex; align-items: baseline; gap: 6px; }
+.ma-name { font-size: 0.72em; font-weight: 700; color: #374151; min-width: 42px; }
+.ma-val  { font-size: 0.85em; font-weight: 600; color: #111827; }
+.ma-dev  { font-size: 0.72em; font-weight: 700; margin-left: auto; }
+.dev-above { color: #dc2626; }
+.dev-below { color: #16a34a; }
+.ma-bar-bg { height: 5px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
+.ma-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.bar-far-above { background: #dc2626; }
+.bar-above     { background: #f97316; }
+.bar-near      { background: #22c55e; }
+.bar-below     { background: #3b82f6; }
+
+/* Buy zones */
+.zones-list { display: flex; flex-direction: column; gap: 6px; }
+.zone-card {
+  border-radius: 9px; padding: 9px 12px;
+  border-left: 3px solid transparent;
+}
+.zone-t1 { background: #fefce8; border-left-color: #eab308; }
+.zone-t2 { background: #eff6ff; border-left-color: #3b82f6; }
+.zone-t3 { background: #f0fdf4; border-left-color: #16a34a; }
+.zone-hdr { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.zone-num { font-size: 1em; }
+.zone-label { font-size: 0.8em; font-weight: 700; color: #374151; flex: 1; }
+.zone-range { font-size: 0.88em; font-weight: 800; color: #111827; font-family: monospace; }
+.zone-detail { font-size: 0.7em; color: #6b7280; }
+.zone-detail em { font-style: normal; color: #374151; font-weight: 600; }
+
+/* Targets & Stop */
+.ts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ts-col { display: flex; flex-direction: column; gap: 6px; }
+.ts-item { display: flex; align-items: baseline; gap: 6px; }
+.ts-num  { font-size: 0.95em; flex-shrink: 0; }
+.ts-price {
+  font-size: 0.95em; font-weight: 800; font-family: monospace; flex-shrink: 0;
+}
+.ts-basis { font-size: 0.67em; color: #6b7280; }
+.target-price { color: #16a34a; }
+.stop-price   { color: #dc2626; }
+.stop-dot { color: #dc2626; font-weight: 900; }
+
+/* Fundamentals */
+.fund-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.fund-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.fund-val  { font-size: 0.95em; font-weight: 800; color: #111827; }
+.fund-lbl  { font-size: 0.62em; color: #9ca3af; }
+
+/* Disclaimer */
+.detail-disclaimer {
+  font-size: 0.63em; color: #9ca3af; border-top: 1px solid #f3f4f6;
+  padding-top: 10px; text-align: center;
 }
 </style>

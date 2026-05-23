@@ -221,15 +221,27 @@ import { getLatestPremarket, triggerPremarket, getPremarketReport, getStreamText
 
 const emit = defineEmits(['close'])
 
-// ── TTS (Microsoft Edge Neural Voice — iOS/Android/PC 全平台兼容) ───────────────
-// 使用 AudioContext 而非 HTMLAudioElement，绕过 iOS Safari 的异步播放限制：
-// iOS 要求音频必须在用户手势同步调用栈中启动；我们在按钮点击时同步创建并激活
-// AudioContext，后续异步网络请求完成后只做 decodeAudioData + source.start()，
-// 此时 iOS 不再拦截，全平台均可正常播放。
-const ttsState = ref('idle') // 'idle' | 'loading' | 'playing' | 'paused'
-const ttsError = ref('')
-let _audioCtx = null   // AudioContext，复用以减少资源开销
-let _audioSrc = null   // 当前 BufferSource，stopped 后不可复用
+// ── TTS — HTMLAudioElement + 分块流式朗读 ────────────────────────────────────
+// 核心策略：
+// 1. 用 HTMLAudioElement 取代 AudioContext —— iOS Safari 对 <audio> 的支持
+//    远比 WebAudio API 稳定，pause/play 语义清晰，不存在 suspend 后无法 resume 的问题。
+// 2. 全文切成 700 字块，超前预取 LOOKAHEAD 块 —— 第一块 5~8 s 内到达，
+//    完全在 iOS 用户手势上下文有效期内，解决"长请求导致手势超时"问题。
+// 3. Blob URL 生命周期管理：播完即 revoke，避免内存泄漏。
+
+const CHUNK_MAX = 700
+const LOOKAHEAD = 2
+
+const ttsState  = ref('idle')  // 'idle' | 'loading' | 'playing' | 'paused'
+const ttsError  = ref('')
+const ttsChunkProgress = ref({ cur: 0, total: 0 })
+
+let _audio    = null   // HTMLAudioElement（在用户手势中创建）
+let _chunks   = []     // string[]
+let _playIdx  = 0
+let _buffers  = {}     // idx → blob URL
+let _fetching = {}     // idx → true（请求进行中）
+let _session  = 0      // 每次 start/stop 自增，使过期回调失效
 
 const ttsBtnTitle = computed(() => {
   const m = { idle: '朗读报告', loading: '正在合成语音…', playing: '暂停朗读', paused: '继续朗读' }
@@ -272,82 +284,143 @@ function buildSpeechText() {
   return parts.join('\n')
 }
 
-// 同步激活 AudioContext（必须在用户手势调用栈内执行）
-function _ensureCtx() {
-  if (!_audioCtx) {
-    const Ctor = window.AudioContext || window.webkitAudioContext
-    if (!Ctor) return null
-    _audioCtx = new Ctor()
+// 按句子边界切块，每块最多 CHUNK_MAX 字
+function _buildChunks(text) {
+  const chunks = []
+  let t = text.trim()
+  while (t.length > 0) {
+    if (t.length <= CHUNK_MAX) { chunks.push(t); break }
+    let cut = CHUNK_MAX
+    for (let i = Math.min(CHUNK_MAX, t.length - 1); i > CHUNK_MAX * 0.5; i--) {
+      const c = t[i]
+      if (c === '。' || c === '！' || c === '？' || c === '\n') { cut = i + 1; break }
+      if ((c === '；' || c === '，') && i > CHUNK_MAX * 0.75) { cut = i + 1; break }
+    }
+    chunks.push(t.slice(0, cut).trim())
+    t = t.slice(cut).trim()
   }
-  if (_audioCtx.state === 'suspended') _audioCtx.resume()
-  return _audioCtx
+  return chunks.filter(c => c.length > 0)
 }
 
-function _stopSource() {
-  if (_audioSrc) {
-    try { _audioSrc.stop(0) } catch { /* already stopped */ }
-    _audioSrc.disconnect()
-    _audioSrc.onended = null
-    _audioSrc = null
+// 异步预取一块并缓存为 Blob URL
+async function _fetchChunk(idx) {
+  if (idx < 0 || idx >= _chunks.length) return
+  if (_buffers[idx] !== undefined || _fetching[idx]) return
+  const mySid = _session
+  _fetching[idx] = true
+  try {
+    const res = await synthesizeTTS(_chunks[idx], selectedVoice.value)
+    if (_session !== mySid) return           // 已停止，丢弃
+    _buffers[idx] = URL.createObjectURL(res.data)
+    delete _fetching[idx]
+    // 若此时正等待这一块，立即播放
+    if (ttsState.value === 'loading' && idx === _playIdx) _playChunk(idx)
+  } catch (e) {
+    if (_session !== mySid) return
+    delete _fetching[idx]
+    if (ttsState.value === 'loading' && idx === _playIdx) {
+      ttsState.value = 'idle'
+      ttsError.value = `第 ${idx + 1} 段合成失败，请检查网络后重试`
+    }
   }
+}
+
+function _prefetch() {
+  for (let i = 0; i < LOOKAHEAD; i++) _fetchChunk(_playIdx + i)
+}
+
+// 播放指定块（已在 _buffers 中）
+function _playChunk(idx) {
+  if (!_audio || _buffers[idx] === undefined) return
+  const mySid = _session
+  const oldSrc = _audio.src
+  _audio.src = _buffers[idx]
+  // 释放上一块的 Blob URL
+  if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
+
+  _audio.onended = () => {
+    if (_session !== mySid || ttsState.value !== 'playing') return
+    delete _buffers[idx]
+    _playIdx++
+    ttsChunkProgress.value = { cur: _playIdx + 1, total: _chunks.length }
+    if (_playIdx >= _chunks.length) { ttsState.value = 'idle'; return }
+    _prefetch()
+    if (_buffers[_playIdx] !== undefined) _playChunk(_playIdx)
+    else ttsState.value = 'loading'   // 等待下一块到达
+  }
+
+  _audio.play()
+    .then(() => {
+      ttsState.value = 'playing'
+      ttsChunkProgress.value = { cur: idx + 1, total: _chunks.length }
+    })
+    .catch(e => {
+      if (_session !== mySid) return
+      ttsState.value = 'idle'
+      ttsError.value = '播放失败，请重试'
+      console.error('TTS play error', e)
+    })
+}
+
+function _revokeAll() {
+  Object.values(_buffers).forEach(url => { if (url) try { URL.revokeObjectURL(url) } catch {} })
+  _buffers = {}
+  _fetching = {}
 }
 
 async function toggleTTS() {
   if (ttsState.value === 'loading') return
-  if (ttsState.value === 'idle') {
-    // ① 同步激活 AudioContext（此处仍在用户手势调用栈中）
-    const ctx = _ensureCtx()
-    if (!ctx) { ttsError.value = '当前浏览器不支持音频播放'; return }
-    // ② 异步合成 + 播放
-    await _startTTS(ctx)
-  } else if (ttsState.value === 'playing') {
-    // 暂停：挂起 AudioContext，保留播放位置
-    await _audioCtx?.suspend()
-    ttsState.value = 'paused'
-  } else if (ttsState.value === 'paused') {
-    // 继续：恢复 AudioContext
-    await _audioCtx?.resume()
-    ttsState.value = 'playing'
-  }
-}
 
-async function _startTTS(ctx) {
-  const text = buildSpeechText()
-  if (!text) return
-  ttsState.value = 'loading'
-  ttsError.value = ''
-  try {
-    const res = await synthesizeTTS(text, selectedVoice.value)
-    // Blob → ArrayBuffer（兼容所有移动端）
-    const arrayBuffer = await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload  = () => resolve(reader.result)
-      reader.onerror = reject
-      reader.readAsArrayBuffer(res.data)
-    })
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-    _stopSource()
-    // 若用户在合成期间点了停止，不再继续播放
-    if (ttsState.value !== 'loading') return
-    _audioSrc = ctx.createBufferSource()
-    _audioSrc.buffer = audioBuffer
-    _audioSrc.connect(ctx.destination)
-    _audioSrc.onended = () => { ttsState.value = 'idle'; _audioSrc = null }
-    if (ctx.state === 'suspended') await ctx.resume()
-    _audioSrc.start(0)
-    ttsState.value = 'playing'
-  } catch (e) {
-    ttsState.value = 'idle'
-    ttsError.value = '语音合成失败，请检查网络连接'
-    console.error('TTS error', e)
+  if (ttsState.value === 'idle') {
+    const text = buildSpeechText()
+    if (!text) return
+
+    // 在用户手势调用栈中同步创建 Audio 元素（iOS 必须）
+    if (!_audio) {
+      _audio = new Audio()
+      _audio.preload = 'auto'
+    }
+
+    _chunks  = _buildChunks(text)
+    if (!_chunks.length) return
+
+    _session++
+    _playIdx = 0
+    _revokeAll()
+    ttsError.value = ''
+    ttsState.value = 'loading'
+    ttsChunkProgress.value = { cur: 0, total: _chunks.length }
+
+    _prefetch()
+
+  } else if (ttsState.value === 'playing') {
+    _audio.pause()
+    ttsState.value = 'paused'
+
+  } else if (ttsState.value === 'paused') {
+    try {
+      await _audio.play()
+      ttsState.value = 'playing'
+    } catch {
+      ttsState.value = 'idle'
+      ttsError.value = '恢复播放失败，请重新点击朗读'
+    }
   }
 }
 
 function stopTTS() {
-  _stopSource()
-  if (_audioCtx?.state === 'running') _audioCtx.suspend()
+  _session++
+  if (_audio) {
+    _audio.pause()
+    const oldSrc = _audio.src
+    _audio.src = ''
+    _audio.onended = null
+    if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
+  }
+  _revokeAll()
   ttsState.value = 'idle'
   ttsError.value = ''
+  ttsChunkProgress.value = { cur: 0, total: 0 }
 }
 
 const loading = ref(true)

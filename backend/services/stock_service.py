@@ -1251,7 +1251,7 @@ async def get_aindex_intel() -> list:
             "id": symbol,
             "title": name,
             "value": f"{price:.2f}",
-            "subtitle": f"今日 {pct_str}",
+            "subtitle": pct_str,
             "direction": "up" if (change_pct or 0) >= 0 else "down",
         })
     return items

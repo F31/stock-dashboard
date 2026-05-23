@@ -949,15 +949,16 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
 
 <script>
 (function(){{
-  /* ── 全文分块流式朗读
+  /* ── 全文分块流式朗读 (HTMLAudioElement 版，兼容 iOS/Android Safari)
      策略：运行时从 DOM 提取文本 → 按句切成 ~700 字块 →
-           始终预取前方 LOOKAHEAD 块，当前块播完立即衔接下一块。  */
-  var CHUNK_MAX  = 700;
-  var LOOKAHEAD  = 2;   // 超前预取块数
+           始终预取前方 LOOKAHEAD 块，当前块播完立即衔接下一块。
+     注意：使用 HTMLAudioElement 代替 AudioContext，避免 iOS 手势解锁失效问题。  */
+  var CHUNK_MAX = 700;
+  var LOOKAHEAD = 2;   // 超前预取块数
 
-  var _ctx = null, _src = null, _state = 'idle';
+  var _audio = null, _state = 'idle';
   var _chunks = [], _playIdx = 0;
-  var _buffers = {{}};   // idx → AudioBuffer
+  var _buffers = {{}};   // idx → Blob URL
   var _fetching = {{}};  // idx → true（正在请求中）
   var _session = 0;      // 每次 start/stop 递增，使过期回调失效
 
@@ -988,22 +989,12 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     return chunks.filter(function(c){{ return c.length>0; }});
   }}
 
-  // ── AudioContext ──────────────────────────────────────────────────────────
-  function _ensureCtx() {{
-    if (!_ctx) {{
-      var C = window.AudioContext || window.webkitAudioContext;
-      if (!C) return null;
-      _ctx = new C();
-    }}
-    if (_ctx.state === 'suspended') _ctx.resume();
-    return _ctx;
-  }}
-
-  function _killSrc() {{
-    if (_src) {{
-      try {{ _src.stop(0); }} catch(e) {{}}
-      _src.disconnect(); _src.onended = null; _src = null;
-    }}
+  // ── Blob URL 管理 ─────────────────────────────────────────────────────────
+  function _revokeAll() {{
+    Object.keys(_buffers).forEach(function(k) {{
+      try {{ URL.revokeObjectURL(_buffers[k]); }} catch(e) {{}}
+    }});
+    _buffers = {{}};
   }}
 
   // ── UI ────────────────────────────────────────────────────────────────────
@@ -1042,14 +1033,12 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
       body   : JSON.stringify({{text:_chunks[idx], voice:voice, rate:'-5%'}})
     }}).then(function(r) {{
       if (!r.ok) throw new Error('HTTP '+r.status);
-      return r.arrayBuffer();
-    }}).then(function(ab) {{
-      return _ctx.decodeAudioData(ab);
-    }}).then(function(buf) {{
+      return r.blob();
+    }}).then(function(blob) {{
       if (_session !== mySid) return;   // 已停止，丢弃
-      _buffers[idx] = buf;
+      _buffers[idx] = URL.createObjectURL(blob);
       delete _fetching[idx];
-      if (_state === 'loading' && idx === _playIdx) _playBuf(idx);
+      if (_state === 'loading' && idx === _playIdx) _playChunk(idx);
     }}).catch(function(e) {{
       if (_session !== mySid) return;
       delete _fetching[idx];
@@ -1066,36 +1055,41 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   }}
 
   // ── 播放 ──────────────────────────────────────────────────────────────────
-  function _playBuf(idx) {{
-    if (!_ctx || !_buffers[idx] || (_state!=='loading'&&_state!=='playing')) return;
-    _killSrc();
-    _src = _ctx.createBufferSource();
-    _src.buffer = _buffers[idx];
-    _src.connect(_ctx.destination);
+  function _playChunk(idx) {{
+    if (!_audio || !_buffers[idx] || (_state!=='loading'&&_state!=='playing')) return;
     var mySid = _session;
-    _src.onended = function() {{
+    var prevUrl = _audio.src;
+    _audio.onended = null;
+    _audio.src = _buffers[idx];
+    _audio.onended = function() {{
       if (_session !== mySid || _state !== 'playing') return;
+      try {{ URL.revokeObjectURL(prevUrl); }} catch(e) {{}}
       delete _buffers[idx];
       _playIdx++;
       if (_playIdx >= _chunks.length) {{ _setState('idle'); return; }}
       _setState('playing');  // 刷新进度
       _prefetch();
-      if (_buffers[_playIdx] !== undefined) _playBuf(_playIdx);
+      if (_buffers[_playIdx] !== undefined) _playChunk(_playIdx);
       else _setState('loading');  // 等待下一块到达
     }};
-    if (_ctx.state === 'suspended') _ctx.resume();
-    _src.start(0);
-    _setState('playing');
-    _prefetch();
+    _audio.play().then(function() {{
+      _setState('playing');
+      _prefetch();
+    }}).catch(function(e) {{
+      if (_session !== mySid) return;
+      _setState('idle');
+      _showErr('播放失败，请重试');
+      console.error('audio.play() failed', e);
+    }});
   }}
 
   function _start() {{
     var text = _extractText();
     if (!text) {{ _showErr('未找到可朗读的内容'); return; }}
-    _chunks  = _buildChunks(text);
+    _chunks = _buildChunks(text);
     if (!_chunks.length) return;
     _session++;
-    _playIdx = 0; _buffers = {{}}; _fetching = {{}};
+    _playIdx = 0; _revokeAll(); _fetching = {{}};
     _setState('loading');
     _prefetch();
   }}
@@ -1104,21 +1098,30 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   window.toggleTTS = function() {{
     if (_state === 'loading') return;
     if (_state === 'idle') {{
-      var ctx = _ensureCtx();   // 同步解锁 AudioContext（iOS 必须在用户手势栈内）
-      if (!ctx) {{ _showErr('当前浏览器不支持音频播放'); return; }}
+      if (!_audio) {{
+        _audio = new Audio();
+        _audio.preload = 'auto';
+      }}
       _start();
     }} else if (_state === 'playing') {{
-      _ctx.suspend().then(function(){{ _setState('paused'); }});
+      _audio.pause();
+      _setState('paused');
     }} else if (_state === 'paused') {{
-      _ctx.resume().then(function(){{ _setState('playing'); }});
+      _audio.play().then(function(){{ _setState('playing'); }}).catch(function(e){{
+        _showErr('恢复失败，请重试'); console.error(e);
+      }});
     }}
   }};
 
   window.stopTTS = function() {{
     _session++;
-    _killSrc();
-    _buffers = {{}}; _fetching = {{}};
-    if (_ctx && _ctx.state === 'running') _ctx.suspend();
+    if (_audio) {{
+      _audio.pause();
+      _audio.onended = null;
+      _audio.src = '';
+    }}
+    _revokeAll();
+    _fetching = {{}};
     _setState('idle');
   }};
 }})();
