@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>量化分析规则说明</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --c-bg:      #f8fafc;
+    --c-card:    #ffffff;
+    --c-border:  #e5e7eb;
+    --c-text:    #111827;
+    --c-sub:     #6b7280;
+    --c-muted:   #9ca3af;
+    --c-green:   #16a34a;
+    --c-lime:    #65a30d;
+    --c-blue:    #2563eb;
+    --c-red:     #dc2626;
+    --c-amber:   #b45309;
+    --c-orange:  #c2410c;
+    --c-indigo:  #4f46e5;
+    --c-purple:  #7c3aed;
+    --radius:    10px;
+  }
+  html { font-size: 14px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+                 'Microsoft YaHei', sans-serif;
+    background: var(--c-bg);
+    color: var(--c-text);
+    line-height: 1.6;
+    padding: 24px 16px 48px;
+  }
+
+  /* ── Page header ── */
+  .page-hdr {
+    max-width: 820px; margin: 0 auto 28px;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  .page-icon {
+    width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+  .page-title { font-size: 1.45em; font-weight: 800; color: #111827; }
+  .page-sub   { font-size: 0.82em; color: var(--c-sub); margin-top: 3px; }
+  .page-tag   {
+    display: inline-block; margin-top: 6px;
+    font-size: 0.68em; font-weight: 700; border-radius: 6px;
+    padding: 2px 8px; background: #eff6ff; color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+
+  /* ── Card ── */
+  .card {
+    max-width: 820px; margin: 0 auto 18px;
+    background: var(--c-card);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .card-hdr {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--c-border);
+  }
+  .card-hdr-icon {
+    width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .card-hdr-title { font-size: 0.95em; font-weight: 800; }
+  .card-hdr-weight {
+    margin-left: auto; font-size: 0.72em; font-weight: 700;
+    border-radius: 20px; padding: 3px 10px;
+  }
+  .card-body { padding: 18px 20px; }
+
+  /* ── Factor colors ── */
+  .factor-growth    { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+  .factor-quality   { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+  .factor-valuation { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .factor-momentum  { background: #f3e8ff; color: #6d28d9; border: 1px solid #c4b5fd; }
+  .factor-warning   { background: #ffedd5; color: #c2410c; border: 1px solid #fdba74; }
+  .factor-neutral   { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+
+  .icon-growth    { background: #dcfce7; }
+  .icon-quality   { background: #dbeafe; }
+  .icon-valuation { background: #fef3c7; }
+  .icon-momentum  { background: #f3e8ff; }
+  .icon-warning   { background: #ffedd5; }
+  .icon-rules     { background: #f0fdf4; }
+
+  /* ── Overall weight bar ── */
+  .weight-bar-wrap { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+  .weight-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.55em; font-weight: 800; color: #fff; }
+  .seg-growth    { background: #16a34a; flex: 35; }
+  .seg-quality   { background: #2563eb; flex: 25; }
+  .seg-valuation { background: #d97706; flex: 20; }
+  .seg-momentum  { background: #7c3aed; flex: 20; }
+  .weight-legend {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 0.72em;
+  }
+  .weight-dot {
+    display: flex; align-items: center; gap: 5px; color: var(--c-sub);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  /* ── Sub-factor table ── */
+  .sub-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+  .sub-table th {
+    text-align: left; font-weight: 700; color: var(--c-sub);
+    padding: 6px 10px; border-bottom: 1px solid var(--c-border);
+    background: #f9fafb;
+  }
+  .sub-table td {
+    padding: 8px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: top;
+  }
+  .sub-table tr:last-child td { border-bottom: none; }
+  .sub-table tr:hover td { background: #f9fafb; }
+  .metric-name  { font-weight: 700; font-family: monospace; color: #1f2937; }
+  .metric-full  { color: var(--c-sub); font-size: 0.88em; }
+  .metric-note  { color: var(--c-muted); font-size: 0.82em; margin-top: 2px; }
+  .weight-pct { font-weight: 800; font-size: 1em; }
+
+  /* ── Progress pill ── */
+  .pill-wrap { display: flex; align-items: center; gap: 8px; }
+  .pill-bar  { flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
+  .pill-fill { height: 100%; border-radius: 3px; }
+  .fill-green  { background: #16a34a; }
+  .fill-blue   { background: #2563eb; }
+  .fill-amber  { background: #d97706; }
+  .fill-purple { background: #7c3aed; }
+
+  /* ── Rating scale ── */
+  .rating-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px; margin-top: 4px;
+  }
+  .rating-card {
+    border-radius: 8px; padding: 12px 14px; text-align: center;
+  }
+  .rating-label  { font-size: 1em; font-weight: 800; }
+  .rating-range  { font-size: 0.72em; margin-top: 3px; font-weight: 600; }
+  .rating-desc   { font-size: 0.67em; margin-top: 5px; color: inherit; opacity: 0.75; }
+  .r-strong  { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+  .r-buy     { background: #f7fee7; color: #3f6212; border: 1px solid #d9f99d; }
+  .r-neutral { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .r-avoid   { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+  /* ── Info blocks ── */
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .info-block {
+    background: #f9fafb; border: 1px solid var(--c-border);
+    border-radius: 8px; padding: 13px 15px;
+  }
+  .info-block-title { font-size: 0.78em; font-weight: 700; margin-bottom: 8px; }
+  .info-block ul { padding-left: 14px; font-size: 0.78em; color: var(--c-sub); }
+  .info-block li { margin-bottom: 4px; }
+
+  /* ── Warning block ── */
+  .warn-block {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 13px 15px; border-radius: 8px;
+    border: 1px solid; margin-bottom: 10px;
+  }
+  .warn-block:last-child { margin-bottom: 0; }
+  .warn-block .wb-icon { font-size: 18px; flex-shrink: 0; line-height: 1; }
+  .warn-block .wb-title { font-size: 0.82em; font-weight: 800; margin-bottom: 3px; }
+  .warn-block .wb-body  { font-size: 0.76em; }
+  .wb-hot    { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+  .wb-crowd  { background: #fff7ed; border-color: #fdba74; color: #c2410c; }
+
+  /* ── Neutralize section ── */
+  .formula-box {
+    background: #f8f7ff; border: 1px solid #e0d9ff;
+    border-radius: 8px; padding: 12px 16px; font-family: monospace;
+    font-size: 0.84em; color: #4f46e5;
+  }
+  .formula-box .eq-line { margin-bottom: 4px; }
+  .formula-box .eq-note { color: var(--c-sub); font-family: sans-serif; font-size: 0.88em; }
+
+  /* ── Dimension block (for momentum) ── */
+  .dim-list { display: flex; flex-direction: column; gap: 10px; }
+  .dim-item {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 11px 14px; border-radius: 8px;
+    background: #faf5ff; border: 1px solid #e9d5ff;
+  }
+  .dim-num {
+    width: 26px; height: 26px; border-radius: 50%; background: #7c3aed;
+    color: #fff; font-size: 0.75em; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .dim-title { font-size: 0.82em; font-weight: 800; color: #5b21b6; margin-bottom: 3px; }
+  .dim-body  { font-size: 0.76em; color: var(--c-sub); }
+  .dim-formula { font-family: monospace; font-size: 0.88em; color: #4f46e5; }
+
+  /* ── Divider ── */
+  .divider { border: none; border-top: 1px solid var(--c-border); margin: 14px 0; }
+
+  /* ── Footer ── */
+  .page-footer {
+    max-width: 820px; margin: 28px auto 0;
+    font-size: 0.72em; color: var(--c-muted); text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    body { padding: 16px 10px 40px; }
+    .rating-grid { grid-template-columns: 1fr 1fr; }
+    .info-grid   { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ Page header ═══ -->
+<div class="page-hdr">
+  <div class="page-icon">📊</div>
+  <div>
+    <div class="page-title">量化分析规则说明</div>
+    <div class="page-sub">多因子合成评分引擎 · 沪深300 + 科创50 双宇宙 · 行业中性化</div>
+    <span class="page-tag">FACTOR MODEL v2.0</span>
+  </div>
+</div>
+
+<!-- ═══ 1. 综合权重 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-rules">🧮</div>
+    <span class="card-hdr-title">综合评分构成</span>
+  </div>
+  <div class="card-body">
+    <div class="weight-bar-wrap">
+      <div class="weight-seg seg-growth">35%</div>
+      <div class="weight-seg seg-quality">25%</div>
+      <div class="weight-seg seg-valuation">20%</div>
+      <div class="weight-seg seg-momentum">20%</div>
+    </div>
+    <div class="weight-legend">
+      <div class="weight-dot"><span class="dot" style="background:#16a34a"></span>盈利增长 35%</div>
+      <div class="weight-dot"><span class="dot" style="background:#2563eb"></span>盈利质量 25%</div>
+      <div class="weight-dot"><span class="dot" style="background:#d97706"></span>估值 20%</div>
+      <div class="weight-dot"><span class="dot" style="background:#7c3aed"></span>Alpha158 动量 20%</div>
+    </div>
+    <hr class="divider">
+    <p style="font-size:0.78em;color:var(--c-sub)">
+      各因子先独立打分，再行业中性化处理，最后合成百分位得分（0–100）。
+      增长、质量、估值三因子行业中性化；动量因子全市场统一排名。
+      百分位得分反映当前评分在全宇宙中的相对位置，≥90 为强烈推荐。
+    </p>
+  </div>
+</div>
+
+<!-- ═══ 2. 盈利增长 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-growth">📈</div>
+    <span class="card-hdr-title">因子一 · 盈利增长 Growth</span>
+    <span class="card-hdr-weight factor-growth">权重 35%</span>
+  </div>
+  <div class="card-body">
+    <table class="sub-table">
+      <thead>
+        <tr>
+          <th style="width:120px">指标</th>
+          <th style="width:72px">权重</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="metric-name">profit_yoy</div>
+            <div class="metric-full">净利润同比增长</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-green" style="width:50%"></div></div>
+              <span class="weight-pct" style="color:#16a34a">50%</span>
+            </div>
+          </td>
+          <td>
+            年度盈利扩张能力，最核心指标。裁剪区间 ±500%。
+            <div class="metric-note">来源：东方财富季报 stock_yjbb_em</div>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div class="metric-name">revenue_yoy</div>
+            <div class="metric-full">营收同比增长</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-green" style="width:40%"></div></div>
+              <span class="weight-pct" style="color:#16a34a">40%</span>
+            </div>
+          </td>
+          <td>
+            主营业务扩张速度，反映真实需求增长。裁剪区间 ±300%。
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div class="metric-name">profit_qoq</div>
+            <div class="metric-full">净利润季度环比增长</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-green" style="width:10%"></div></div>
+              <span class="weight-pct" style="color:#16a34a">10%</span>
+            </div>
+          </td>
+          <td>
+            当季业绩动能。权重压低至 10% 以抑制低基数反弹失真。
+            <div class="metric-note">裁剪 ±100%；金融行业额外裁剪至 ±50%（季度拨备波动大）</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <hr class="divider">
+    <div class="formula-box">
+      <div class="eq-line">Growth = 0.50 × profit_yoy + 0.40 × revenue_yoy + 0.10 × profit_qoq</div>
+      <div class="eq-note" style="margin-top:4px">→ 行业内百分位 × 70% + 全市场百分位 × 30%</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 3. 盈利质量 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-quality">🏆</div>
+    <span class="card-hdr-title">因子二 · 盈利质量 Quality</span>
+    <span class="card-hdr-weight factor-quality">权重 25%</span>
+  </div>
+  <div class="card-body">
+    <table class="sub-table">
+      <thead>
+        <tr>
+          <th style="width:120px">指标</th>
+          <th style="width:72px">权重</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="metric-name">roe</div>
+            <div class="metric-full">净资产收益率</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-blue" style="width:35%"></div></div>
+              <span class="weight-pct" style="color:#2563eb">35%</span>
+            </div>
+          </td>
+          <td>
+            股东权益的盈利效率，衡量管理层资本配置能力。裁剪 -50%~80%。
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div class="metric-name">gross_margin</div>
+            <div class="metric-full">销售毛利率</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-blue" style="width:30%"></div></div>
+              <span class="weight-pct" style="color:#2563eb">30%</span>
+            </div>
+          </td>
+          <td>
+            核心产品竞争力与定价能力。裁剪 0~100%。
+            <div class="metric-note">金融行业：无可比毛利率，缺失→填 0，不干扰排名</div>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div class="metric-name">cash_profit_ratio</div>
+            <div class="metric-full">现金利润比</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-blue" style="width:35%"></div></div>
+              <span class="weight-pct" style="color:#2563eb">35%</span>
+            </div>
+          </td>
+          <td>
+            经营现金流 / 净利润 × 100，衡量利润"含金量"。裁剪 -100%~300%。
+            <div class="metric-note">金融行业：经营现金流性质不同，强制 NaN → 行业中性化处理</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <hr class="divider">
+    <div class="formula-box">
+      <div class="eq-line">Quality = 0.35 × ROE + 0.30 × gross_margin + 0.35 × cash_profit_ratio</div>
+      <div class="eq-note" style="margin-top:4px">→ 行业内百分位 × 70% + 全市场百分位 × 30%</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 4. 估值 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-valuation">💰</div>
+    <span class="card-hdr-title">因子三 · 估值 Valuation</span>
+    <span class="card-hdr-weight factor-valuation">权重 20%</span>
+  </div>
+  <div class="card-body">
+    <table class="sub-table">
+      <thead>
+        <tr>
+          <th style="width:120px">指标</th>
+          <th style="width:72px">权重</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="metric-name">PEG</div>
+            <div class="metric-full">市盈率 / 增长率</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-amber" style="width:60%"></div></div>
+              <span class="weight-pct" style="color:#d97706">60%</span>
+            </div>
+          </td>
+          <td>
+            PE ÷ profit_yoy，同时考虑估值与成长性。PEG 越低 → 得分越高（排名反转）。
+            <div class="metric-note">
+              仅在 PE&gt;0 且 PE&lt;200 且 profit_yoy≥5% 时有效；否则退回纯 PE 打分。
+              裁剪 0~10。
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div class="metric-name">PE</div>
+            <div class="metric-full">市盈率（动态）</div>
+          </td>
+          <td>
+            <div class="pill-wrap">
+              <div class="pill-bar"><div class="pill-fill fill-amber" style="width:40%"></div></div>
+              <span class="weight-pct" style="color:#d97706">40%</span>
+            </div>
+          </td>
+          <td>
+            动态市盈率。PE 越低 → 得分越高（排名反转）。
+            <div class="metric-note">
+              实时获取：腾讯行情 qt.gtimg.cn，字段[39]。裁剪 0~200。<br>
+              行业中性化（60/40）防止金融股因低 PE 系统性高分。
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <hr class="divider">
+    <div class="formula-box">
+      <div class="eq-line">Valuation = 0.60 × (1 - rank_pct(PEG)) + 0.40 × (1 - rank_pct(PE))</div>
+      <div class="eq-note" style="margin-top:4px">→ 行业内百分位 × 60% + 全市场百分位 × 40%（行业权重略低，估值跨行业仍有参考）</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 5. Alpha158 动量 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-momentum">⚡</div>
+    <span class="card-hdr-title">因子四 · Alpha158 增强动量 Momentum</span>
+    <span class="card-hdr-weight factor-momentum">权重 20%</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:0.78em;color:var(--c-sub);margin-bottom:14px">
+      基于 qlib Alpha158 技术信号库，从四个维度立体刻画价格动量，全市场统一排名（不做行业中性化，技术趋势具有普适性）。
+    </p>
+    <div class="dim-list">
+      <div class="dim-item">
+        <div class="dim-num">①</div>
+        <div>
+          <div class="dim-title">多周期趋势 35%</div>
+          <div class="dim-body">
+            价格在不同时间窗口的涨跌幅，捕捉短中长期方向一致性。
+          </div>
+          <div class="dim-formula">ROC5×0.20 + ROC20×0.40 + ROC60×0.40</div>
+          <div class="dim-body" style="margin-top:4px">ROC<i>n</i> = close / close[−n] − 1；裁剪 −50%~+100%</div>
+        </div>
+      </div>
+      <div class="dim-item">
+        <div class="dim-num">②</div>
+        <div>
+          <div class="dim-title">价格区间位置 25%</div>
+          <div class="dim-body">
+            今日收盘在近 N 日高低价区间的相对位置（0=底部，1=顶部），
+            高位股具有较强趋势持续性。
+          </div>
+          <div class="dim-formula">RSV20×0.50 + RSV60×0.50</div>
+          <div class="dim-body" style="margin-top:4px">RSV = (close − min_low) / (max_high − min_low)</div>
+        </div>
+      </div>
+      <div class="dim-item">
+        <div class="dim-num">③</div>
+        <div>
+          <div class="dim-title">趋势质量 / RSI-style 20%</div>
+          <div class="dim-body">
+            (上涨日累计幅 − 下跌日累计幅) / 总波动幅，衡量趋势的一致性与纯粹度，
+            等价于 RSI 的连续版本。
+          </div>
+          <div class="dim-formula">SUMD20×0.50 + SUMD60×0.50</div>
+        </div>
+      </div>
+      <div class="dim-item">
+        <div class="dim-num">④</div>
+        <div>
+          <div class="dim-title">量价确认 20%</div>
+          <div class="dim-body">
+            价格上涨时成交量同步放大是健康趋势的标志，反之为"无量空涨"。
+          </div>
+          <div class="dim-formula">CORR10×0.40 + CORD10×0.30 + VSUMP20×0.30</div>
+          <div class="dim-body" style="margin-top:4px">
+            CORR = 收盘价与成交量对数的相关系数；
+            CORD = 涨跌幅与成交量变化率的相关系数；
+            VSUMP = 放量上涨日成交量比例
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 6. 行业中性化 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-rules">⚖️</div>
+    <span class="card-hdr-title">行业中性化处理</span>
+  </div>
+  <div class="card-body">
+    <div class="formula-box" style="margin-bottom:14px">
+      <div class="eq-line">最终因子分 = <strong>70%</strong> × 行业内百分位排名 + <strong>30%</strong> × 全市场百分位排名</div>
+      <div class="eq-note" style="margin-top:6px">
+        · 估值因子行业权重降至 60%（跨行业 PE/PEG 仍有横向参考价值）<br>
+        · 动量因子不做行业中性化（技术趋势不受行业分类约束）<br>
+        · 行业内少于 5 只股票时，退化为 100% 全市场排名
+      </div>
+    </div>
+    <div class="info-grid">
+      <div class="info-block">
+        <div class="info-block-title" style="color:#1d4ed8">为什么需要行业中性化？</div>
+        <ul>
+          <li>不同行业毛利率天然差异巨大（制造业 20% vs 软件 70%）</li>
+          <li>纯跨行业排名会让高毛利行业系统性占优</li>
+          <li>行业中性化后，排名反映的是<strong>行业内的相对优秀度</strong></li>
+          <li>最终得分仍保留 30% 全市场维度，不完全封闭</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <div class="info-block-title" style="color:#dc2626">金融行业特殊处理</div>
+        <ul>
+          <li>银行 / 证券 / 保险归为金融行业</li>
+          <li><strong>gross_margin</strong>：缺失值填 0（不用制造业中位数替代）</li>
+          <li><strong>cash_profit_ratio</strong>：强制 NaN → 中性化（银行经营现金流口径不可比）</li>
+          <li><strong>profit_qoq</strong>：额外裁剪至 ±50%（季度拨备波动极大）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 7. 评级标准 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-rules">🎯</div>
+    <span class="card-hdr-title">评级标准</span>
+  </div>
+  <div class="card-body">
+    <div class="rating-grid">
+      <div class="rating-card r-strong">
+        <div class="rating-label">强烈推荐</div>
+        <div class="rating-range">百分位 ≥ 90</div>
+        <div class="rating-desc">全宇宙前10%，基本面、估值、动量多维度领先</div>
+      </div>
+      <div class="rating-card r-buy">
+        <div class="rating-label">推荐</div>
+        <div class="rating-range">75 ≤ 百分位 &lt; 90</div>
+        <div class="rating-desc">前25%，整体质地良好，具备配置价值</div>
+      </div>
+      <div class="rating-card r-neutral">
+        <div class="rating-label">中性</div>
+        <div class="rating-range">50 ≤ 百分位 &lt; 75</div>
+        <div class="rating-desc">中等水平，等待更明确的基本面信号</div>
+      </div>
+      <div class="rating-card r-avoid">
+        <div class="rating-label">回避</div>
+        <div class="rating-range">百分位 &lt; 50</div>
+        <div class="rating-desc">相对落后，基本面或动量存在明显弱势</div>
+      </div>
+    </div>
+    <hr class="divider">
+    <p style="font-size:0.75em;color:var(--c-sub)">
+      百分位得分 = 合成得分在当期全宇宙的相对排名（0–100），每次评分独立计算，
+      不与历史期比较，反映的是<strong>横截面相对优劣</strong>，而非绝对水平。
+    </p>
+  </div>
+</div>
+
+<!-- ═══ 8. 板块预警 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-warning">⚠️</div>
+    <span class="card-hdr-title">板块预警系统</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:0.78em;color:var(--c-sub);margin-bottom:14px">
+      板块预警独立于因子评分，不改变百分位得分，仅作为风险提示展示在评级旁。
+      触发预警并不代表立即卖出，而是提示追高风险升高。
+    </p>
+    <div class="warn-block wb-hot">
+      <span class="wb-icon">🔥</span>
+      <div>
+        <div class="wb-title">板块过热</div>
+        <div class="wb-body">
+          触发条件：所属行业平均 3 月涨幅 &gt; 50%，或行业平均趋势强度（SUMD60）&gt; 0.60。<br>
+          含义：整个行业处于高估、资金拥挤状态，个股估值安全边际收窄。
+        </div>
+      </div>
+    </div>
+    <div class="warn-block wb-crowd">
+      <span class="wb-icon">⚠</span>
+      <div>
+        <div class="wb-title">板块拥挤（优先级更高）</div>
+        <div class="wb-body">
+          触发条件：① 所属行业已过热，② 个股 3 月涨幅 &gt; max(行业平均 × 3, 50%)。<br>
+          含义：股价已大幅领跑热门行业，个股层面出现"板块内极度超涨"，短期追高风险极高。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 9. 数据来源 ═══ -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-rules">📡</div>
+    <span class="card-hdr-title">数据来源与更新机制</span>
+  </div>
+  <div class="card-body">
+    <div class="info-grid">
+      <div class="info-block">
+        <div class="info-block-title">基本面数据</div>
+        <ul>
+          <li>季度财报：东方财富 EastMoney <code>stock_yjbb_em</code></li>
+          <li>公告日期作为数据可用时间（避免前视偏差）</li>
+          <li>无公告日期时假设季报结束后 60 天可用</li>
+          <li>覆盖约 5,700 只 A 股，2017 年至今</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <div class="info-block-title">价格 / 估值数据</div>
+        <ul>
+          <li>PE（动态）：腾讯行情 qt.gtimg.cn 实时获取</li>
+          <li>价格 / 涨跌：腾讯行情实时批量接口，5 分钟 TTL 缓存</li>
+          <li>技术因子（Alpha158）：qlib 本地日线数据库</li>
+          <li>板块预警：qlib 计算 3 月收益率 + SUMD60</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <div class="info-block-title">覆盖宇宙</div>
+        <ul>
+          <li><strong>factor</strong>：沪深300 成分股 + 自选股扩展，约 314 只</li>
+          <li><strong>factor_star50</strong>：科创50 成分股，50 只</li>
+          <li>两个宇宙独立打分，百分位互不影响</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <div class="info-block-title">评分更新</div>
+        <ul>
+          <li>每个交易日收盘后运行 <code>run_daily.py</code></li>
+          <li>结果写入 SQLite <code>quan_daily_scores</code> 表</li>
+          <li>前端每次打开/刷新读取最新交易日数据</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Footer ═══ -->
+<div class="page-footer">
+  量化分析规则说明 · FACTOR MODEL v2.0 · 仅供参考，不构成投资建议
+</div>
+
+</body>
+</html>

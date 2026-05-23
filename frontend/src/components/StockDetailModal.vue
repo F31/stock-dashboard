@@ -10,7 +10,12 @@
             <span class="stock-code">{{ stock.stock_code }}</span>
             <span :class="['badge', badgeClass]">{{ marketLabel }}</span>
           </div>
-          <button class="close-btn" @click="$emit('close')">×</button>
+          <div class="hdr-right">
+            <span v-if="quanScore" :class="['quan-badge', quanBadgeCls]">
+              {{ quanScore.label }}<em>({{ Math.round(quanScore.percentile_score) }})</em>
+            </span>
+            <button class="close-btn" @click="$emit('close')">×</button>
+          </div>
         </div>
 
         <!-- Tabs -->
@@ -176,6 +181,16 @@ const props = defineProps({
   stock: { type: Object, required: true },
   currentUser: { type: Object, default: null },
   initialTab: { type: String, default: 'info' },
+  quanScore: { type: Object, default: null },
+})
+
+const quanBadgeCls = computed(() => {
+  if (!props.quanScore) return ''
+  const p = props.quanScore.percentile_score
+  if (p >= 90) return 'qb-strong'
+  if (p >= 75) return 'qb-buy'
+  if (p >= 50) return 'qb-neutral'
+  return 'qb-avoid'
 })
 const emit = defineEmits(['close', 'notes-saved'])
 
@@ -414,7 +429,17 @@ async function removeReport(r) {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
 }
-.hdr-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hdr-left  { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.hdr-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.quan-badge {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 12px;
+  display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+}
+.quan-badge em { font-style: normal; font-weight: 500; font-size: 10px; }
+.qb-strong { background: #dcfce7; color: #15803d; }
+.qb-buy    { background: #d1fae5; color: #047857; }
+.qb-neutral{ background: #dbeafe; color: #1d4ed8; }
+.qb-avoid  { background: #fee2e2; color: #dc2626; }
 .stock-name { font-size: 18px; font-weight: 800; color: #111827; }
 .stock-code { font-size: 13px; color: #6b7280; }
 .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }

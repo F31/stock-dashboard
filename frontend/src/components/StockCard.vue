@@ -25,7 +25,10 @@
       </div>
       <div class="card-hdr-r">
         <span v-if="isSector" class="badge badge-sector">板块</span>
-        <span v-if="!isSector && stock.data?.signal" :class="['sig-badge', signalClass]">{{ stock.data.signal }}</span>
+        <span v-if="!isSector && quanScore" :class="['sig-badge', quanBadgeCls]">
+          {{ quanScore.label }}
+          <em>({{ Math.round(quanScore.percentile_score) }})</em>
+        </span>
         <button class="del-btn" @click="$emit('remove')" title="删除">×</button>
       </div>
     </div>
@@ -133,7 +136,10 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 
-const props = defineProps({ stock: Object })
+const props = defineProps({
+  stock: Object,
+  quanScore: { type: Object, default: null },  // { percentile_score, label }
+})
 const emit = defineEmits(['remove', 'rename', 'open-detail'])
 
 const renamingName = ref(false)
@@ -180,12 +186,22 @@ const priceTrend = computed(() => {
   return val >= 0 ? 'up' : 'down'
 })
 
-const signalClass = computed(() => {
-  const s = props.stock.data?.signal
-  if (s === '买入') return 'sig-buy'
-  if (s === '关注') return 'sig-watch'
-  if (s === '减仓') return 'sig-reduce'
-  return 'sig-hold'
+const quanBadgeCls = computed(() => {
+  if (!props.quanScore) return ''
+  const p = props.quanScore.percentile_score
+  if (p >= 90) return 'sig-strong'
+  if (p >= 75) return 'sig-buy'
+  if (p >= 50) return 'sig-neutral'
+  return 'sig-avoid'
+})
+
+const quanBadgeClass = computed(() => {
+  if (!props.quanScore) return ''
+  const p = props.quanScore.percentile_score
+  if (p >= 90) return 'qb-strong'
+  if (p >= 75) return 'qb-buy'
+  if (p >= 50) return 'qb-neutral'
+  return 'qb-avoid'
 })
 
 const growthClass = computed(() => {
@@ -254,8 +270,22 @@ function fmtCapex(v) {
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
   overflow: hidden;
+  position: relative;
   transition: box-shadow .2s;
 }
+
+/* Quantitative score corner badge */
+.quan-corner {
+  position: absolute; top: 0; right: 0;
+  font-size: 9px; font-weight: 800;
+  padding: 2px 5px 2px 6px;
+  border-radius: 0 12px 0 8px;
+  line-height: 1.4; pointer-events: none; z-index: 1;
+}
+.qb-strong { background: #dcfce7; color: #15803d; }
+.qb-buy    { background: #d1fae5; color: #047857; }
+.qb-neutral{ background: #f3f4f6; color: #6b7280; }
+.qb-avoid  { background: #fee2e2; color: #dc2626; }
 .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.1); }
 .card-loading { opacity: .5; pointer-events: none; }
 
@@ -367,19 +397,17 @@ function fmtCapex(v) {
 .met-v.up { color: #dc2626; }
 .met-v.down { color: #16a34a; }
 
-/* Signal badge */
+/* Quant rating badge (replaces signal badge) */
 .sig-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 10px;
-  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px; white-space: nowrap;
 }
-.sig-buy   { background: #dcfce7; color: #15803d; }
-.sig-watch { background: #dbeafe; color: #1d4ed8; }
-.sig-hold  { background: #f3f4f6; color: #6b7280; }
-.sig-reduce{ background: #fee2e2; color: #dc2626; }
+.sig-badge em { font-style: normal; font-weight: 500; font-size: 10px; opacity: 0.85; }
+.sig-strong { background: #dcfce7; color: #15803d; }
+.sig-buy    { background: #d1fae5; color: #047857; }
+.sig-neutral{ background: #dbeafe; color: #1d4ed8; }
+.sig-avoid  { background: #fee2e2; color: #dc2626; }
 
 /* Financial fundamentals row */
 .fin-row { background: #f9fafb; }

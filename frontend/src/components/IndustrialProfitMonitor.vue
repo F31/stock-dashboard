@@ -159,12 +159,8 @@ function buildProfitChartData(points, label, lineColor, fillColor) {
   }
 }
 
-const _xScaleProfit = {
-  ticks: { font: { size: 10 }, maxTicksLimit: 16, maxRotation: 45 },
-  grid: { color: '#f3f4f6' },
-}
-
 function buildProfitChartOptions() {
+  const mobile = window.innerWidth < 640
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -174,9 +170,9 @@ function buildProfitChartOptions() {
         position: 'top',
         labels: {
           filter: item => item.text.length > 0,
-          font: { size: 11 },
-          boxWidth: 32,
-          padding: 10,
+          font: { size: mobile ? 10 : 11 },
+          boxWidth: mobile ? 20 : 32,
+          padding: mobile ? 6 : 10,
         },
       },
       tooltip: {
@@ -187,10 +183,17 @@ function buildProfitChartOptions() {
       },
     },
     scales: {
-      x: _xScaleProfit,
+      x: {
+        ticks: {
+          font: { size: 9 },
+          maxTicksLimit: mobile ? 8 : 16,
+          maxRotation: 45,
+        },
+        grid: { color: '#f3f4f6' },
+      },
       y: {
         ticks: {
-          font: { size: 10 },
+          font: { size: mobile ? 9 : 10 },
           callback: v => v + '%',
         },
         grid: { color: '#f3f4f6' },
@@ -511,4 +514,19 @@ onUnmounted(() => {
   color: #374151; border-bottom: 1px solid #f3f4f6;
 }
 .chart-unit { font-size: 0.88em; font-weight: 400; color: #9ca3af; }
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .chart-header {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 10px 5px;
+  }
+  .chart-title-main { font-size: 0.76em; }
+  .source-badge { font-size: 0.66em; padding: 2px 7px; }
+  .canvas-wrap { height: 190px; padding: 6px 6px 10px; }
+  .chart-caption { font-size: 0.63em; padding: 4px 10px 6px; }
+  .tab-btn { font-size: 0.76em; padding: 5px 8px; }
+  .chart-title { padding: 8px 10px 4px; font-size: 0.78em; }
+}
 </style>

@@ -18,6 +18,7 @@ from routes.scheduled_tasks import router as scheduled_tasks_router
 from routes.premarket import router as premarket_router
 from routes.watched_tickers import router as watched_tickers_router
 from routes.analysis_framework import router as analysis_framework_router
+from routes.quan import router as quan_router
 from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
@@ -427,6 +428,7 @@ app.include_router(scheduled_tasks_router, prefix="/api")
 app.include_router(premarket_router, prefix="/api")
 app.include_router(watched_tickers_router, prefix="/api")
 app.include_router(analysis_framework_router, prefix="/api")
+app.include_router(quan_router, prefix="/api")
 
 # ── Serve reports directory ──
 reports_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "reports")

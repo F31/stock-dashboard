@@ -59,6 +59,9 @@
         <button :class="['main-tab', { active: mainTab === 'market' }]" @click="mainTab = 'market'">
           📈 板块/个股行情
         </button>
+        <button :class="['main-tab', { active: mainTab === 'quan' }]" @click="mainTab = 'quan'">
+          ⚡ 量化分析
+        </button>
         <button :class="['main-tab', { active: mainTab === 'macro' }]" @click="mainTab = 'macro'">
           🌐 宏观经济数据
         </button>
@@ -83,14 +86,28 @@
             </button>
             <div class="tab-bar-r">
               <select
-                v-if="signalOptions.length"
-                v-model="signalFilter"
+                v-if="activeTab === 'A'"
+                v-model="quanLabelFilter"
                 class="signal-filter"
-                :class="{ 'signal-filter--active': signalFilter }"
-                title="按信号筛选"
+                :class="{ 'signal-filter--active': quanLabelFilter }"
+                title="按量化评级筛选"
               >
-                <option value="">全部</option>
-                <option v-for="sig in signalOptions" :key="sig" :value="sig">{{ sig }}</option>
+                <option value="">全部评级</option>
+                <option value="强烈推荐">强烈推荐</option>
+                <option value="推荐">推荐</option>
+                <option value="中性">中性</option>
+                <option value="回避">回避</option>
+              </select>
+              <select
+                v-if="hasQuanData && activeTab === 'A'"
+                v-model="quanSort"
+                class="signal-filter"
+                :class="{ 'signal-filter--active': quanSort !== 'default' }"
+                title="量化排序"
+              >
+                <option value="default">默认排序</option>
+                <option value="quan_desc">量化↓高→低</option>
+                <option value="quan_asc">量化↑低→高</option>
               </select>
               <button class="tab-action-btn tab-action-refresh" :disabled="loading" @click="refresh">
                 <span :class="['refresh-icon', { spinning: loading }]">↻</span>
@@ -119,6 +136,7 @@
             <div class="drag-handle" title="拖动排序">⠿</div>
             <StockCard
               :stock="stock"
+              :quan-score="quanScoresMap[stock.stock_code] || null"
               @remove="handleRemove(stock.id)"
               @rename="handleRename"
               @open-detail="handleOpenDetail"
@@ -132,6 +150,14 @@
           <span class="page-info">{{ currentPage + 1 }} / {{ totalPages }}</span>
           <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="nextPage">下一页 ›</button>
         </div>
+      </div>
+
+      <!-- ── Panel: 量化分析 ── -->
+      <div v-if="mainTab === 'quan'" class="macro-panel">
+        <QuantAnalysisMonitor
+          :watchlist-codes="watchlistAStockCodes"
+          :watchlist-stocks="aStocks"
+        />
       </div>
 
       <!-- ── Panel: 宏观经济数据 ── -->
@@ -198,6 +224,7 @@
       :stock="detailStock"
       :initialTab="detailInitialTab"
       :currentUser="currentUserObj"
+      :quanScore="quanScoresMap[detailStock?.stock_code] || null"
       @close="detailStock = null; detailInitialTab = 'info'"
       @notes-saved="handleNotesSaved"
     />
@@ -260,6 +287,7 @@ import OperationLog from '../components/OperationLog.vue'
 import LLMConfigModal from '../components/LLMConfigModal.vue'
 import MacroMonitor from '../components/MacroMonitor.vue'
 import IndustrialProfitMonitor from '../components/IndustrialProfitMonitor.vue'
+import QuantAnalysisMonitor from '../components/QuantAnalysisMonitor.vue'
 import StockDetailModal from '../components/StockDetailModal.vue'
 import PremarketModal from '../components/PremarketModal.vue'
 import PremarketHistoryModal from '../components/PremarketHistoryModal.vue'
@@ -269,6 +297,7 @@ import WatchedTickerConfig from '../components/WatchedTickerConfig.vue'
 import FrameworkEditor from '../components/FrameworkEditor.vue'
 import PromptTemplateConfig from '../components/PromptTemplateConfig.vue'
 import { useAuthStore } from '../stores/authStore.js'
+import { fetchQuanScores } from '../api/index.js'
 
 const router = useRouter()
 const store = useStockStore()
@@ -289,9 +318,27 @@ const showDataSources = ref(false)
 const showWatchedTickers   = ref(false)
 const showFrameworkEditor  = ref(false)
 const showPromptTemplates = ref(false)
-const mainTab = ref('market')   // 'market' | 'macro'
+const mainTab = ref('market')   // 'market' | 'quan' | 'macro'
+
+// Quan scores map: stock_code -> { percentile_score, label }
+const quanScoresMap = ref({})
+const quanSort = ref('default')
+const hasQuanData = computed(() => Object.keys(quanScoresMap.value).length > 0)
+
+async function loadQuanScores() {
+  try {
+    const res = await fetchQuanScores({ model: 'factor', min_percentile: 0 })
+    const map = {}
+    for (const row of (res.data.scores || [])) {
+      map[row.stock_code] = { percentile_score: row.percentile_score, label: row.label }
+    }
+    quanScoresMap.value = map
+  } catch {
+    // quan model may not be trained yet — silently ignore
+  }
+}
 const activeTab = ref('A')
-const signalFilter = ref('')
+const quanLabelFilter = ref('')
 const detailStock = ref(null)
 
 // Decode JWT to get current user id and role (no extra network call needed)
@@ -328,27 +375,21 @@ const MAX_VISIBLE = computed(() =>
   gridCols.value <= 1 ? 9999 : gridCols.value * 2
 )
 
-// ── Signal filter ──
-const SIGNAL_ORDER = ['买入', '关注', '持有', '减仓']
-
-const signalOptions = computed(() => {
-  const sigs = new Set()
-  for (const s of currentStocks.value) {
-    if (s.data?.signal) sigs.add(s.data.signal)
-  }
-  return Array.from(sigs).sort((a, b) => {
-    const ia = SIGNAL_ORDER.indexOf(a)
-    const ib = SIGNAL_ORDER.indexOf(b)
-    if (ia !== -1 && ib !== -1) return ia - ib
-    if (ia !== -1) return -1
-    if (ib !== -1) return 1
-    return a.localeCompare(b, 'zh')
-  })
-})
-
 const filteredStocks = computed(() => {
-  if (!signalFilter.value) return currentStocks.value
-  return currentStocks.value.filter(s => s.data?.signal === signalFilter.value)
+  let stocks = currentStocks.value
+  if (quanLabelFilter.value) {
+    const map = quanScoresMap.value
+    stocks = stocks.filter(s => map[s.stock_code]?.label === quanLabelFilter.value)
+  }
+  if (quanSort.value !== 'default') {
+    const map = quanScoresMap.value
+    stocks = [...stocks].sort((a, b) => {
+      const pa = map[a.stock_code]?.percentile_score ?? -1
+      const pb = map[b.stock_code]?.percentile_score ?? -1
+      return quanSort.value === 'quan_desc' ? pb - pa : pa - pb
+    })
+  }
+  return stocks
 })
 
 // ── Pagination ──
@@ -376,6 +417,7 @@ const marketCount = computed(() => {
 })
 
 const aStocks = computed(() => visibleWatchlist.value.filter(s => s.market === 'A'))
+const watchlistAStockCodes = computed(() => aStocks.value.map(s => s.stock_code).filter(Boolean))
 const hkStocks = computed(() => visibleWatchlist.value.filter(s => s.market === 'HK'))
 const usStocks = computed(() => visibleWatchlist.value.filter(s => s.market === 'US'))
 const sectorStocks = computed(() => visibleWatchlist.value.filter(s => s.item_type === 'sector' || s.data?.item_type === 'sector'))
@@ -420,7 +462,7 @@ function fmtTime() {
 }
 
 function onDragStart(idx) {
-  if (signalFilter.value) return
+  if (quanLabelFilter.value || quanSort.value !== 'default') return
   dragIdx.value = idx
 }
 
@@ -544,8 +586,8 @@ function onTouchEnd(e) {
 }
 
 // Reset to first page when switching tabs or filter; shrink page if needed
-watch(activeTab, () => { currentPage.value = 0; signalFilter.value = '' })
-watch(signalFilter, () => { currentPage.value = 0 })
+watch(activeTab, () => { currentPage.value = 0; quanLabelFilter.value = ''; quanSort.value = 'default' })
+watch(quanLabelFilter, () => { currentPage.value = 0 })
 watch(totalPages, (newTotal) => {
   if (currentPage.value >= newTotal) currentPage.value = Math.max(0, newTotal - 1)
 })
@@ -570,6 +612,7 @@ onMounted(async () => {
   window.addEventListener('resize', handleResize)
   await store.loadWatchlist()
   await refresh()
+  loadQuanScores()  // fire-and-forget, may have no data yet
   refreshTimer = setInterval(refresh, 30000)
   document.addEventListener('click', closeSysMenu)
 })

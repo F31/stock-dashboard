@@ -270,3 +270,17 @@ export function getStreamText(id) { return api.get(`/premarket/stream-text/${id}
 export function synthesizeTTS(text, voice = 'zh-CN-XiaoxiaoNeural', rate = '-5%') {
   return api.post('/premarket/tts', { text, voice, rate }, { responseType: 'blob', timeout: 120000 })
 }
+
+// ── Quantitative Analysis ──
+export function fetchQuanScores(params = {}) { return api.get('/quan/scores', { params }) }
+export function fetchQuanTop(n = 20, tradeDate = null, model = 'factor') {
+  return api.get('/quan/top', { params: { n, trade_date: tradeDate, model } })
+}
+export function fetchQuanStockScore(stockCode, model = 'factor', tradeDate = null) {
+  return api.get(`/quan/scores/${stockCode}`, { params: { model, trade_date: tradeDate } })
+}
+export function fetchQuanDates(model = 'factor', limit = 30) {
+  return api.get('/quan/dates', { params: { model, limit } })
+}
+export function fetchQuanChainFilters() { return api.get('/quan/chain-filters') }
+
