@@ -145,8 +145,53 @@ except Exception as e:
 """
 
 
+def _load_precomputed_levels(code: str) -> dict | None:
+    """Read pre-computed technical indicators from quan_tech_levels (no qlib needed).
+
+    Populated nightly by run_daily.py on the machine that has qlib installed.
+    Returns None if no data has been precomputed for this stock yet.
+    """
+    try:
+        with _get_conn() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """SELECT * FROM quan_tech_levels
+                   WHERE stock_code=?
+                   ORDER BY trade_date DESC LIMIT 1""",
+                (code,),
+            ).fetchone()
+        if not row:
+            return None
+        r = dict(row)
+        if r.get("last_adj") is None:
+            return None
+        return {
+            "ok":       True,
+            "last_adj": r["last_adj"],
+            "ma5":      r["ma5"],
+            "ma20":     r["ma20"],
+            "ma60":     r["ma60"],
+            "ma120":    r["ma120"],
+            "atr14":    r["atr14"],
+            "rsi14":    r["rsi14"],
+            "h52w":     r["h52w"],
+            "l52w":     r["l52w"],
+            "trade_date": r["trade_date"],
+        }
+    except Exception as e:
+        logger.warning("_load_precomputed_levels failed for %s: %s", code, e)
+        return None
+
+
 def _run_qlib_levels(code: str) -> dict | None:
-    """Blocking: call qlib subprocess to compute technical indicators."""
+    """Blocking: call qlib subprocess to compute technical indicators.
+
+    Local-only fallback — only succeeds if _QLIB_PYTHON and qlib data exist.
+    On cloud deployments this always returns None; use _load_precomputed_levels instead.
+    """
+    import os
+    if not os.path.exists(_QLIB_PYTHON):
+        return None
     prefix = "SH" if code.startswith("6") else "SZ"
     script = _QLIB_SCRIPT_TPL.replace("INSTRUMENT_CODE", prefix + code)
     try:
@@ -633,11 +678,13 @@ async def get_stock_levels(
     if not actual_price:
         return {"error": "无法获取实时价格", "stock_code": stock_code}
 
-    # Run qlib in thread pool to avoid blocking the event loop
-    tech = await asyncio.to_thread(_run_qlib_levels, stock_code)
+    # Try precomputed DB first (fast, works on cloud); subprocess is local-only fallback
+    tech = _load_precomputed_levels(stock_code)
+    if not tech:
+        tech = await asyncio.to_thread(_run_qlib_levels, stock_code)
 
     if not tech:
-        return {"error": "技术指标计算失败（该股可能未收录于qlib数据集）",
+        return {"error": "技术指标暂未计算，请等待每日定时任务完成后刷新",
                 "stock_code": stock_code}
 
     # Scale qlib backward-adjusted prices → actual market prices
@@ -653,7 +700,7 @@ async def get_stock_levels(
     ma60  = _scale(tech["ma60"])
     ma120 = _scale(tech["ma120"])
     atr14 = _scale(tech["atr14"])
-    rsi14 = tech["rsi14"]
+    rsi14 = tech["rsi14"] if tech["rsi14"] is not None else 50.0
     h52w  = _scale(tech["h52w"])
     l52w  = _scale(tech["l52w"])
 
