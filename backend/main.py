@@ -25,6 +25,7 @@ from models import (  # noqa: F401 — ensures tables are registered
     DataSource, PromptTemplate, PremarketReport, ScheduledTask, WatchedTicker,
     AnalysisFramework, SystemSetting, StockCapex,
 )
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 logging.basicConfig(
@@ -54,6 +55,44 @@ try:
     _ensure_column("analysis_framework", "framework_data TEXT")
 except Exception:
     pass  # table may not exist yet; create_all will handle it
+
+# Migration: quan_daily_scores — factor columns added after initial deployment
+try:
+    for _col in (
+        "growth_score REAL",
+        "quality_score REAL",
+        "momentum_score REAL",
+        "sector_warning TEXT DEFAULT ''",
+        "valuation_score REAL",
+        "sentiment_score REAL",
+    ):
+        _ensure_column("quan_daily_scores", _col)
+except Exception:
+    pass
+
+# Ensure quan_tech_levels table exists (holds precomputed technical indicators)
+try:
+    with engine.connect() as _conn:
+        _conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS quan_tech_levels (
+                stock_code  TEXT NOT NULL,
+                trade_date  TEXT NOT NULL,
+                last_adj    REAL,
+                ma5         REAL,
+                ma20        REAL,
+                ma60        REAL,
+                ma120       REAL,
+                atr14       REAL,
+                rsi14       REAL,
+                h52w        REAL,
+                l52w        REAL,
+                updated_at  TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (stock_code, trade_date)
+            )
+        """))
+        _conn.commit()
+except Exception:
+    pass
 
 
 def _seed_defaults():

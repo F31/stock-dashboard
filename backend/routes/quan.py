@@ -601,8 +601,12 @@ def _table_exists(table: str = "quan_daily_scores") -> bool:
 def _resolve_date(conn, trade_date, model):
     if trade_date is not None:
         return trade_date
+    # Prefer the date with the most stocks (handles partial runs that miss CSI300 data).
+    # Secondary sort by date so ties always pick the most recent full run.
     row = conn.execute(
-        "SELECT MAX(trade_date) FROM quan_daily_scores WHERE model_name=?", (model,)
+        """SELECT trade_date FROM quan_daily_scores WHERE model_name=?
+           GROUP BY trade_date ORDER BY COUNT(*) DESC, trade_date DESC LIMIT 1""",
+        (model,)
     ).fetchone()
     return row[0] if row and row[0] else None
 
