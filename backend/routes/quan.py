@@ -183,92 +183,148 @@ def _load_precomputed_levels(code: str) -> dict | None:
         return None
 
 
-def _compute_levels_akshare(code: str) -> dict | None:
-    """Compute technical indicators via AKShare price history (no qlib needed).
+_EM_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+_EM_KLINE_HEADERS = {
+    "Referer":    "https://finance.eastmoney.com/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+}
 
-    Works on cloud deployments — fetches ~3 years of front-adjusted daily OHLCV
-    from EastMoney, computes MA/ATR/RSI/52w, then caches result in quan_tech_levels
-    so subsequent requests for the same stock are instant DB reads.
+
+def _fetch_em_klines(code: str) -> "pd.DataFrame | None":
+    """Fetch 3 years of front-adjusted daily OHLCV from EastMoney directly.
+
+    Uses the same datacenter API as AKShare internally — no AKShare dependency.
+    Kline fields: date, open, close, high, low, volume, amount, amp, chg_pct, chg, turnover
     """
+    import pandas as pd
+
+    secid = ("1." if code.startswith("6") else "0.") + code
+    params = {
+        "fields1": "f1,f2,f3,f4,f5,f6",
+        "fields2": "f51,f52,f53,f54,f55,f56",
+        "ut":      "7eea3edcaed734bea9cbfc24409ed989",
+        "klt":     "101",   # daily
+        "fqt":     "1",     # front-adjusted (前复权)
+        "secid":   secid,
+        "beg":     "20230101",
+        "end":     "20500101",
+    }
     try:
-        import akshare as ak
-        import math as _math
-
-        df = ak.stock_zh_a_hist(
-            symbol=code, period="daily",
-            start_date="20230101", end_date=None,
-            adjust="qfq",
-        )
-        if df is None or df.empty:
-            logger.warning("AKShare: empty price history for %s", code)
-            return None
-
-        df = df.sort_values("日期")
-        close = df["收盘"].astype(float)
-        high  = df["最高"].astype(float)
-        low   = df["最低"].astype(float)
-
-        close = close.ffill()
-        high  = high.ffill()
-        low   = low.ffill()
-
-        if len(close) < 5:
-            return None
-
-        # ATR14
-        prev = close.shift(1)
-        tr   = (
-            (high - low)
-            .combine(((high - prev).abs()), max)
-            .combine(((low  - prev).abs()), max)
-        )
-        atr14 = tr.rolling(14).mean().iloc[-1]
-
-        # RSI14
-        d     = close.diff()
-        gain  = d.clip(lower=0).rolling(14).mean()
-        loss  = (-d.clip(upper=0)).rolling(14).mean()
-        rsi14 = (100 - 100 / (1 + gain / (loss + 1e-9))).iloc[-1]
-
-        def _ma(n):
-            v = close.rolling(n).mean().iloc[-1] if len(close) >= n else float("nan")
-            return None if _math.isnan(v) else round(float(v), 6)
-
-        def _rmax(n):
-            v = high.rolling(n).max().iloc[-1] if len(close) >= n else float("nan")
-            return None if _math.isnan(v) else round(float(v), 6)
-
-        def _rmin(n):
-            v = low.rolling(n).min().iloc[-1] if len(close) >= n else float("nan")
-            return None if _math.isnan(v) else round(float(v), 6)
-
-        last_adj = round(float(close.iloc[-1]), 6)
-        today    = df["日期"].iloc[-1]
-        trade_date = str(today)[:10] if hasattr(today, "__str__") else str(today)
-
-        result = {
-            "ok":       True,
-            "last_adj": last_adj,
-            "ma5":      _ma(5),
-            "ma20":     _ma(20),
-            "ma60":     _ma(60),
-            "ma120":    _ma(120),
-            "atr14":    round(float(atr14), 6) if not _math.isnan(float(atr14)) else None,
-            "rsi14":    round(float(rsi14), 6) if not _math.isnan(float(rsi14)) else None,
-            "h52w":     _rmax(252),
-            "l52w":     _rmin(252),
-            "trade_date": trade_date,
-        }
-
-        # Persist to quan_tech_levels so the next request is a fast DB read
-        _save_tech_levels(code, trade_date, result)
-
-        logger.info("AKShare tech levels computed and cached for %s (trade_date=%s)", code, trade_date)
-        return result
-
+        r = requests.get(_EM_KLINE_URL, params=params,
+                         headers=_EM_KLINE_HEADERS, timeout=15)
+        j = r.json()
     except Exception as e:
-        logger.warning("AKShare tech levels failed for %s: %s", code, e)
+        logger.warning("EM kline fetch failed for %s: %s", code, e)
         return None
+
+    klines = (j.get("data") or {}).get("klines")
+    if not klines:
+        logger.warning("EM kline: empty result for %s (secid=%s)", code, secid)
+        return None
+
+    rows = []
+    for line in klines:
+        parts = line.split(",")
+        if len(parts) < 6:
+            continue
+        try:
+            rows.append({
+                "date":  parts[0],
+                "open":  float(parts[1]),
+                "close": float(parts[2]),
+                "high":  float(parts[3]),
+                "low":   float(parts[4]),
+            })
+        except (ValueError, IndexError):
+            continue
+
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.sort_values("date").reset_index(drop=True)
+
+
+def _compute_levels_from_ohlc(
+    code: str,
+    close: "pd.Series",
+    high:  "pd.Series",
+    low:   "pd.Series",
+    trade_date: str,
+) -> "dict | None":
+    """Compute MA/ATR/RSI/52w from price series; cache in quan_tech_levels."""
+    import math as _math
+    import pandas as pd
+
+    close = close.ffill()
+    high  = high.ffill()
+    low   = low.ffill()
+
+    if len(close) < 5 or _math.isnan(float(close.iloc[-1])):
+        return None
+
+    # ATR14
+    prev = close.shift(1)
+    tr   = pd.concat(
+        [high - low, (high - prev).abs(), (low - prev).abs()], axis=1
+    ).max(axis=1)
+    atr14_v = tr.rolling(14).mean().iloc[-1]
+
+    # RSI14
+    d     = close.diff()
+    gain  = d.clip(lower=0).rolling(14).mean()
+    loss  = (-d.clip(upper=0)).rolling(14).mean()
+    rsi14_v = (100 - 100 / (1 + gain / (loss + 1e-9))).iloc[-1]
+
+    def _safe(v):
+        f = float(v)
+        return None if (_math.isnan(f) or _math.isinf(f)) else round(f, 6)
+
+    def _ma(n):
+        return _safe(close.rolling(n).mean().iloc[-1]) if len(close) >= n else None
+
+    def _rmax(n):
+        return _safe(high.rolling(n).max().iloc[-1]) if len(close) >= n else None
+
+    def _rmin(n):
+        return _safe(low.rolling(n).min().iloc[-1]) if len(close) >= n else None
+
+    result = {
+        "ok":         True,
+        "last_adj":   _safe(close.iloc[-1]),
+        "ma5":        _ma(5),
+        "ma20":       _ma(20),
+        "ma60":       _ma(60),
+        "ma120":      _ma(120),
+        "atr14":      _safe(atr14_v),
+        "rsi14":      _safe(rsi14_v),
+        "h52w":       _rmax(252),
+        "l52w":       _rmin(252),
+        "trade_date": trade_date,
+    }
+
+    if result["last_adj"] is None:
+        return None
+
+    _save_tech_levels(code, trade_date, result)
+    logger.info("EM kline tech levels computed and cached for %s (%s)", code, trade_date)
+    return result
+
+
+def _compute_levels_em(code: str) -> "dict | None":
+    """Compute technical indicators via EastMoney K-line API (no qlib/akshare needed).
+
+    Works on cloud deployments. Fetches 3 years of front-adjusted daily OHLCV
+    via direct HTTP, computes indicators, caches in quan_tech_levels.
+    """
+    df = _fetch_em_klines(code)
+    if df is None:
+        return None
+    trade_date = df["date"].iloc[-1].strftime("%Y-%m-%d")
+    return _compute_levels_from_ohlc(
+        code, df["close"], df["high"], df["low"], trade_date
+    )
 
 
 def _save_tech_levels(code: str, trade_date: str, data: dict) -> None:
@@ -794,8 +850,8 @@ async def get_stock_levels(
     #   Tier 3: qlib subprocess                   — local dev only
     tech = _load_precomputed_levels(stock_code)
     if not tech:
-        logger.info("Tech levels not in DB for %s — trying AKShare", stock_code)
-        tech = await asyncio.to_thread(_compute_levels_akshare, stock_code)
+        logger.info("Tech levels not in DB for %s — computing via EastMoney API", stock_code)
+        tech = await asyncio.to_thread(_compute_levels_em, stock_code)
     if not tech:
         tech = await asyncio.to_thread(_run_qlib_levels, stock_code)
 
