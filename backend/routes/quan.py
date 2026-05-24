@@ -11,7 +11,7 @@ from typing import Optional
 import requests
 from fastapi import APIRouter, Depends, Query
 
-from database import DB_PATH
+from database import DB_PATH, DB_DIR
 from routes.auth import get_current_user
 from models import User
 
@@ -97,8 +97,11 @@ def _batch_prices(codes: list[str]) -> dict[str, dict]:
 # ── Technical levels cache ────────────────────────────────────────────────
 _levels_cache: dict[str, dict] = {}   # code → {"data": dict, "ts": float}
 _LEVELS_TTL  = 3600                    # 1 h — levels change slowly
-_QLIB_PYTHON = "/root/qlib/qvenv/bin/python"
-_FEATURE_STORE_PATH = "/root/projects/stock_quan/data/feature_store.db"
+_QLIB_PYTHON = os.environ.get("QLIB_PYTHON", "/root/qlib/qvenv/bin/python")
+_FEATURE_STORE_PATH = os.environ.get(
+    "FEATURE_STORE_PATH",
+    os.path.join(DB_DIR, "feature_store.db"),
+)
 
 # Self-contained qlib script; INSTRUMENT_CODE is replaced before execution.
 _QLIB_SCRIPT_TPL = r"""
