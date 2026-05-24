@@ -628,6 +628,8 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
                COALESCE(q.valuation_score, 0)           AS valuation_score,
                COALESCE(q.momentum_score, 0)            AS momentum_score,
                COALESCE(q.sentiment_score, 50)          AS sentiment_score,
+               COALESCE(q.surprise_score, 50)           AS surprise_score,
+               COALESCE(q.opportunity_tag, '')          AS opportunity_tag,
                COALESCE(q.sector_warning, '')           AS sector_warning,
                COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
                COALESCE(i.industry, '')                 AS industry

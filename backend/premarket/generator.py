@@ -1037,7 +1037,7 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     if (_buffers[idx] !== undefined || _fetching[idx]) return;
     var mySid = _session;
     var voice = document.getElementById('tts-voice').value;
-    var token = localStorage.getItem('token') || '';
+    var token = (window.location.hash.match(/token=([^&]+)/) || [])[1] ? decodeURIComponent(window.location.hash.match(/token=([^&]+)/)[1]) : (localStorage.getItem('token') || '');
     _fetching[idx] = true;
     fetch('/api/premarket/tts', {{
       method : 'POST',
@@ -1071,8 +1071,9 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     if (!_audio || !_buffers[idx] || (_state!=='loading'&&_state!=='playing')) return;
     var mySid = _session;
     var prevUrl = _audio.src;
+    _audio.loop = false;
+    _audio.volume = 1.0;
     _audio.onended = null;
-    _audio.pause();           // 确保停止静音解锁音频或上一块
     _audio.src = _buffers[idx];
     _audio.onended = function() {{
       if (_session !== mySid || _state !== 'playing') return;
@@ -1118,8 +1119,11 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
         _audio = new Audio();
         _audio.preload = 'auto';
       }}
-      // 在用户手势栈内同步 play 静音音频，解锁元素（iOS/Android Safari 必须）
+      // iOS Safari: 循环播放极低音量静音音频保持元素 active/playing 状态。
+      // API 请求完成后直接更换 src，不 pause()，避免丢失信任。
       _audio.src = _SILENT;
+      _audio.loop = true;
+      _audio.volume = 0.01;
       var unlockP = _audio.play();
       if (unlockP) unlockP.catch(function() {{}});
       _start();

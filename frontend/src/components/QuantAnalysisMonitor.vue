@@ -113,6 +113,11 @@
           </div>
           <div class="label-col">
             <span :class="['label-tag', labelCls(row.label)]">{{ row.label }}</span>
+            <span v-if="row.opportunity_tag === '成长窗口'"
+                  :class="['opp-tag', row.stock_code?.startsWith('688') ? 'opp-tag--star' : '']"
+                  :title="oppTagTip(row)">
+              {{ row.stock_code?.startsWith('688') ? '⚡ 科创成长' : '⚡ 成长窗口' }}
+            </span>
             <span v-if="row.sector_warning" :class="['warn-tag', warnCls(row.sector_warning)]"
                   :title="warnTip(row.sector_warning)">
               {{ row.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
@@ -176,6 +181,11 @@
               </div>
               <div class="label-col">
                 <span :class="['label-tag', labelCls(row.label)]">{{ row.label }}</span>
+                <span v-if="row.opportunity_tag === '成长窗口'"
+                      :class="['opp-tag', row.stock_code?.startsWith('688') ? 'opp-tag--star' : '']"
+                      :title="oppTagTip(row)">
+                  {{ row.stock_code?.startsWith('688') ? '⚡ 科创成长' : '⚡ 成长窗口' }}
+                </span>
                 <span v-if="row.sector_warning" :class="['warn-tag', warnCls(row.sector_warning)]"
                       :title="warnTip(row.sector_warning)">
                   {{ row.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
@@ -199,6 +209,11 @@
               <span v-if="detailModal.stock?.label" :class="['label-tag', labelCls(detailModal.stock.label)]">
                 {{ detailModal.stock.label }}
               </span>
+              <span v-if="detailModal.stock?.opportunity_tag === '成长窗口'"
+                    :class="['opp-tag', detailModal.stock?.stock_code?.startsWith('688') ? 'opp-tag--star' : '']"
+                    :title="oppTagTip(detailModal.stock)">
+                {{ detailModal.stock?.stock_code?.startsWith('688') ? '⚡ 科创成长' : '⚡ 成长窗口' }}
+              </span>
               <span v-if="detailModal.stock?.sector_warning"
                     :class="['warn-tag', warnCls(detailModal.stock.sector_warning)]">
                 {{ detailModal.stock.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
@@ -213,22 +228,54 @@
                  class="factor-breakdown">
               <div class="detail-sec-title">因子得分 <span class="fb-total">综合 {{ detailModal.stock.percentile_score?.toFixed(0) }} 分</span></div>
               <div class="fb-bars">
-                <div v-for="f in [
-                  { key: 'growth_score',    label: '成长', w: 35, tip: '含增速加速度（扩产爬坡信号）' },
+                <template v-for="f in [
+                  { key: 'growth_score',    label: '成长', w: 35, tip: '利润/营收YoY增速 + 加速度 + Capex周期 + 业绩超预期（含10%超预期权重）' },
                   { key: 'quality_score',   label: '质量', w: 22, tip: 'ROE / 毛利率 / 现金利润率' },
-                  { key: 'valuation_score', label: '估值', w: 20, tip: 'PEG + 行业相对PE' },
-                  { key: 'momentum_score',  label: '动量', w: 13, tip: 'Alpha158多周期趋势+量价' },
-                  { key: 'sentiment_score', label: '情绪', w: 10, tip: '北向资金流向 + 换手率异动' },
-                ]" :key="f.key" class="fb-row">
-                  <span class="fb-label" :title="f.tip">{{ f.label }}<span class="fb-weight">×{{ f.w }}%</span></span>
-                  <div class="fb-bar-bg">
-                    <div :class="['fb-bar-fill', fbCls(detailModal.stock[f.key])]"
-                         :style="{ width: (detailModal.stock[f.key] || 0) + '%' }"></div>
+                  { key: 'valuation_score', label: '估值', w: 20, tip: 'PEG + 行业相对PE；PE>150且营收增长时用PB/ROE前瞻PE替代TTM PE；科创板早期成长期TTM PE结构性偏高' },
+                  { key: 'momentum_score',  label: '动量', w: 13, tip: 'Alpha158多周期趋势+量价确认' },
+                  { key: 'sentiment_score', label: '情绪', w: 10, tip: '换手率异动（成交量/MA20）× 60% + 成交额截面排名 × 40%' },
+                ]" :key="f.key">
+                  <div class="fb-row">
+                    <span class="fb-label" :title="f.tip">
+                      {{ f.label }}
+                      <span class="fb-weight">×{{ f.w }}%</span>
+                    </span>
+                    <div class="fb-bar-bg">
+                      <div :class="['fb-bar-fill', fbCls(detailModal.stock[f.key])]"
+                           :style="{ width: (detailModal.stock[f.key] || 0) + '%' }"></div>
+                    </div>
+                    <span :class="['fb-val', fbCls(detailModal.stock[f.key])]">
+                      {{ detailModal.stock[f.key]?.toFixed(0) ?? '—' }}
+                    </span>
                   </div>
-                  <span :class="['fb-val', fbCls(detailModal.stock[f.key])]">
-                    {{ detailModal.stock[f.key]?.toFixed(0) ?? '—' }}
-                  </span>
-                </div>
+                  <!-- Surprise sub-row: indented under growth (it's 10% of growth weight) -->
+                  <div v-if="f.key === 'growth_score' && detailModal.stock?.surprise_score != null"
+                       class="fb-subrow"
+                       title="业绩超预期子项：实际增速 vs 历史趋势预测 + 业绩预告事件（预增/扭亏加分）。在成长因子内占10%权重。">
+                    <span class="fb-sublabel">└ 超预期</span>
+                    <div class="fb-bar-bg">
+                      <div :class="['fb-bar-fill', fbCls(detailModal.stock.surprise_score)]"
+                           :style="{ width: (detailModal.stock.surprise_score || 0) + '%' }"></div>
+                    </div>
+                    <span :class="['fb-val', 'fb-subval', fbCls(detailModal.stock.surprise_score)]">
+                      {{ detailModal.stock.surprise_score?.toFixed(0) }}
+                    </span>
+                  </div>
+                  <!-- Valuation suppression note: 科创板 high-PE structural warning -->
+                  <div v-if="f.key === 'valuation_score'
+                             && detailModal.stock?.valuation_score < 25
+                             && detailModal.stock?.stock_code?.startsWith('688')"
+                       class="fb-val-note">
+                    ↑ 科创板早期成长期TTM PE偏高·已用PB/ROE前瞻PE参与估值
+                  </div>
+                  <!-- Valuation suppression note: non-科创板 high PE -->
+                  <div v-else-if="f.key === 'valuation_score'
+                                  && detailModal.stock?.valuation_score < 20
+                                  && !detailModal.stock?.stock_code?.startsWith('688')"
+                       class="fb-val-note">
+                    ↑ PE偏高，估值分受抑·若处于困境反转期可参考动量和超预期信号
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -649,6 +696,13 @@ onMounted(() => {
   load()
   loadChains()
 })
+
+function oppTagTip(row) {
+  if (row?.stock_code?.startsWith('688')) {
+    return '科创板成长窗口：TTM PE偏高属早期成长期结构性特征，系统已用PB/ROE前瞻PE参与估值评分。超预期+动量信号显著，关注后续季度营收兑现。（科创板专项宽松标准：综合分<68、超预期>55、营收增速>5%）'
+  }
+  return '成长动能强但估值偏高：超预期信号+营收加速。综合评分受高估值拖累，但成长催化因子显著，关注后续季度业绩兑现情况。'
+}
 </script>
 
 <style scoped>
@@ -1001,7 +1055,14 @@ onMounted(() => {
 .fb-bars  { display: flex; flex-direction: column; gap: 6px; }
 .fb-row   { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 8px; }
 .fb-label { font-size: 0.75em; font-weight: 600; color: #374151; white-space: nowrap; }
-.fb-weight { font-size: 0.82em; font-weight: 400; color: #9ca3af; margin-left: 2px; }
+.fb-weight  { font-size: 0.82em; font-weight: 400; color: #9ca3af; margin-left: 2px; }
+.fb-sub-tag { font-size: 0.72em; font-weight: 400; color: #a78bfa; margin-left: 3px; background: #f5f3ff; padding: 1px 4px; border-radius: 3px; }
+.fb-subrow   { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 8px; margin-top: -2px; }
+.fb-sublabel { font-size: 0.68em; font-weight: 500; color: #a78bfa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 8px; }
+.fb-subval   { font-size: 0.68em; }
+.opp-tag    { font-size: 0.72em; font-weight: 600; color: #d97706; background: #fef3c7; border: 1px solid #fcd34d; padding: 1px 5px; border-radius: 4px; margin-left: 4px; cursor: default; white-space: nowrap; }
+.opp-tag--star { color: #0e7490; background: #ecfeff; border-color: #67e8f9; }
+.fb-val-note { font-size: 0.63em; color: #9ca3af; padding-left: 8px; margin-top: -2px; }
 .fb-bar-bg { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
 .fb-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; background: linear-gradient(90deg,#22c55e,#4ade80); }
 .fb-bar-fill.fb-high { background: linear-gradient(90deg,#22c55e,#4ade80); }

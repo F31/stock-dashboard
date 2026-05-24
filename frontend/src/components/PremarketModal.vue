@@ -334,7 +334,11 @@ function _playChunk(idx) {
   if (!_audio || _buffers[idx] === undefined) return
   const mySid = _session
   const oldSrc = _audio.src
-  _audio.pause()          // 确保停止静音解锁音频或上一块
+  // iOS 修复：不调用 pause()！在正在播放的元素上直接更换 src，
+  // Safari 会自动停止旧源加载新源并继续播放，不丢失信任状态。
+  _audio.loop = false
+  _audio.volume = 1.0
+  _audio.onended = null
   _audio.src = _buffers[idx]
   // 释放上一块的 Blob URL
   if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
@@ -376,15 +380,19 @@ async function toggleTTS() {
     const text = buildSpeechText()
     if (!text) return
 
-    // iOS Safari: 在用户手势栈中同步创建并 play 一次静音音频，解锁 HTMLAudioElement。
-    // 此后异步调用 play() 仍可正常播放（元素已信任）。
+    // iOS Safari 音频解锁策略（针对长异步延迟场景）：
+    // 播放一个循环的极低音量静音音频，使 Audio element 在 API 请求期间保持"播放中"状态。
+    // iOS 仅在元素处于 active/playing 状态时接受后续的 src 更换和 play() 调用。
+    // 不可 pause()，否则信任状态丢失。
     if (!_audio) {
       _audio = new Audio()
       _audio.preload = 'auto'
     }
-    const SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
-    _audio.src = SILENT
-    try { await _audio.play(); _audio.pause() } catch { /* 忽略自动播放策略拒绝 */ }
+    const _SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
+    _audio.loop = true
+    _audio.volume = 0.01   // 几乎无声但保持音频会话活跃
+    _audio.src = _SILENT
+    _audio.play().catch(() => {})  // fire-and-forget，不 await 不 pause
 
     _chunks  = _buildChunks(text)
     if (!_chunks.length) return

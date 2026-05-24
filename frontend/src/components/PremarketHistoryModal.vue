@@ -199,7 +199,8 @@ async function select(r) {
 
 function openReportModal(r) {
   if (!r?.report_path) return
-  reportUrl.value = '/reports/' + r.report_path
+  const token = encodeURIComponent(localStorage.getItem('token') || '')
+  reportUrl.value = '/reports/' + r.report_path + '#token=' + token
   reportTitle.value = `${r.report_date} ${r.report_time} 完整报告`
   copyDone.value = false
 }
