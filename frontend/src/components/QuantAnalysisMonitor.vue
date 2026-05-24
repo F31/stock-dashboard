@@ -214,12 +214,13 @@
               <div class="detail-sec-title">因子得分 <span class="fb-total">综合 {{ detailModal.stock.percentile_score?.toFixed(0) }} 分</span></div>
               <div class="fb-bars">
                 <div v-for="f in [
-                  { key: 'growth_score',    label: '成长', w: 35 },
-                  { key: 'quality_score',   label: '质量', w: 25 },
-                  { key: 'valuation_score', label: '估值', w: 20 },
-                  { key: 'momentum_score',  label: '动量', w: 20 },
+                  { key: 'growth_score',    label: '成长', w: 35, tip: '含增速加速度（扩产爬坡信号）' },
+                  { key: 'quality_score',   label: '质量', w: 22, tip: 'ROE / 毛利率 / 现金利润率' },
+                  { key: 'valuation_score', label: '估值', w: 20, tip: 'PEG + 行业相对PE' },
+                  { key: 'momentum_score',  label: '动量', w: 13, tip: 'Alpha158多周期趋势+量价' },
+                  { key: 'sentiment_score', label: '情绪', w: 10, tip: '北向资金流向 + 换手率异动' },
                 ]" :key="f.key" class="fb-row">
-                  <span class="fb-label">{{ f.label }}<span class="fb-weight">×{{ f.w }}%</span></span>
+                  <span class="fb-label" :title="f.tip">{{ f.label }}<span class="fb-weight">×{{ f.w }}%</span></span>
                   <div class="fb-bar-bg">
                     <div :class="['fb-bar-fill', fbCls(detailModal.stock[f.key])]"
                          :style="{ width: (detailModal.stock[f.key] || 0) + '%' }"></div>
@@ -234,7 +235,7 @@
             <!-- Loading -->
             <div v-if="detailModal.loading" class="detail-state">
               <div class="detail-spinner"></div>
-              <span>正在计算技术指标（首次约20秒）…</span>
+              <span>正在计算技术指标（首次约40秒，已缓存1小时）…</span>
             </div>
 
             <!-- Error -->
@@ -277,6 +278,36 @@
                 </div>
               </div>
 
+              <!-- Sector valuation comparison -->
+              <template v-if="detailModal.levels.sector_valuation?.peer_count >= 3">
+                <div class="detail-sec-title">
+                  板块估值对比
+                  <span class="fund-period">{{ detailModal.levels.sector_valuation.industry }} · {{ detailModal.levels.sector_valuation.peer_count }} 只同业</span>
+                </div>
+                <div class="sector-val-row">
+                  <div class="sv-item">
+                    <span class="sv-val">{{ detailModal.levels.sector_valuation.stock_pe?.toFixed(1) ?? '—' }}x</span>
+                    <span class="sv-lbl">本股PE</span>
+                  </div>
+                  <div class="sv-divider">vs</div>
+                  <div class="sv-item">
+                    <span class="sv-val">{{ detailModal.levels.sector_valuation.sector_median_pe?.toFixed(1) }}x</span>
+                    <span class="sv-lbl">行业中位PE</span>
+                  </div>
+                  <div class="sv-item">
+                    <span class="sv-val">{{ detailModal.levels.sector_valuation.sector_mean_pe?.toFixed(1) }}x</span>
+                    <span class="sv-lbl">行业平均PE</span>
+                  </div>
+                  <div class="sv-verdict" :class="`sv-${detailModal.levels.sector_valuation.verdict_level}`"
+                       v-if="detailModal.levels.sector_valuation.verdict">
+                    <span class="sv-prem">
+                      {{ detailModal.levels.sector_valuation.pe_premium_pct >= 0 ? '+' : '' }}{{ detailModal.levels.sector_valuation.pe_premium_pct }}%
+                    </span>
+                    <span class="sv-tag">{{ detailModal.levels.sector_valuation.verdict }}</span>
+                  </div>
+                </div>
+              </template>
+
               <!-- Sentiment bar -->
               <div class="detail-sentiment" :class="`senti-${detailModal.levels.sentiment_level}`">
                 <span class="senti-icon">
@@ -290,9 +321,13 @@
               </div>
 
               <!-- MA grid -->
-              <div class="detail-sec-title">均线位置</div>
+              <div class="detail-sec-title">
+                均线位置
+                <span v-if="detailModal.levels.ma?.ma60 == null" class="fund-period" title="上市时间较短，60/120日均线暂无数据">（上市较短，长期均线暂缺）</span>
+              </div>
               <div class="ma-grid">
-                <div v-for="(val, key) in detailModal.levels.ma" :key="key" class="ma-item">
+                <div v-for="(val, key) in detailModal.levels.ma" :key="key"
+                     v-if="val != null" class="ma-item">
                   <div class="ma-row">
                     <span class="ma-name">{{ key.toUpperCase() }}</span>
                     <span class="ma-val">{{ val?.toFixed(2) }}</span>
@@ -309,6 +344,7 @@
 
               <!-- Buy zones -->
               <div class="detail-sec-title">买入区间参考</div>
+              <div v-if="!detailModal.levels.buy_zones?.length" class="detail-state" style="padding:8px 0;font-size:0.8em;">数据不足，无法计算买入区间</div>
               <div class="zones-list">
                 <div v-for="z in detailModal.levels.buy_zones" :key="z.tier"
                      class="zone-card" :class="`zone-t${z.tier}`">
@@ -568,8 +604,11 @@ async function openDetail(row) {
     } else {
       detailModal.value.levels = res.data
     }
-  } catch {
-    detailModal.value.error = '获取数据失败，请稍后重试'
+  } catch (err) {
+    const isTimeout = err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')
+    detailModal.value.error = isTimeout
+      ? '技术指标计算超时（首次约40秒），请稍候再试'
+      : '获取数据失败，请检查网络后重试'
   } finally {
     detailModal.value.loading = false
   }
@@ -1044,11 +1083,37 @@ onMounted(() => {
   padding-top: 10px; text-align: center;
 }
 
+/* ── Sector valuation comparison ── */
+.sector-val-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: #f9fafb; border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 4px;
+}
+.sv-item { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.sv-val  { font-size: 1.05em; font-weight: 800; color: #111827; font-family: 'SF Mono', monospace; }
+.sv-lbl  { font-size: 0.66em; color: #6b7280; margin-top: 1px; }
+.sv-divider { font-size: 0.78em; color: #9ca3af; font-weight: 600; padding: 0 2px; }
+.sv-verdict {
+  display: flex; flex-direction: column; align-items: center;
+  margin-left: auto; padding: 5px 12px; border-radius: 8px;
+}
+.sv-prem {
+  font-size: 0.88em; font-weight: 800; font-family: 'SF Mono', monospace;
+}
+.sv-tag  { font-size: 0.66em; font-weight: 700; margin-top: 1px; }
+
+.sv-cheap     { background: #dcfce7; color: #16a34a; }
+.sv-fair      { background: #f0fdf4; color: #15803d; }
+.sv-pricey    { background: #fff7ed; color: #c2410c; }
+.sv-expensive { background: #fee2e2; color: #dc2626; }
+
 /* ── Detail modal 移动端 ── */
 @media (max-width: 640px) {
   .modal-overlay { padding: 0; align-items: flex-end; }
   .detail-modal { max-width: 100vw; border-radius: 20px 20px 0 0; max-height: 96dvh; }
   .fund-grid { grid-template-columns: repeat(2, 1fr); }
   .rules-modal { max-width: 100vw; max-height: 100dvh; border-radius: 0; }
+  .sector-val-row { gap: 6px; padding: 8px 10px; }
+  .sv-verdict { margin-left: 0; }
 }
 </style>

@@ -283,5 +283,8 @@ export function fetchQuanDates(model = 'factor', limit = 30) {
   return api.get('/quan/dates', { params: { model, limit } })
 }
 export function fetchQuanChainFilters() { return api.get('/quan/chain-filters') }
-export function fetchQuanStockLevels(stockCode) { return api.get(`/quan/scores/${stockCode}/levels`) }
+// qlib subprocess cold-start can take 40 s; override the 30 s global timeout
+export function fetchQuanStockLevels(stockCode) {
+  return api.get(`/quan/scores/${stockCode}/levels`, { timeout: 90000 })
+}
 

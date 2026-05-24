@@ -112,9 +112,11 @@ try:
     instrument = 'INSTRUMENT_CODE'
     df = qlib.data.D.features(
         [instrument], ['$close', '$high', '$low'],
-        start_time='2025-01-01', end_time=None, freq='day',
+        start_time='2024-01-01', end_time=None, freq='day',
     )
     df = df.droplevel('instrument')
+    # 停牌日 OHLC 为 NaN，前向填充（沿用前收价），避免 rolling 窗口中断
+    df = df.ffill()
     close, high, low = df['$close'], df['$high'], df['$low']
 
     prev = close.shift(1)
@@ -150,7 +152,7 @@ def _run_qlib_levels(code: str) -> dict | None:
     try:
         r = subprocess.run(
             [_QLIB_PYTHON, "-c", script],
-            capture_output=True, text=True, timeout=40,
+            capture_output=True, text=True, timeout=75,
         )
         for line in reversed(r.stdout.strip().split("\n")):
             if line.strip().startswith("{"):
@@ -190,6 +192,79 @@ def _fetch_tencent_detail(code: str) -> dict:
         return {}
 
 
+def _get_sector_valuation(stock_code: str, pe: float | None, pb: float | None) -> dict:
+    """Return industry peer PE comparison using stored daily_pe and quan_stock_info.
+
+    Lightweight: one JOIN on ~10-50 rows; cached inside _levels_cache (1h TTL).
+    Returns {} if industry data is unavailable (non-fatal).
+    """
+    try:
+        import statistics as _stats
+        with _get_conn() as conn:
+            row = conn.execute(
+                "SELECT industry FROM quan_stock_info WHERE stock_code=?", (stock_code,)
+            ).fetchone()
+            if not row or not row["industry"]:
+                return {}
+            industry = row["industry"]
+
+            peer_codes = [
+                r[0] for r in conn.execute(
+                    "SELECT stock_code FROM quan_stock_info "
+                    "WHERE industry=? AND stock_code!=?",
+                    (industry, stock_code),
+                ).fetchall()
+            ]
+            if not peer_codes:
+                return {"industry": industry}
+
+            ph = ",".join("?" * len(peer_codes))
+            pe_rows = conn.execute(
+                f"""SELECT stock_code, pe FROM daily_pe
+                    WHERE stock_code IN ({ph})
+                    GROUP BY stock_code HAVING trade_date = MAX(trade_date)""",
+                peer_codes,
+            ).fetchall()
+
+        peer_pes = [r[1] for r in pe_rows if r[1] and r[1] > 0 and r[1] < 500]
+        if len(peer_pes) < 3:
+            return {"industry": industry}
+
+        sector_median_pe = round(_stats.median(peer_pes), 1)
+        sector_mean_pe   = round(sum(peer_pes) / len(peer_pes), 1)
+
+        result: dict = {
+            "industry":        industry,
+            "peer_count":      len(peer_pes),
+            "sector_median_pe": sector_median_pe,
+            "sector_mean_pe":   sector_mean_pe,
+        }
+
+        if pe and pe > 0:
+            relative_pe = round(pe / sector_median_pe, 2)
+            pe_premium  = round((pe - sector_median_pe) / sector_median_pe * 100, 1)
+            if relative_pe <= 0.80:
+                verdict, verdict_level = "行业内低估", "cheap"
+            elif relative_pe <= 1.20:
+                verdict, verdict_level = "行业内合理", "fair"
+            elif relative_pe <= 1.60:
+                verdict, verdict_level = "行业内偏高", "pricey"
+            else:
+                verdict, verdict_level = "行业内高估", "expensive"
+            result.update({
+                "stock_pe":      round(pe, 1),
+                "relative_pe":   relative_pe,
+                "pe_premium_pct": pe_premium,
+                "verdict":       verdict,
+                "verdict_level": verdict_level,
+            })
+
+        return result
+    except Exception as e:
+        logger.warning("Sector valuation failed for %s: %s", stock_code, e)
+        return {}
+
+
 def _get_fundamentals(code: str) -> dict:
     """Return latest quarterly fundamentals from feature_store.db."""
     try:
@@ -210,13 +285,14 @@ def _get_fundamentals(code: str) -> dict:
 
 def _derive_levels(
     price: float,
-    ma5: float, ma20: float, ma60: float, ma120: float,
-    atr14: float, rsi14: float,
-    h52w: float, l52w: float,
+    ma5: float | None, ma20: float | None, ma60: float | None, ma120: float | None,
+    atr14: float | None, rsi14: float,
+    h52w: float | None, l52w: float | None,
     pe: float | None, profit_yoy: float | None,
     label: str,
 ) -> dict:
-    """Derive buy zones, targets, stop-loss and sentiment from technical data."""
+    """Derive buy zones, targets, stop-loss and sentiment from technical data.
+    ma60/ma120/h52w/l52w may be None for recently-listed stocks."""
     if rsi14 >= 80:   rsi_tag = "强烈超买"
     elif rsi14 >= 70: rsi_tag = "超买"
     elif rsi14 >= 60: rsi_tag = "偏强"
@@ -224,10 +300,10 @@ def _derive_levels(
     elif rsi14 >= 30: rsi_tag = "偏弱"
     else:             rsi_tag = "超卖"
 
-    ma20_pct = round((price - ma20) / ma20 * 100, 1)
-    ma60_pct = round((price - ma60) / ma60 * 100, 1)
+    ma20_pct = round((price - ma20) / ma20 * 100, 1) if ma20 else None
+    ma60_pct = round((price - ma60) / ma60 * 100, 1) if ma60 else None
 
-    if rsi14 > 70 or ma20_pct > 15:
+    if rsi14 > 70 or (ma20_pct is not None and ma20_pct > 15):
         sentiment, sentiment_level = "不建议追高", "warn"
     elif label in ("强烈推荐", "推荐") and rsi14 < 60:
         sentiment, sentiment_level = "可建仓", "buy"
@@ -236,25 +312,25 @@ def _derive_levels(
     else:
         sentiment, sentiment_level = "等待回调", "neutral"
 
-    # Buy zones anchored to MA levels
-    z1_low  = round(ma5 * 0.97, 2)
-    z1_high = round(ma5 * 1.01, 2)
-    z2_low  = round(ma20 * 0.97, 2)
-    z2_high = round(ma20 * 1.03, 2)
-    z3_low  = round(ma60 * 0.97, 2)
-    z3_high = round(ma60 * 1.03, 2)
+    # Buy zones anchored to MA levels (skip tiers whose MA is unavailable)
+    buy_zones = []
+    if ma5:
+        buy_zones.append({"tier": 1, "label": "观察买点",
+            "low": round(ma5 * 0.97, 2), "high": round(ma5 * 1.01, 2),
+            "basis": "MA5支撑 / 约1×ATR回调", "note": "轻仓试探，需放量企稳"})
+    if ma20:
+        buy_zones.append({"tier": 2, "label": "中线买点",
+            "low": round(ma20 * 0.97, 2), "high": round(ma20 * 1.03, 2),
+            "basis": "MA20均线支撑，情绪降温后主要买点", "note": "可建半仓"})
+    if ma60:
+        buy_zones.append({"tier": 3, "label": "最优买点",
+            "low": round(ma60 * 0.97, 2), "high": round(ma60 * 1.03, 2),
+            "basis": "MA60强支撑，性价比最高", "note": "可重仓，需确认基本面"})
 
-    buy_zones = [
-        {"tier": 1, "label": "观察买点", "low": z1_low,  "high": z1_high,
-         "basis": "MA5支撑 / 约1×ATR回调",        "note": "轻仓试探，需放量企稳"},
-        {"tier": 2, "label": "中线买点", "low": z2_low,  "high": z2_high,
-         "basis": "MA20均线支撑，情绪降温后主要买点", "note": "可建半仓"},
-        {"tier": 3, "label": "最优买点", "low": z3_low,  "high": z3_high,
-         "basis": "MA60强支撑，性价比最高",          "note": "可重仓，需确认基本面"},
-    ]
-
-    targets = [{"tier": 1, "label": "第一目标", "price": round(h52w * 1.05, 2),
-                 "basis": "52周高点上方5%，逢高减仓1/3"}]
+    targets = []
+    if h52w:
+        targets.append({"tier": 1, "label": "第一目标", "price": round(h52w * 1.05, 2),
+                        "basis": "52周高点上方5%，逢高减仓1/3"})
 
     if pe and profit_yoy and profit_yoy > 0:
         ttm_eps  = price / pe
@@ -265,29 +341,30 @@ def _derive_levels(
             targets.append({"tier": 2, "label": "扩展目标", "price": t2,
                              "basis": f"预期EPS×{fair_pe:.0f}x（PEG≈2）"})
 
-    stop_loss = [
-        {"label": "MA20止损", "price": round(ma20 * 0.95, 2),
-         "basis": "收盘跌破MA20 -5%时减仓"},
-        {"label": "MA60止损", "price": round(ma60 * 0.97, 2),
-         "basis": "深度回调跌破MA60 -3%时清仓"},
-    ]
+    stop_loss = []
+    if ma20:
+        stop_loss.append({"label": "MA20止损", "price": round(ma20 * 0.95, 2),
+                          "basis": "收盘跌破MA20 -5%时减仓"})
+    if ma60:
+        stop_loss.append({"label": "MA60止损", "price": round(ma60 * 0.97, 2),
+                          "basis": "深度回调跌破MA60 -3%时清仓"})
 
     return {
         "sentiment":       sentiment,
         "sentiment_level": sentiment_level,
         "rsi_tag":         rsi_tag,
         "rsi14":           round(rsi14, 1),
-        "atr14":           round(atr14, 2),
+        "atr14":           round(atr14, 2) if atr14 else None,
         "ma20_pct":        ma20_pct,
         "ma60_pct":        ma60_pct,
         "ma": {
-            "ma5":   round(ma5,   2),
-            "ma20":  round(ma20,  2),
-            "ma60":  round(ma60,  2),
-            "ma120": round(ma120, 2),
+            "ma5":   ma5,
+            "ma20":  ma20,
+            "ma60":  ma60,
+            "ma120": ma120,
         },
-        "h52w":      round(h52w, 2),
-        "l52w":      round(l52w, 2),
+        "h52w":      h52w,
+        "l52w":      l52w,
         "buy_zones": buy_zones,
         "targets":   targets,
         "stop_loss": stop_loss,
@@ -335,6 +412,7 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
                COALESCE(q.quality_score, 0)             AS quality_score,
                COALESCE(q.valuation_score, 0)           AS valuation_score,
                COALESCE(q.momentum_score, 0)            AS momentum_score,
+               COALESCE(q.sentiment_score, 50)          AS sentiment_score,
                COALESCE(q.sector_warning, '')           AS sector_warning,
                COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
                COALESCE(i.industry, '')                 AS industry
@@ -563,17 +641,24 @@ async def get_stock_levels(
                 "stock_code": stock_code}
 
     # Scale qlib backward-adjusted prices → actual market prices
-    scale  = actual_price / tech["last_adj"]
-    ma5    = round(tech["ma5"]   * scale, 2)
-    ma20   = round(tech["ma20"]  * scale, 2)
-    ma60   = round(tech["ma60"]  * scale, 2)
-    ma120  = round(tech["ma120"] * scale, 2)
-    atr14  = round(tech["atr14"] * scale, 2)
-    rsi14  = tech["rsi14"]
-    h52w   = round(tech["h52w"]  * scale, 2)
-    l52w   = round(tech["l52w"]  * scale, 2)
+    # NaN values arise for recently-listed stocks (insufficient history for long windows)
+    import math as _math
+
+    def _scale(v: float) -> float | None:
+        return None if (v is None or _math.isnan(v)) else round(v * scale, 2)
+
+    scale = actual_price / tech["last_adj"]
+    ma5   = _scale(tech["ma5"])
+    ma20  = _scale(tech["ma20"])
+    ma60  = _scale(tech["ma60"])
+    ma120 = _scale(tech["ma120"])
+    atr14 = _scale(tech["atr14"])
+    rsi14 = tech["rsi14"]
+    h52w  = _scale(tech["h52w"])
+    l52w  = _scale(tech["l52w"])
 
     fund = _get_fundamentals(stock_code)
+    sector_val = _get_sector_valuation(stock_code, detail.get("pe"), detail.get("pb"))
 
     # Get quant score from DB (try both universes)
     score_data: dict = {}
@@ -613,8 +698,22 @@ async def get_stock_levels(
             k: (round(v, 2) if isinstance(v, float) else v)
             for k, v in fund.items()
         },
+        "sector_valuation": sector_val,
         **levels,
     }
 
+    # Sanitize any stray NaN/Inf values that would break JSON serialization
+    import math as _math
+
+    def _clean(obj):
+        if isinstance(obj, float):
+            return None if (_math.isnan(obj) or _math.isinf(obj)) else obj
+        if isinstance(obj, dict):
+            return {k: _clean(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_clean(v) for v in obj]
+        return obj
+
+    data = _clean(data)
     _levels_cache[stock_code] = {"data": data, "ts": now}
     return data
