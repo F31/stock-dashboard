@@ -183,11 +183,121 @@ def _load_precomputed_levels(code: str) -> dict | None:
         return None
 
 
+def _compute_levels_akshare(code: str) -> dict | None:
+    """Compute technical indicators via AKShare price history (no qlib needed).
+
+    Works on cloud deployments — fetches ~3 years of front-adjusted daily OHLCV
+    from EastMoney, computes MA/ATR/RSI/52w, then caches result in quan_tech_levels
+    so subsequent requests for the same stock are instant DB reads.
+    """
+    try:
+        import akshare as ak
+        import math as _math
+
+        df = ak.stock_zh_a_hist(
+            symbol=code, period="daily",
+            start_date="20230101", end_date=None,
+            adjust="qfq",
+        )
+        if df is None or df.empty:
+            logger.warning("AKShare: empty price history for %s", code)
+            return None
+
+        df = df.sort_values("日期")
+        close = df["收盘"].astype(float)
+        high  = df["最高"].astype(float)
+        low   = df["最低"].astype(float)
+
+        close = close.ffill()
+        high  = high.ffill()
+        low   = low.ffill()
+
+        if len(close) < 5:
+            return None
+
+        # ATR14
+        prev = close.shift(1)
+        tr   = (
+            (high - low)
+            .combine(((high - prev).abs()), max)
+            .combine(((low  - prev).abs()), max)
+        )
+        atr14 = tr.rolling(14).mean().iloc[-1]
+
+        # RSI14
+        d     = close.diff()
+        gain  = d.clip(lower=0).rolling(14).mean()
+        loss  = (-d.clip(upper=0)).rolling(14).mean()
+        rsi14 = (100 - 100 / (1 + gain / (loss + 1e-9))).iloc[-1]
+
+        def _ma(n):
+            v = close.rolling(n).mean().iloc[-1] if len(close) >= n else float("nan")
+            return None if _math.isnan(v) else round(float(v), 6)
+
+        def _rmax(n):
+            v = high.rolling(n).max().iloc[-1] if len(close) >= n else float("nan")
+            return None if _math.isnan(v) else round(float(v), 6)
+
+        def _rmin(n):
+            v = low.rolling(n).min().iloc[-1] if len(close) >= n else float("nan")
+            return None if _math.isnan(v) else round(float(v), 6)
+
+        last_adj = round(float(close.iloc[-1]), 6)
+        today    = df["日期"].iloc[-1]
+        trade_date = str(today)[:10] if hasattr(today, "__str__") else str(today)
+
+        result = {
+            "ok":       True,
+            "last_adj": last_adj,
+            "ma5":      _ma(5),
+            "ma20":     _ma(20),
+            "ma60":     _ma(60),
+            "ma120":    _ma(120),
+            "atr14":    round(float(atr14), 6) if not _math.isnan(float(atr14)) else None,
+            "rsi14":    round(float(rsi14), 6) if not _math.isnan(float(rsi14)) else None,
+            "h52w":     _rmax(252),
+            "l52w":     _rmin(252),
+            "trade_date": trade_date,
+        }
+
+        # Persist to quan_tech_levels so the next request is a fast DB read
+        _save_tech_levels(code, trade_date, result)
+
+        logger.info("AKShare tech levels computed and cached for %s (trade_date=%s)", code, trade_date)
+        return result
+
+    except Exception as e:
+        logger.warning("AKShare tech levels failed for %s: %s", code, e)
+        return None
+
+
+def _save_tech_levels(code: str, trade_date: str, data: dict) -> None:
+    """Persist AKShare-computed tech levels into quan_tech_levels for caching."""
+    try:
+        with _get_conn() as conn:
+            conn.execute(
+                """INSERT INTO quan_tech_levels
+                       (stock_code, trade_date, last_adj, ma5, ma20, ma60, ma120, atr14, rsi14, h52w, l52w)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(stock_code, trade_date) DO UPDATE SET
+                       last_adj=excluded.last_adj, ma5=excluded.ma5, ma20=excluded.ma20,
+                       ma60=excluded.ma60, ma120=excluded.ma120, atr14=excluded.atr14,
+                       rsi14=excluded.rsi14, h52w=excluded.h52w, l52w=excluded.l52w,
+                       updated_at=datetime('now')""",
+                (code, trade_date,
+                 data.get("last_adj"), data.get("ma5"), data.get("ma20"),
+                 data.get("ma60"), data.get("ma120"), data.get("atr14"),
+                 data.get("rsi14"), data.get("h52w"), data.get("l52w")),
+            )
+    except Exception as e:
+        logger.warning("_save_tech_levels failed for %s: %s", code, e)
+
+
 def _run_qlib_levels(code: str) -> dict | None:
     """Blocking: call qlib subprocess to compute technical indicators.
 
     Local-only fallback — only succeeds if _QLIB_PYTHON and qlib data exist.
-    On cloud deployments this always returns None; use _load_precomputed_levels instead.
+    On cloud deployments this always returns None; use precomputed DB or AKShare instead.
     """
     import os
     if not os.path.exists(_QLIB_PYTHON):
@@ -678,13 +788,19 @@ async def get_stock_levels(
     if not actual_price:
         return {"error": "无法获取实时价格", "stock_code": stock_code}
 
-    # Try precomputed DB first (fast, works on cloud); subprocess is local-only fallback
+    # Three-tier fallback for technical indicator computation:
+    #   Tier 1: Precomputed DB (quan_tech_levels) — instant, works on cloud
+    #   Tier 2: AKShare real-time price history    — ~3-5s, works on cloud, caches result
+    #   Tier 3: qlib subprocess                   — local dev only
     tech = _load_precomputed_levels(stock_code)
+    if not tech:
+        logger.info("Tech levels not in DB for %s — trying AKShare", stock_code)
+        tech = await asyncio.to_thread(_compute_levels_akshare, stock_code)
     if not tech:
         tech = await asyncio.to_thread(_run_qlib_levels, stock_code)
 
     if not tech:
-        return {"error": "技术指标暂未计算，请等待每日定时任务完成后刷新",
+        return {"error": "技术指标计算失败，请稍候重试",
                 "stock_code": stock_code}
 
     # Scale qlib backward-adjusted prices → actual market prices

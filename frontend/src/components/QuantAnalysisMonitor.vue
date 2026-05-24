@@ -235,7 +235,7 @@
             <!-- Loading -->
             <div v-if="detailModal.loading" class="detail-state">
               <div class="detail-spinner"></div>
-              <span>正在计算技术指标（首次约40秒，已缓存1小时）…</span>
+              <span>正在获取技术指标（首次约5秒，已缓存1小时）…</span>
             </div>
 
             <!-- Error -->
@@ -607,7 +607,7 @@ async function openDetail(row) {
   } catch (err) {
     const isTimeout = err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')
     detailModal.value.error = isTimeout
-      ? '技术指标计算超时（首次约40秒），请稍候再试'
+      ? '技术指标获取超时，请稍候重试'
       : '获取数据失败，请检查网络后重试'
   } finally {
     detailModal.value.loading = false

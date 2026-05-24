@@ -40,3 +40,24 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     # Migration: add role column to users table if missing
     _ensure_column("users", "role VARCHAR(20) DEFAULT 'user'")
+
+    # Ensure quan_tech_levels table exists (not managed by SQLAlchemy models)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS quan_tech_levels (
+                stock_code  TEXT NOT NULL,
+                trade_date  TEXT NOT NULL,
+                last_adj    REAL,
+                ma5         REAL,
+                ma20        REAL,
+                ma60        REAL,
+                ma120       REAL,
+                atr14       REAL,
+                rsi14       REAL,
+                h52w        REAL,
+                l52w        REAL,
+                updated_at  TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (stock_code, trade_date)
+            )
+        """))
+        conn.commit()
