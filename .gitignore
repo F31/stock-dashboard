@@ -10,3 +10,5 @@ frontend/dist/
 dist/
 frontend/dist/assets/
 frontend/reports/
+backend/data/*.db-shm
+backend/data/*.db-wal
