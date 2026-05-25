@@ -969,10 +969,31 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   var LOOKAHEAD = 2;   // 超前预取块数
 
   var _audio = null, _state = 'idle';
+  var _audioCtx = null;  // AudioContext 全平台解锁
   var _chunks = [], _playIdx = 0;
   var _buffers = {{}};   // idx → Blob URL
   var _fetching = {{}};  // idx → true（正在请求中）
   var _session = 0;      // 每次 start/stop 递增，使过期回调失效
+
+  // ── 全平台音频解锁（Android / iOS / 桌面） ──────────────────────────────
+  function _ensureAudioUnlocked() {{
+    if (!_audioCtx) {{
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) try {{ _audioCtx = new AC(); }} catch(e) {{}}
+    }}
+    if (_audioCtx && _audioCtx.state === 'suspended') {{
+      _audioCtx.resume().catch(function(){{}});
+    }}
+    if (_audioCtx) {{
+      try {{
+        var buf = _audioCtx.createBuffer(1, 22050, 22050);
+        var src = _audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(_audioCtx.destination);
+        src.start();
+      }} catch(e) {{}}
+    }}
+  }}
 
   // ── 文本提取 ──────────────────────────────────────────────────────────────
   function _extractText() {{
@@ -1070,6 +1091,8 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   function _playChunk(idx) {{
     if (!_audio || !_buffers[idx] || (_state!=='loading'&&_state!=='playing')) return;
     var mySid = _session;
+    // 每次播放前保证 AudioContext 处于 running 状态
+    _ensureAudioUnlocked();
     var prevUrl = _audio.src;
     _audio.loop = false;
     _audio.volume = 1.0;
@@ -1114,6 +1137,8 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
 
   window.toggleTTS = function() {{
     if (_state === 'loading') return;
+    // 全平台音频解锁：必须在用户手势中调用
+    _ensureAudioUnlocked();
     if (_state === 'idle') {{
       if (!_audio) {{
         _audio = new Audio();

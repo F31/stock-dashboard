@@ -237,11 +237,38 @@ const ttsError  = ref('')
 const ttsChunkProgress = ref({ cur: 0, total: 0 })
 
 let _audio    = null   // HTMLAudioElement（在用户手势中创建）
+let _audioCtx = null   // AudioContext（全平台音频解锁）
 let _chunks   = []     // string[]
 let _playIdx  = 0
 let _buffers  = {}     // idx → blob URL
 let _fetching = {}     // idx → true（请求进行中）
 let _session  = 0      // 每次 start/stop 自增，使过期回调失效
+
+// ── 全平台音频解锁（Android / iOS / 桌面） ────────────────────────────────
+// AudioContext.resume() 必须在用户手势（click/touch）中调用，之后页面生命
+// 周期内所有音频播放（HTMLAudioElement / AudioContext）均不再受自动播放策略
+// 限制。这是 W3C 标准 API，华为浏览器、Chrome、Safari 均支持。
+function _ensureAudioUnlocked() {
+  if (!_audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (AC) {
+      try { _audioCtx = new AC() } catch {}
+    }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {})
+  }
+  // 播一个 1 秒静音 buffer，唤醒音频输出硬件
+  if (_audioCtx) {
+    try {
+      const buf = _audioCtx.createBuffer(1, 22050, 22050)
+      const src = _audioCtx.createBufferSource()
+      src.buffer = buf
+      src.connect(_audioCtx.destination)
+      src.start()
+    } catch {}
+  }
+}
 
 const ttsBtnTitle = computed(() => {
   const m = { idle: '朗读报告', loading: '正在合成语音…', playing: '暂停朗读', paused: '继续朗读' }
@@ -333,6 +360,8 @@ function _prefetch() {
 function _playChunk(idx) {
   if (!_audio || _buffers[idx] === undefined) return
   const mySid = _session
+  // 每次播放前保证 AudioContext 处于 running 状态
+  _ensureAudioUnlocked()
   const oldSrc = _audio.src
   // iOS 修复：不调用 pause()！在正在播放的元素上直接更换 src，
   // Safari 会自动停止旧源加载新源并继续播放，不丢失信任状态。
@@ -361,9 +390,32 @@ function _playChunk(idx) {
     })
     .catch(e => {
       if (_session !== mySid) return
-      ttsState.value = 'idle'
-      ttsError.value = '播放失败，请重试'
-      console.error('TTS play error', e)
+      // 尝试创建全新 Audio 元素重试 —— 某些移动浏览器上 AudioContext
+      // unlock 后新元素信任度更高
+      try {
+        const fresh = new Audio()
+        fresh.preload = 'auto'
+        fresh.loop = false
+        fresh.volume = 1.0
+        fresh.src = _buffers[idx]
+        fresh.onended = _audio.onended
+        const p2 = fresh.play()
+        if (p2) {
+          p2.then(() => {
+            _audio = fresh
+            ttsState.value = 'playing'
+            ttsChunkProgress.value = { cur: idx + 1, total: _chunks.length }
+          }).catch(e2 => {
+            ttsState.value = 'idle'
+            ttsError.value = '播放失败，请重试'
+            console.error('TTS play error (fallback)', e2)
+          })
+        }
+      } catch {
+        ttsState.value = 'idle'
+        ttsError.value = '播放失败，请重试'
+        console.error('TTS play error', e)
+      }
     })
 }
 
@@ -375,6 +427,9 @@ function _revokeAll() {
 
 async function toggleTTS() {
   if (ttsState.value === 'loading') return
+
+  // 全平台音频解锁：AudioContext.resume() 必须在用户手势中调用
+  _ensureAudioUnlocked()
 
   if (ttsState.value === 'idle') {
     const text = buildSpeechText()

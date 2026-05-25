@@ -65,6 +65,8 @@ try:
         "sector_warning TEXT DEFAULT ''",
         "valuation_score REAL",
         "sentiment_score REAL",
+        "surprise_score REAL",
+        "opportunity_tag TEXT DEFAULT ''",
     ):
         _ensure_column("quan_daily_scores", _col)
 except Exception:
