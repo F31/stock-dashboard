@@ -284,6 +284,15 @@ export function fetchQuanDates(model = 'factor', limit = 30) {
   return api.get('/quan/dates', { params: { model, limit } })
 }
 export function fetchQuanChainFilters() { return api.get('/quan/chain-filters') }
+export function fetchQuanThemeScores(params = {}) { return api.get('/quan/theme-scores', { params }) }
+
+// ── Pipeline ──
+export function triggerPipeline(trade_date = null, expand = false) {
+  return api.post('/pipeline/trigger', { trade_date, expand })
+}
+export function fetchPipelineStatus() { return api.get('/pipeline/status') }
+export function fetchPipelineLog(lines = 100) { return api.get('/pipeline/log', { params: { lines } }) }
+export function fetchPoolStats() { return api.get('/pipeline/pool-stats') }
 // qlib subprocess cold-start can take 40 s; override the 30 s global timeout
 export function fetchQuanStockLevels(stockCode) {
   return api.get(`/quan/scores/${stockCode}/levels`, { timeout: 90000 })

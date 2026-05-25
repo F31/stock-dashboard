@@ -274,30 +274,40 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
-import StockCard from '../components/StockCard.vue'
-import AddStockModal from '../components/AddStockModal.vue'
-import AllStocksModal from '../components/AllStocksModal.vue'
-import MarketIntel from '../components/MarketIntel.vue'
-import CongestionMonitor from '../components/CongestionMonitor.vue'
-import UserManagement from '../components/UserManagement.vue'
-import OperationLog from '../components/OperationLog.vue'
-import LLMConfigModal from '../components/LLMConfigModal.vue'
-import MacroMonitor from '../components/MacroMonitor.vue'
-import IndustrialProfitMonitor from '../components/IndustrialProfitMonitor.vue'
-import QuantAnalysisMonitor from '../components/QuantAnalysisMonitor.vue'
-import StockDetailModal from '../components/StockDetailModal.vue'
-import PremarketModal from '../components/PremarketModal.vue'
-import PremarketHistoryModal from '../components/PremarketHistoryModal.vue'
-import ScheduledTaskConfig from '../components/ScheduledTaskConfig.vue'
-import DataSourceConfig from '../components/DataSourceConfig.vue'
-import WatchedTickerConfig from '../components/WatchedTickerConfig.vue'
-import FrameworkEditor from '../components/FrameworkEditor.vue'
-import PromptTemplateConfig from '../components/PromptTemplateConfig.vue'
 import { useAuthStore } from '../stores/authStore.js'
 import { fetchQuanScores } from '../api/index.js'
+
+// ── Always on first paint ───────────────────────────────────────────────────
+import StockCard      from '../components/StockCard.vue'
+import MarketIntel    from '../components/MarketIntel.vue'
+
+// ── Lazy: shown only after a user action (modal / tab switch) ───────────────
+const AddStockModal      = defineAsyncComponent(() => import('../components/AddStockModal.vue'))
+const AllStocksModal     = defineAsyncComponent(() => import('../components/AllStocksModal.vue'))
+const StockDetailModal   = defineAsyncComponent(() => import('../components/StockDetailModal.vue'))
+const CongestionMonitor  = defineAsyncComponent(() => import('../components/CongestionMonitor.vue'))
+
+// Heavy tab panels — loaded only when the user clicks the tab
+const QuantAnalysisMonitor   = defineAsyncComponent(() => import('../components/QuantAnalysisMonitor.vue'))
+const MacroMonitor           = defineAsyncComponent(() => import('../components/MacroMonitor.vue'))
+const IndustrialProfitMonitor = defineAsyncComponent(() => import('../components/IndustrialProfitMonitor.vue'))
+
+// Premarket — triggered by header button
+const PremarketModal        = defineAsyncComponent(() => import('../components/PremarketModal.vue'))
+const PremarketHistoryModal = defineAsyncComponent(() => import('../components/PremarketHistoryModal.vue'))
+
+// Admin-only system modals — rarely opened
+const UserManagement      = defineAsyncComponent(() => import('../components/UserManagement.vue'))
+const OperationLog        = defineAsyncComponent(() => import('../components/OperationLog.vue'))
+const LLMConfigModal      = defineAsyncComponent(() => import('../components/LLMConfigModal.vue'))
+const ScheduledTaskConfig = defineAsyncComponent(() => import('../components/ScheduledTaskConfig.vue'))
+const DataSourceConfig    = defineAsyncComponent(() => import('../components/DataSourceConfig.vue'))
+const WatchedTickerConfig = defineAsyncComponent(() => import('../components/WatchedTickerConfig.vue'))
+const FrameworkEditor     = defineAsyncComponent(() => import('../components/FrameworkEditor.vue'))
+const PromptTemplateConfig = defineAsyncComponent(() => import('../components/PromptTemplateConfig.vue'))
 
 const router = useRouter()
 const store = useStockStore()

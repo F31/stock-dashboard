@@ -18,29 +18,84 @@
           @input="currentPage = 0"
         />
         <button class="refresh-btn" :class="{ spinning: loading }" @click="load" title="刷新">↻</button>
+        <button class="pipeline-btn"
+                :class="pipelineStatusCls"
+                @click="pipelineModal = true"
+                :title="`训练流水线 (${pipelineState.status})`">
+          ⚙ 训练
+        </button>
       </div>
     </div>
+
+    <!-- Pipeline control modal -->
+    <Teleport to="body">
+      <div v-if="pipelineModal" class="modal-overlay" @click.self="pipelineModal = false">
+        <div class="modal pipeline-modal">
+          <div class="modal-hdr">
+            <span class="modal-title">⚙ 训练流水线</span>
+            <button class="close-btn" @click="pipelineModal = false">×</button>
+          </div>
+          <div class="modal-body pipeline-body">
+            <!-- Pool stats -->
+            <div class="pipe-section">
+              <div class="pipe-sec-title">AI产业链股票池</div>
+              <div v-if="poolStats.total" class="pipe-stats">
+                <span class="pipe-stat">共 <strong>{{ poolStats.total }}</strong> 只</span>
+                <span v-for="c in poolStats.by_chain" :key="c.chain" class="pipe-stat">
+                  {{ c.chain || '其他' }}: <strong>{{ c.n }}</strong>
+                </span>
+              </div>
+              <div v-else class="pipe-empty">股票池未构建 — 运行流水线后填充</div>
+            </div>
+
+            <!-- Trigger controls -->
+            <div class="pipe-section">
+              <div class="pipe-sec-title">触发训练</div>
+              <div class="pipe-controls">
+                <input v-model="pipelineDate" class="pipe-date-input" type="date" />
+                <label class="pipe-expand-lbl">
+                  <input type="checkbox" v-model="pipelineExpand" />
+                  AKShare扩展（慢）
+                </label>
+                <button class="pipe-run-btn"
+                        :disabled="pipelineState.status === 'running'"
+                        @click="runPipeline">
+                  {{ pipelineState.status === 'running' ? '运行中…' : '▶ 执行' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Status -->
+            <div class="pipe-section">
+              <div class="pipe-sec-title">
+                运行状态
+                <span :class="['pipe-status-badge', 'pipe-st-' + pipelineState.status]">
+                  {{ pipelineState.status }}
+                </span>
+                <button class="pipe-refresh-btn" @click="refreshPipelineStatus">↻</button>
+              </div>
+              <div v-if="pipelineState.started" class="pipe-meta">
+                开始: {{ pipelineState.started?.slice(0,19) }}
+                <span v-if="pipelineState.ended">  结束: {{ pipelineState.ended?.slice(0,19) }}</span>
+              </div>
+            </div>
+
+            <!-- Log -->
+            <div class="pipe-section pipe-log-section">
+              <div class="pipe-sec-title">
+                最近日志
+                <button class="pipe-refresh-btn" @click="refreshPipelineLog">↻</button>
+              </div>
+              <pre class="pipe-log">{{ pipelineLog || '(暂无日志)' }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <div v-if="loading && !hasData" class="loading-tip">量化数据加载中...</div>
 
     <template v-else-if="hasData">
-      <!-- Chain filter dropdown -->
-      <div class="chain-bar">
-        <span class="chain-label">产业链</span>
-        <div class="chain-select-wrap">
-          <select v-model="selectedChainId" class="chain-select" @change="currentPage = 0">
-            <option :value="null">全部股票</option>
-            <option v-for="c in chainList" :key="c.id" :value="c.id">
-              {{ c.name }}（{{ c.count }} 只A股）
-            </option>
-          </select>
-        </div>
-        <span v-if="selectedChainId !== null" class="chain-match-tip"
-              :title="`产业链 ${chainList.find(c=>c.id===selectedChainId)?.count||0} 只 + 自选股合并去重`">
-          命中 {{ filteredActiveScores.length }} 只
-        </span>
-      </div>
-
       <!-- Universe tabs (between header and stats) -->
       <div class="universe-tabs h-scroll">
         <button
@@ -51,6 +106,28 @@
           {{ tab.label }}
           <span class="utab-cnt">{{ tab.count }}</span>
         </button>
+      </div>
+
+      <!-- Subsector selector (theme tab only) — dropdown + "更多" popup -->
+      <div v-if="activeUniverse === 'theme'" class="ssec-bar">
+        <!-- Compact select for top slots -->
+        <div class="ssec-select-wrap">
+          <select class="ssec-select" :value="selectedSubsector ?? '__all__'"
+                  @change="onSsecSelect($event.target.value)">
+            <option value="__all__">全部板块（{{ themeScores.length }}只）</option>
+            <optgroup v-for="chain in ssecByChain" :key="chain.key" :label="chain.label">
+              <option v-for="ss in chain.items" :key="ss.key" :value="ss.key">
+                {{ ss.name }}（{{ ss.n_stocks }}只）
+              </option>
+            </optgroup>
+          </select>
+          <span class="ssec-select-arrow">▾</span>
+        </div>
+        <!-- Active badge -->
+        <span v-if="selectedSubsector" class="ssec-active-badge">
+          {{ subsectorDisplayName(selectedSubsector) }}
+          <button class="ssec-clear-btn" @click="selectedSubsector = null; currentPage = 0" title="清除筛选">×</button>
+        </span>
       </div>
 
       <!-- Stats row (clickable) -->
@@ -80,7 +157,10 @@
       <!-- Full list (paginated) -->
       <div class="section">
         <div class="section-hdr">
-          <span class="section-title">🏆 {{ activeUniverse === 'star50' ? '科创50' : '沪深300' }}全量评分</span>
+          <span class="section-title">🏆
+            {{ activeUniverse === 'theme'
+                ? (selectedSubsector ? subsectorDisplayName(selectedSubsector) : '主题链')
+                : (activeUniverse === 'star50' ? '科创50' : '沪深300') }}全量评分</span>
           <span class="section-sub">{{ filteredActiveScores.length }} 只符合条件</span>
           <div class="page-nav" v-if="totalPages > 1">
             <button class="page-btn" :disabled="currentPage === 0" @click="currentPage--">‹</button>
@@ -99,7 +179,11 @@
             <span class="code-text">{{ row.stock_code }}</span>
             <span class="name-text">{{ row.stock_name || '—' }}</span>
           </div>
-          <span class="industry-col" :title="row.industry || ''">{{ row.industry || '—' }}</span>
+          <div class="industry-col" :title="row.industry || ''">
+            <span>{{ row.industry || '—' }}</span>
+            <span v-if="activeUniverse === 'theme' && row.subsector && !selectedSubsector"
+                  class="subsector-tag">{{ subsectorDisplayName(row.subsector) }}</span>
+          </div>
           <div class="price-col">
             <span class="price-val">{{ row.price != null ? row.price.toFixed(2) : '—' }}</span>
             <span :class="['chg-val', chgCls(row.change_pct)]">{{ fmtChg(row.change_pct) }}</span>
@@ -214,6 +298,10 @@
                     :title="oppTagTip(detailModal.stock)">
                 {{ detailModal.stock?.stock_code?.startsWith('688') ? '⚡ 科创成长' : '⚡ 成长窗口' }}
               </span>
+              <span v-if="detailModal.stock?.subsector"
+                    class="subsector-badge">
+                {{ subsectorDisplayName(detailModal.stock.subsector) }}
+              </span>
               <span v-if="detailModal.stock?.sector_warning"
                     :class="['warn-tag', warnCls(detailModal.stock.sector_warning)]">
                 {{ detailModal.stock.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
@@ -226,15 +314,13 @@
             <!-- Factor score breakdown (always shown when stock data available) -->
             <div v-if="detailModal.stock && (detailModal.stock.growth_score || detailModal.stock.quality_score || detailModal.stock.valuation_score || detailModal.stock.momentum_score)"
                  class="factor-breakdown">
-              <div class="detail-sec-title">因子得分 <span class="fb-total">综合 {{ detailModal.stock.percentile_score?.toFixed(0) }} 分</span></div>
+              <div class="detail-sec-title">因子得分
+                <span class="fb-total">综合 {{ detailModal.stock.percentile_score?.toFixed(0) }} 分</span>
+                <span v-if="detailModal.stock?.subsector && themeWeightsMap[detailModal.stock.subsector]"
+                      class="fb-calibrated" title="权重由IC/ICIR校准训练得出，非固定默认值">IC校准权重</span>
+              </div>
               <div class="fb-bars">
-                <template v-for="f in [
-                  { key: 'growth_score',    label: '成长', w: 35, tip: '利润/营收YoY增速 + 加速度 + Capex周期 + 业绩超预期（含10%超预期权重）' },
-                  { key: 'quality_score',   label: '质量', w: 22, tip: 'ROE / 毛利率 / 现金利润率' },
-                  { key: 'valuation_score', label: '估值', w: 20, tip: 'PEG + 行业相对PE；PE>150且营收增长时用PB/ROE前瞻PE替代TTM PE；科创板早期成长期TTM PE结构性偏高' },
-                  { key: 'momentum_score',  label: '动量', w: 13, tip: 'Alpha158多周期趋势+量价确认' },
-                  { key: 'sentiment_score', label: '情绪', w: 10, tip: '换手率异动（成交量/MA20）× 60% + 成交额截面排名 × 40%' },
-                ]" :key="f.key">
+                <template v-for="f in detailFactorWeights" :key="f.key">
                   <div class="fb-row">
                     <span class="fb-label" :title="f.tip">
                       {{ f.label }}
@@ -473,7 +559,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { fetchQuanScores, fetchQuanChainFilters, fetchQuanStockLevels } from '../api/index.js'
+import { fetchQuanScores, fetchQuanStockLevels, fetchQuanThemeScores,
+         triggerPipeline, fetchPipelineStatus, fetchPipelineLog, fetchPoolStats } from '../api/index.js'
 
 const props = defineProps({
   watchlistCodes:  { type: Array, default: () => [] },
@@ -485,6 +572,9 @@ const PAGE_SIZE = 30
 const tradeDate      = ref(null)
 const allScores      = ref([])
 const star50Scores   = ref([])
+const themeScores    = ref([])      // all theme_3chain scores
+const subsectorList  = ref([])      // [{key, name, chain, chain_key, n_stocks, weights}]
+const selectedSubsector = ref(null) // null = all sub-sectors
 const loading        = ref(false)
 const searchQuery    = ref('')
 const currentPage    = ref(0)
@@ -494,9 +584,13 @@ const listModal      = ref({ show: false, title: '', stocks: [] })
 const rulesModal     = ref(false)
 const detailModal    = ref({ show: false, stock: null, levels: null, loading: false, error: null })
 
-// Chain filter
-const chainList      = ref([])   // [{id, name, count, codes: []}]
-const selectedChainId = ref(null) // null = show all
+// Pipeline control
+const pipelineModal   = ref(false)
+const pipelineDate    = ref(new Date().toISOString().slice(0, 10))
+const pipelineExpand  = ref(false)
+const pipelineState   = ref({ status: 'idle', pid: null, started: null, ended: null, date: null, tail: '' })
+const pipelineLog     = ref('')
+const poolStats       = ref({ total: 0, by_chain: [], by_source: [] })
 
 const watchMap = computed(() => {
   const m = {}
@@ -520,33 +614,22 @@ function enrich(rows) {
   })
 }
 
-const hasData = computed(() => allScores.value.length > 0)
-
-const activeScores = computed(() =>
-  enrich(activeUniverse.value === 'star50' ? star50Scores.value : allScores.value)
+const hasData = computed(() =>
+  allScores.value.length > 0 || themeScores.value.length > 0
 )
 
-// Set of A-share codes for the current filter = chain codes ∪ watchlist codes (deduped).
-// Returns null when "全部" is selected (no filter applied).
-const chainCodeSet = computed(() => {
-  const watchlistSet = new Set(props.watchlistCodes)
-  if (selectedChainId.value === null) {
-    // "全部" — but if there's a watchlist, still show all; return null = no filter
-    return null
+const activeScores = computed(() => {
+  if (activeUniverse.value === 'theme') {
+    const src = selectedSubsector.value
+      ? themeScores.value.filter(r => r.subsector === selectedSubsector.value)
+      : themeScores.value
+    return enrich(src)
   }
-  const chain = chainList.value.find(c => c.id === selectedChainId.value)
-  const chainCodes = chain ? chain.codes : []
-  // Union: chain stocks + all watchlist stocks, deduplicated
-  return new Set([...chainCodes, ...watchlistSet])
+  return enrich(activeUniverse.value === 'star50' ? star50Scores.value : allScores.value)
 })
 
 const filteredActiveScores = computed(() => {
   let rows = activeScores.value
-  // Chain filter first
-  if (chainCodeSet.value) {
-    rows = rows.filter(r => chainCodeSet.value.has(r.stock_code))
-  }
-  // Then text search
   const q = searchQuery.value.trim().toLowerCase()
   if (q) {
     rows = rows.filter(r =>
@@ -577,7 +660,71 @@ const activeStats = computed(() => {
 const universeTabs = computed(() => [
   { key: 'csi300', label: '沪深300', count: allScores.value.length },
   { key: 'star50', label: '科创50',  count: star50Scores.value.length },
+  { key: 'theme',  label: '主题链',  count: themeScores.value.length },
 ])
+
+// Sub-sector chips ordered tech → space → bio
+const orderedSubsectors = computed(() => {
+  const order = ['tech', 'space', 'bio', 'other']
+  return [...subsectorList.value].sort((a, b) =>
+    order.indexOf(a.chain_key) - order.indexOf(b.chain_key)
+  )
+})
+
+// Grouped by chain for the dropdown optgroups and picker modal
+const ssecByChain = computed(() => {
+  const chains = [
+    { key: 'tech',  label: '科技链' },
+    { key: 'space', label: '航天链' },
+    { key: 'bio',   label: '生物链' },
+    { key: 'other', label: '其他' },
+  ]
+  return chains
+    .map(c => ({ ...c, items: orderedSubsectors.value.filter(s => s.chain_key === c.key) }))
+    .filter(c => c.items.length > 0)
+})
+
+// Per-subsector weights map for detail modal
+const themeWeightsMap = computed(() => {
+  const m = {}
+  for (const ss of subsectorList.value) {
+    if (ss.weights && Object.keys(ss.weights).length > 0) m[ss.key] = ss.weights
+  }
+  return m
+})
+
+const DEFAULT_FACTOR_WEIGHTS = [
+  { key: 'growth_score',    label: '成长', w: 35, tip: '利润/营收YoY增速 + 加速度 + Capex周期 + 业绩超预期（含10%超预期权重）' },
+  { key: 'quality_score',   label: '质量', w: 22, tip: 'ROE / 毛利率 / 现金利润率' },
+  { key: 'valuation_score', label: '估值', w: 20, tip: 'PEG + 行业相对PE；PE>150且营收增长时用PB/ROE前瞻PE替代TTM PE；科创板早期成长期TTM PE结构性偏高' },
+  { key: 'momentum_score',  label: '动量', w: 13, tip: 'Alpha158多周期趋势+量价确认' },
+  { key: 'sentiment_score', label: '情绪', w: 10, tip: '换手率异动（成交量/MA20）× 60% + 成交额截面排名 × 40%' },
+]
+
+const detailFactorWeights = computed(() => {
+  const stock = detailModal.value.stock
+  const ss = stock?.subsector
+  const w = ss ? themeWeightsMap.value[ss] : null
+  if (!w) return DEFAULT_FACTOR_WEIGHTS
+  const total = Object.values(w).reduce((a, b) => a + b, 0)
+  return [
+    { key: 'growth_score',    label: '成长', w: Math.round((w.growth    ?? 0) / total * 100), tip: DEFAULT_FACTOR_WEIGHTS[0].tip },
+    { key: 'quality_score',   label: '质量', w: Math.round((w.quality   ?? 0) / total * 100), tip: DEFAULT_FACTOR_WEIGHTS[1].tip },
+    { key: 'valuation_score', label: '估值', w: Math.round((w.valuation ?? 0) / total * 100), tip: DEFAULT_FACTOR_WEIGHTS[2].tip },
+    { key: 'momentum_score',  label: '动量', w: Math.round((w.momentum  ?? 0) / total * 100), tip: DEFAULT_FACTOR_WEIGHTS[3].tip },
+    { key: 'sentiment_score', label: '情绪', w: Math.round((w.sentiment ?? 0) / total * 100), tip: DEFAULT_FACTOR_WEIGHTS[4].tip },
+  ]
+})
+
+function subsectorDisplayName(key) {
+  return subsectorList.value.find(s => s.key === key)?.name || key
+}
+
+function onSsecSelect(val) {
+  selectedSubsector.value = val === '__all__' ? null : val
+  currentPage.value = 0
+  searchQuery.value = ''
+}
 
 const filteredModalStocks = computed(() => {
   const q = modalSearch.value.trim().toLowerCase()
@@ -661,30 +808,19 @@ async function openDetail(row) {
   }
 }
 
-async function loadChains() {
-  try {
-    const res = await fetchQuanChainFilters()
-    chainList.value = res.data.chains || []
-    // Auto-select the active framework (defaults to "AI产业链")
-    if (selectedChainId.value === null) {
-      const active = chainList.value.find(c => c.is_active)
-      if (active) selectedChainId.value = active.id
-    }
-  } catch {
-    chainList.value = []
-  }
-}
-
 async function load() {
   loading.value = true
   try {
-    const [res, resStar] = await Promise.all([
+    const [res, resStar, resTheme] = await Promise.all([
       fetchQuanScores({ model: 'factor', min_percentile: 0 }),
       fetchQuanScores({ model: 'factor_star50', min_percentile: 0 }),
+      fetchQuanThemeScores(),
     ])
-    tradeDate.value    = res.data.trade_date
-    allScores.value    = (res.data.scores    || []).map((r, i) => ({ ...r, rank: i + 1 }))
-    star50Scores.value = (resStar.data.scores || []).map((r, i) => ({ ...r, rank: i + 1 }))
+    tradeDate.value     = res.data.trade_date
+    allScores.value     = (res.data.scores     || []).map((r, i) => ({ ...r, rank: i + 1 }))
+    star50Scores.value  = (resStar.data.scores  || []).map((r, i) => ({ ...r, rank: i + 1 }))
+    themeScores.value   = resTheme.data.scores   || []
+    subsectorList.value = resTheme.data.subsectors || []
   } catch {
     allScores.value = []
   } finally {
@@ -692,9 +828,55 @@ async function load() {
   }
 }
 
+const pipelineStatusCls = computed(() => ({
+  'pipe-running': pipelineState.value.status === 'running',
+  'pipe-success': pipelineState.value.status === 'success',
+  'pipe-error':   pipelineState.value.status === 'error',
+}))
+
+async function runPipeline() {
+  try {
+    const res = await triggerPipeline(pipelineDate.value, pipelineExpand.value)
+    pipelineState.value = res.data.state || pipelineState.value
+    // Auto-poll status while running
+    const poll = setInterval(async () => {
+      await refreshPipelineStatus()
+      if (pipelineState.value.status !== 'running') {
+        clearInterval(poll)
+        await refreshPipelineLog()
+        load()  // refresh scores when done
+      }
+    }, 5000)
+  } catch (e) {
+    console.error('Pipeline trigger failed', e)
+  }
+}
+
+async function refreshPipelineStatus() {
+  try {
+    const res = await fetchPipelineStatus()
+    pipelineState.value = res.data
+  } catch {}
+}
+
+async function refreshPipelineLog() {
+  try {
+    const res = await fetchPipelineLog(80)
+    pipelineLog.value = res.data.log || ''
+  } catch {}
+}
+
+async function loadPoolStats() {
+  try {
+    const res = await fetchPoolStats()
+    poolStats.value = res.data
+  } catch {}
+}
+
 onMounted(() => {
   load()
-  loadChains()
+  refreshPipelineStatus()
+  loadPoolStats()
 })
 
 function oppTagTip(row) {
@@ -752,36 +934,116 @@ function oppTagTip(row) {
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-tip { text-align: center; color: #9ca3af; font-size: 0.82em; padding: 48px; }
 
-/* ── Chain filter bar ── */
-.chain-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 18px;
+/* ── Pipeline button ── */
+.pipeline-btn {
+  background: #f3f4f6; border: 1px solid #d1d5db;
+  color: #374151; border-radius: 7px; padding: 4px 12px; cursor: pointer;
+  font-size: 0.76em; font-weight: 600; transition: background 0.15s;
 }
-.chain-label {
-  font-size: 0.75em; font-weight: 700; color: #374151;
-  white-space: nowrap;
+.pipeline-btn:hover { background: #e5e7eb; }
+.pipeline-btn.pipe-running { background: #fef9c3; border-color: #fde047; color: #854d0e; }
+.pipeline-btn.pipe-success { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.pipeline-btn.pipe-error   { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+
+/* ── Pipeline modal ── */
+.pipeline-modal { max-width: 700px; width: 95vw; }
+.pipeline-body  { display: flex; flex-direction: column; gap: 16px; padding: 18px; }
+.pipe-section   { display: flex; flex-direction: column; gap: 8px; }
+.pipe-sec-title {
+  font-size: 0.78em; font-weight: 700; color: #374151;
+  display: flex; align-items: center; gap: 8px;
 }
-.chain-select-wrap {
+.pipe-stats { display: flex; flex-wrap: wrap; gap: 10px; }
+.pipe-stat  { font-size: 0.75em; color: #6b7280; }
+.pipe-stat strong { color: #111827; }
+.pipe-empty { font-size: 0.72em; color: #9ca3af; }
+.pipe-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pipe-date-input {
+  border: 1px solid #d1d5db; border-radius: 7px;
+  font-size: 0.78em; padding: 5px 10px; outline: none; color: #374151;
+}
+.pipe-date-input:focus { border-color: #6366f1; }
+.pipe-expand-lbl { font-size: 0.74em; color: #374151; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.pipe-run-btn {
+  background: #4f46e5; border: none; border-radius: 7px;
+  color: #fff; font-size: 0.78em; font-weight: 700;
+  padding: 6px 18px; cursor: pointer; transition: background 0.15s;
+}
+.pipe-run-btn:hover:not(:disabled) { background: #4338ca; }
+.pipe-run-btn:disabled { background: #a5b4fc; cursor: not-allowed; }
+.pipe-status-badge {
+  font-size: 0.65em; border-radius: 4px; padding: 1px 8px; font-weight: 700;
+}
+.pipe-st-idle    { background: #f3f4f6; color: #6b7280; }
+.pipe-st-pending { background: #fef9c3; color: #854d0e; }
+.pipe-st-running { background: #dbeafe; color: #1d4ed8; }
+.pipe-st-success { background: #dcfce7; color: #166534; }
+.pipe-st-error   { background: #fee2e2; color: #991b1b; }
+.pipe-meta       { font-size: 0.70em; color: #9ca3af; }
+.pipe-refresh-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 1em; color: #9ca3af; padding: 0 4px;
+}
+.pipe-refresh-btn:hover { color: #6b7280; }
+.pipe-log-section { flex: 1; }
+.pipe-log {
+  background: #111827; border-radius: 8px; color: #e5e7eb;
+  font-family: monospace; font-size: 0.70em; line-height: 1.5;
+  max-height: 300px; overflow-y: auto; padding: 12px 16px;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* ── Subsector selector bar (theme tab) ── */
+.ssec-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 18px; flex-wrap: wrap;
+}
+.ssec-select-wrap {
   position: relative; display: flex; align-items: center;
 }
-.chain-select-wrap::after {
-  content: '▾'; position: absolute; right: 10px; top: 50%;
+.ssec-select-arrow {
+  position: absolute; right: 10px; top: 50%;
   transform: translateY(-50%); pointer-events: none;
   font-size: 0.72em; color: #6b7280;
 }
-.chain-select {
+.ssec-select {
   appearance: none; -webkit-appearance: none;
   background: #fff; border: 1px solid #d1d5db;
   border-radius: 8px; color: #374151; font-size: 0.78em;
   padding: 5px 30px 5px 12px; cursor: pointer;
-  outline: none; min-width: 180px;
+  outline: none; min-width: 200px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.chain-select:focus { border-color: #6366f1; box-shadow: 0 0 0 2px #e0e7ff; }
-.chain-match-tip {
-  font-size: 0.70em; color: #2563eb;
-  background: #eff6ff; border: 1px solid #bfdbfe;
-  border-radius: 6px; padding: 2px 8px; white-space: nowrap;
+.ssec-select:focus { border-color: #6366f1; box-shadow: 0 0 0 2px #e0e7ff; }
+.ssec-active-badge {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 0.74em; font-weight: 600; color: #059669;
+  background: #ecfdf5; border: 1px solid #a7f3d0;
+  border-radius: 16px; padding: 3px 10px;
+}
+.ssec-clear-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 1.1em; color: #6b7280; padding: 0; line-height: 1;
+}
+.ssec-clear-btn:hover { color: #374151; }
+
+.subsector-tag {
+  display: inline-block; margin-top: 2px;
+  font-size: 0.65em; color: #059669;
+  background: #ecfdf5; border: 1px solid #a7f3d0;
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+
+.subsector-badge {
+  font-size: 0.68em; color: #059669;
+  background: #ecfdf5; border: 1px solid #a7f3d0;
+  border-radius: 5px; padding: 2px 8px; font-weight: 600;
+}
+
+.fb-calibrated {
+  font-size: 0.65em; color: #7c3aed;
+  background: #ede9fe; border: 1px solid #c4b5fd;
+  border-radius: 4px; padding: 1px 6px; margin-left: 6px; font-weight: 600;
 }
 
 /* ── Universe tabs ── */
@@ -869,8 +1131,11 @@ function oppTagTip(row) {
 .name-text   { font-size: 0.68em; color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .industry-col {
   font-size: 0.68em; color: #6b7280;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow: hidden; cursor: default;
+}
+.industry-col > span:first-child {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  cursor: default;
 }
 .price-col   { display: flex; flex-direction: column; gap: 2px; }
 .price-val   { font-size: 0.82em; font-weight: 600; color: #111827; }
@@ -1001,7 +1266,6 @@ function oppTagTip(row) {
   .quan-hdr   { flex-wrap: wrap; gap: 6px; padding: 10px 14px; }
   .quan-hdr-l { flex-wrap: wrap; }
   .search-input { width: 110px; }
-  .chain-select { min-width: 140px; }
   .warn-tag { font-size: 0.60em; padding: 1px 4px; }
 }
 

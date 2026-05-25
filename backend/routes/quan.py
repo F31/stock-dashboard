@@ -19,6 +19,15 @@ from models import User
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["quan"])
 
+# Load stock_quan base config for pipeline paths (graceful fallback if missing)
+try:
+    import sys as _sys
+    _sys.path.insert(0, "/root/projects/stock_quan")
+    from core.config import load_base_cfg as _load_base_cfg
+    _BASE: dict = _load_base_cfg()
+except Exception:
+    _BASE = {}
+
 # ── Per-code live price cache ──────────────────────────────────────────────
 # Keyed by stock_code → {"price": float, "change_pct": float, "ts": float}
 # Each code has its own timestamp so a partial update never evicts valid data.
@@ -602,6 +611,47 @@ def _table_exists(table: str = "quan_daily_scores") -> bool:
         return False
 
 
+# ── Theme-chain subsector metadata (mirrors stock_quan/core/theme_definitions.py) ──
+_SUBSECTOR_META: dict[str, dict] = {
+    "chip_semiconductor":     {"name": "芯片半导体",        "chain": "科技链", "chain_key": "tech"},
+    "optical_module":         {"name": "光模块",            "chain": "科技链", "chain_key": "tech"},
+    "ai_big_model":           {"name": "AI大模型",          "chain": "科技链", "chain_key": "tech"},
+    "robot":                  {"name": "机器人",             "chain": "科技链", "chain_key": "tech"},
+    "quantum_computing":      {"name": "量子计算",           "chain": "科技链", "chain_key": "tech"},
+    "lithography_material":   {"name": "光刻机原材料",       "chain": "科技链", "chain_key": "tech"},
+    "memory_storage":         {"name": "存储",               "chain": "科技链", "chain_key": "tech"},
+    "power_equipment":        {"name": "电力设备新能源",     "chain": "科技链", "chain_key": "tech"},
+    "satellite_internet":     {"name": "卫星互联网",         "chain": "航天链", "chain_key": "space"},
+    "launch_rocket":          {"name": "运载火箭",           "chain": "航天链", "chain_key": "space"},
+    "space_application":      {"name": "航天应用",           "chain": "航天链", "chain_key": "space"},
+    "innovative_drug":        {"name": "创新药",             "chain": "生物链", "chain_key": "bio"},
+    "cro_cdmo":               {"name": "CRO/CDMO",          "chain": "生物链", "chain_key": "bio"},
+    "medical_device":         {"name": "医疗器械",           "chain": "生物链", "chain_key": "bio"},
+    "genomics_synthetic_bio": {"name": "基因组学/合成生物",  "chain": "生物链", "chain_key": "bio"},
+}
+
+_THEME_HISTORY_DB = "/root/projects/stock_quan/data/training_results/training_history.db"
+
+
+def _load_theme_weights() -> dict[str, dict]:
+    """Load latest per-subsector IC-calibrated weights from training_history.db."""
+    try:
+        with sqlite3.connect(_THEME_HISTORY_DB) as conn:
+            rows = conn.execute("""
+                SELECT subsector_key, weight_growth, weight_quality, weight_valuation,
+                       weight_momentum, weight_sentiment
+                FROM training_runs
+                WHERE run_id = (SELECT MAX(run_id) FROM training_runs)
+            """).fetchall()
+        return {
+            r[0]: {"growth": r[1], "quality": r[2], "valuation": r[3],
+                   "momentum": r[4], "sentiment": r[5]}
+            for r in rows if r[1] is not None
+        }
+    except Exception:
+        return {}
+
+
 def _resolve_date(conn, trade_date, model):
     if trade_date is not None:
         return trade_date
@@ -635,6 +685,7 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
                COALESCE(q.surprise_score, 50)           AS surprise_score,
                COALESCE(q.opportunity_tag, '')          AS opportunity_tag,
                COALESCE(q.sector_warning, '')           AS sector_warning,
+               COALESCE(q.subsector, '')                AS subsector,
                COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
                COALESCE(i.industry, '')                 AS industry
         FROM quan_daily_scores q
@@ -831,6 +882,104 @@ async def get_chain_filters(current_user: User = Depends(get_current_user)):
     return {"chains": chains}
 
 
+@router.get("/quan/theme-scores")
+async def get_theme_scores(
+    trade_date: Optional[str] = Query(None),
+    subsector: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Return theme_3chain scores with subsector grouping and IC-calibrated weights.
+
+    Returns all stocks (or filtered by subsector) plus a per-subsector summary
+    including trained factor weights from training_history.db.
+    """
+    if not _table_exists():
+        return {"trade_date": None, "total": 0, "subsectors": [], "scores": []}
+
+    with _get_conn() as conn:
+        td = _resolve_date(conn, trade_date, "theme_3chain")
+        if td is None:
+            return {"trade_date": None, "total": 0, "subsectors": [], "scores": []}
+
+        sql = """
+            SELECT q.stock_code, q.trade_date, q.model_name,
+                   q.raw_score, q.percentile_score, q.label, q.rank,
+                   COALESCE(q.growth_score, 0)     AS growth_score,
+                   COALESCE(q.quality_score, 0)    AS quality_score,
+                   COALESCE(q.valuation_score, 0)  AS valuation_score,
+                   COALESCE(q.momentum_score, 0)   AS momentum_score,
+                   COALESCE(q.sentiment_score, 50) AS sentiment_score,
+                   COALESCE(q.subsector, '')        AS subsector,
+                   COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
+                   COALESCE(i.industry, '')         AS industry
+            FROM quan_daily_scores q
+            LEFT JOIN (
+                SELECT stock_code, MAX(stock_name) AS stock_name, MAX(industry) AS industry
+                FROM quan_stock_info GROUP BY stock_code
+            ) i ON i.stock_code = q.stock_code
+            LEFT JOIN (
+                SELECT stock_code, MAX(stock_name) AS stock_name
+                FROM watchlist WHERE stock_name IS NOT NULL AND stock_name != ''
+                GROUP BY stock_code
+            ) w ON w.stock_code = q.stock_code
+            WHERE q.trade_date=? AND q.model_name='theme_3chain'
+        """
+        params: list = [td]
+        if subsector:
+            sql += " AND q.subsector=?"
+            params.append(subsector)
+        sql += " ORDER BY q.subsector, q.percentile_score DESC"
+
+        scores = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # Per-subsector stock counts
+    ss_counts: dict[str, int] = {}
+    for s in scores:
+        ss_counts[s["subsector"]] = ss_counts.get(s["subsector"], 0) + 1
+
+    # Load IC-calibrated weights from training_history.db
+    weights_map = _load_theme_weights()
+
+    # Build ordered subsector summary (tech → space → bio)
+    chain_order = ["tech", "space", "bio"]
+    seen: set[str] = set()
+    subsectors_out = []
+    for chain_key in chain_order:
+        for key, meta in _SUBSECTOR_META.items():
+            if meta["chain_key"] == chain_key and key not in seen and key in ss_counts:
+                seen.add(key)
+                subsectors_out.append({
+                    "key":       key,
+                    "name":      meta["name"],
+                    "chain":     meta["chain"],
+                    "chain_key": meta["chain_key"],
+                    "n_stocks":  ss_counts[key],
+                    "weights":   weights_map.get(key, {}),
+                })
+    # Any unknown subsectors last
+    for key, cnt in ss_counts.items():
+        if key not in seen:
+            subsectors_out.append({
+                "key":       key,
+                "name":      key,
+                "chain":     "其他",
+                "chain_key": "other",
+                "n_stocks":  cnt,
+                "weights":   weights_map.get(key, {}),
+            })
+
+    if scores:
+        prices = _batch_prices([s["stock_code"] for s in scores])
+        scores = _enrich(scores, prices)
+
+    return {
+        "trade_date": td,
+        "total":      len(scores),
+        "subsectors": subsectors_out,
+        "scores":     scores,
+    }
+
+
 @router.get("/quan/scores/{stock_code}/levels")
 async def get_stock_levels(
     stock_code: str,
@@ -946,3 +1095,155 @@ async def get_stock_levels(
     data = _clean(data)
     _levels_cache[stock_code] = {"data": data, "ts": now}
     return data
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pipeline trigger & status endpoints
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import threading as _threading
+from datetime import datetime as _datetime
+from fastapi import Body
+
+_PIPELINE_ROOT  = "/root/projects/stock_quan"
+_PIPELINE_SCRIPT = f"{_PIPELINE_ROOT}/run_pipeline.sh"
+_PIPELINE_LOG   = f"{_PIPELINE_ROOT}/logs/pipeline_latest.log"
+_PIPELINE_PYTHON = "/root/qlib/qvenv/bin/python"
+
+# In-process state for the running pipeline (reset on process restart)
+_pipeline_state: dict = {
+    "status": "idle",       # idle | running | success | error
+    "pid":     None,
+    "started": None,
+    "ended":   None,
+    "date":    None,
+    "tail":    "",
+}
+_pipeline_lock = _threading.Lock()
+
+
+def _run_pipeline_bg(trade_date: str, expand: bool) -> None:
+    """Background thread that executes run_pipeline.sh."""
+    import shlex
+    cmd = ["bash", _PIPELINE_SCRIPT, trade_date]
+    if expand:
+        cmd.append("--expand")
+    log_path = f"{_PIPELINE_ROOT}/logs/pipeline_{trade_date.replace('-','')}.log"
+    try:
+        with open(log_path, "w") as lf, _pipeline_lock:
+            _pipeline_state["status"]  = "running"
+            _pipeline_state["started"] = _datetime.now().isoformat()
+            _pipeline_state["ended"]   = None
+            _pipeline_state["tail"]    = ""
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cwd=_PIPELINE_ROOT, text=True, bufsize=1,
+        )
+        with _pipeline_lock:
+            _pipeline_state["pid"] = proc.pid
+
+        lines: list[str] = []
+        with open(log_path, "a") as lf:
+            for line in proc.stdout:
+                lf.write(line)
+                lines.append(line.rstrip())
+                if len(lines) > 50:
+                    lines.pop(0)
+
+        proc.wait()
+        with _pipeline_lock:
+            _pipeline_state["status"] = "success" if proc.returncode == 0 else "error"
+            _pipeline_state["ended"]  = _datetime.now().isoformat()
+            _pipeline_state["tail"]   = "\n".join(lines[-20:])
+            _pipeline_state["pid"]    = None
+    except Exception as exc:
+        with _pipeline_lock:
+            _pipeline_state["status"] = "error"
+            _pipeline_state["ended"]  = _datetime.now().isoformat()
+            _pipeline_state["tail"]   = str(exc)
+            _pipeline_state["pid"]    = None
+
+
+@router.post("/pipeline/trigger")
+async def trigger_pipeline(
+    trade_date: Optional[str] = Body(None, embed=True),
+    expand: bool = Body(False, embed=True),
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger the AI industry chain quantitative training pipeline.
+
+    Runs run_pipeline.sh in a background thread. Returns immediately with
+    the current state. Poll /pipeline/status to track progress.
+    """
+    with _pipeline_lock:
+        if _pipeline_state["status"] == "running":
+            return {
+                "ok": False,
+                "message": "Pipeline already running",
+                "state": dict(_pipeline_state),
+            }
+
+    td = trade_date or _datetime.now().strftime("%Y-%m-%d")
+    with _pipeline_lock:
+        _pipeline_state["date"]    = td
+        _pipeline_state["status"]  = "pending"
+        _pipeline_state["started"] = _datetime.now().isoformat()
+
+    t = _threading.Thread(target=_run_pipeline_bg, args=(td, expand), daemon=True)
+    t.start()
+    logger.info("Pipeline triggered by %s for date=%s expand=%s", current_user.username, td, expand)
+    return {"ok": True, "message": f"Pipeline started for {td}", "state": dict(_pipeline_state)}
+
+
+@router.get("/pipeline/status")
+async def pipeline_status(current_user: User = Depends(get_current_user)):
+    """Return the current pipeline execution state."""
+    with _pipeline_lock:
+        return dict(_pipeline_state)
+
+
+@router.get("/pipeline/log")
+async def pipeline_log(
+    lines: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the last N lines of the most recent pipeline log file."""
+    import glob
+    pattern = f"{_PIPELINE_ROOT}/logs/pipeline_*.log"
+    logs = sorted(glob.glob(pattern), reverse=True)
+    if not logs:
+        return {"log": "", "file": None}
+    log_file = logs[0]
+    try:
+        with open(log_file) as f:
+            content = f.readlines()
+        tail = "".join(content[-lines:])
+    except Exception as e:
+        tail = str(e)
+    return {"log": tail, "file": log_file}
+
+
+@router.get("/pipeline/pool-stats")
+async def pool_stats(current_user: User = Depends(get_current_user)):
+    """Return AI industry pool statistics from ai_pool_cache."""
+    feature_db = _BASE.get("db", {}).get(
+        "feature_store_path",
+        "/root/projects/stock_quan/data/feature_store.db",
+    )
+    try:
+        with sqlite3.connect(feature_db) as conn:
+            total = conn.execute("SELECT COUNT(*) FROM ai_pool_cache").fetchone()[0]
+            by_chain = conn.execute(
+                "SELECT chain, COUNT(*) as n FROM ai_pool_cache GROUP BY chain ORDER BY n DESC"
+            ).fetchall()
+            by_source = conn.execute(
+                "SELECT source, COUNT(*) as n FROM ai_pool_cache GROUP BY source ORDER BY n DESC"
+            ).fetchall()
+        return {
+            "total": total,
+            "by_chain":  [{"chain": r[0], "n": r[1]} for r in by_chain],
+            "by_source": [{"source": r[0], "n": r[1]} for r in by_source],
+        }
+    except Exception as e:
+        return {"total": 0, "by_chain": [], "by_source": [], "error": str(e)}
