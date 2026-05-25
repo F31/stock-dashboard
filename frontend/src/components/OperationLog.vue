@@ -243,4 +243,17 @@ onMounted(fetchData)
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-btn:hover:not(:disabled) { border-color: #2563eb; color: #2563eb; }
 .page-info { font-size: 0.85em; color: #6b7280; }
+
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: 16px 16px 0 0; max-height: 92dvh;
+  }
+  .modal-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .log-table { min-width: 640px; font-size: 0.75em; }
+  .log-table th, .log-table td { padding: 6px 8px; }
+  .filters { padding: 8px 12px; gap: 6px; }
+  .filter-input { width: 110px; }
+}
 </style>

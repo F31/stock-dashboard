@@ -517,6 +517,12 @@ onUnmounted(() => {
 
 /* ── Mobile ── */
 @media (max-width: 640px) {
+  /* Tab bar: horizontal scroll */
+  .tab-bar {
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; flex-wrap: nowrap;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
   .chart-header {
     flex-wrap: wrap;
     gap: 4px;

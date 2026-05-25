@@ -35,8 +35,43 @@ body {
   ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 }
 
-/* ── Responsive: hide scrollbar on mobile for cleaner look ── */
+/* ── Scrollbar utility ── */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Horizontal scroll container (tab bars / tables on mobile) ── */
+.h-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.h-scroll::-webkit-scrollbar { display: none; }
+
+/* ── Prevent tab / cell from shrinking inside scroll container ── */
+.no-shrink { flex-shrink: 0; white-space: nowrap; }
+
+/* ── Mobile modal — bottom sheet pattern ── */
 @media (max-width: 640px) {
-  .hide-scrollbar::-webkit-scrollbar { display: none; }
-  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .m-modal-overlay {
+    padding: 0 !important;
+    align-items: flex-end !important;
+  }
+  .m-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 92dvh !important;
+    overflow-y: auto;
+  }
+  /* Two-column form → single column on mobile */
+  .m-form-grid {
+    grid-template-columns: 1fr !important;
+  }
+  /* Table wrapper — force scroll instead of overflow */
+  .m-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .m-table-wrap::-webkit-scrollbar { display: none; }
 }

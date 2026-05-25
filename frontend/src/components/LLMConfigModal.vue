@@ -729,6 +729,7 @@ async function handleDelete(c) {
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
+  .modal-overlay { padding: 0; }
   .modal {
     width: 100vw; max-width: 100vw;
     height: 100vh; max-height: 100vh;

@@ -337,4 +337,21 @@ function shortUrl(url) {
 
 .dialog-body p { color: #374151; font-size: 13px; margin: 0; }
 .dialog-body strong { color: #1f2937; }
+
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal-box {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: 16px 16px 0 0; max-height: 92dvh;
+  }
+  .modal-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 560px; font-size: 12px; }
+  .data-table th, .data-table td { padding: 7px 8px; }
+  .dialog-overlay { padding: 0; align-items: flex-end; }
+  .dialog-box {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: 16px 16px 0 0; max-height: 85dvh; overflow-y: auto;
+  }
+  .dialog-sm { width: 100%; }
+}
 </style>

@@ -523,4 +523,21 @@ onMounted(() => {
   margin-top: 10px; padding: 8px 12px; background: #fef2f2;
   border: 1px solid #fecaca; border-radius: 6px; color: #dc2626; font-size: 0.85em;
 }
+
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: 16px 16px 0 0; max-height: 92dvh;
+  }
+  .modal-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .user-table { min-width: 560px; font-size: 0.78em; }
+  .user-table th, .user-table td { padding: 7px 8px; }
+  .sub-modal-overlay { padding: 0; align-items: flex-end; }
+  .sub-modal {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: 16px 16px 0 0; max-height: 85dvh; overflow-y: auto;
+  }
+  .sub-modal-sm { width: 100%; }
+}
 </style>

@@ -57,30 +57,32 @@
               <div class="sec-ttl">🏆 Top5 成分股（按市值）</div>
               <div v-if="top5Loading" class="empty-tip">加载中...</div>
               <div v-else-if="top5Data.length === 0" class="empty-tip">暂无数据</div>
-              <table v-else class="top5-table">
-                <thead>
-                  <tr>
-                    <th>#</th><th>名称</th><th>价格</th><th>涨跌幅</th>
-                    <th>PE动态</th><th>PEG</th><th>净利增速</th><th>总市值</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="s in top5Data" :key="s.code">
-                    <td class="t5-rank">{{ s.rank }}</td>
-                    <td class="t5-name">{{ s.name }}</td>
-                    <td class="t5-num">{{ s.price != null ? s.price.toFixed(2) : '--' }}</td>
-                    <td :class="['t5-num', s.change_pct != null ? (s.change_pct >= 0 ? 'val-up' : 'val-down') : '']">
-                      {{ s.change_pct != null ? (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%' : '--' }}
-                    </td>
-                    <td class="t5-num">{{ s.pe != null ? s.pe.toFixed(1) + '×' : '--' }}</td>
-                    <td class="t5-num">{{ s.peg != null ? s.peg.toFixed(2) : '--' }}</td>
-                    <td :class="['t5-num', s.profit_growth_rate != null ? (s.profit_growth_rate >= 0 ? 'val-up' : 'val-down') : '']">
-                      {{ s.profit_growth_rate != null ? (s.profit_growth_rate >= 0 ? '+' : '') + s.profit_growth_rate.toFixed(1) + '%' : '--' }}
-                    </td>
-                    <td class="t5-num">{{ fmtCap(s.market_cap) }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="m-table-wrap">
+                <table v-if="top5Data.length" class="top5-table">
+                  <thead>
+                    <tr>
+                      <th>#</th><th>名称</th><th>价格</th><th>涨跌幅</th>
+                      <th>PE动态</th><th>PEG</th><th>净利增速</th><th>总市值</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="s in top5Data" :key="s.code">
+                      <td class="t5-rank">{{ s.rank }}</td>
+                      <td class="t5-name">{{ s.name }}</td>
+                      <td class="t5-num">{{ s.price != null ? s.price.toFixed(2) : '--' }}</td>
+                      <td :class="['t5-num', s.change_pct != null ? (s.change_pct >= 0 ? 'val-up' : 'val-down') : '']">
+                        {{ s.change_pct != null ? (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%' : '--' }}
+                      </td>
+                      <td class="t5-num">{{ s.pe != null ? s.pe.toFixed(1) + '×' : '--' }}</td>
+                      <td class="t5-num">{{ s.peg != null ? s.peg.toFixed(2) : '--' }}</td>
+                      <td :class="['t5-num', s.profit_growth_rate != null ? (s.profit_growth_rate >= 0 ? 'val-up' : 'val-down') : '']">
+                        {{ s.profit_growth_rate != null ? (s.profit_growth_rate >= 0 ? '+' : '') + s.profit_growth_rate.toFixed(1) + '%' : '--' }}
+                      </td>
+                      <td class="t5-num">{{ fmtCap(s.market_cap) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <!-- Sparkline -->
@@ -625,14 +627,19 @@ async function removeReport(r) {
 @media (max-width: 640px) {
   .modal-overlay { padding: 0; align-items: flex-end; }
   .modal {
-    border-radius: 20px 20px 0 0; max-width: 100vw;
+    border-radius: 20px 20px 0 0; max-width: 100vw; width: 100%;
     max-height: 96dvh;
   }
   .modal-hdr { padding: 12px 14px; }
   .stock-name { font-size: 15px; }
   .hdr-right { gap: 5px; }
-  .tab-nav { padding: 0 10px; gap: 0; overflow-x: auto; }
-  .tab-item { padding: 9px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+  /* Tab bar: horizontal scroll when tabs don't fit */
+  .tab-bar {
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; flex-wrap: nowrap; padding: 0 10px;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-btn { padding: 9px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
   .tab-body { padding: 12px 14px; }
   .big-price { font-size: 24px; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }

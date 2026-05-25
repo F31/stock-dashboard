@@ -1135,4 +1135,23 @@ async function doDeleteFw() {
 }
 .btn-danger:hover:not(:disabled) { background: #b91c1c; }
 .btn-danger:disabled { opacity: .6; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0; }
+  .modal-box {
+    width: 100vw; max-width: 100vw; height: 100vh; border-radius: 0;
+  }
+  .modal-body { flex-direction: column; }
+  .sidebar {
+    width: 100%; flex-shrink: 0; border-right: none;
+    border-bottom: 1px solid #e5e7eb; max-height: 180px;
+    padding: 8px; flex-direction: row; flex-wrap: wrap; gap: 6px; overflow-y: auto;
+  }
+  .tab-bar {
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; flex-wrap: nowrap;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-btn { flex-shrink: 0; }
+}
 </style>

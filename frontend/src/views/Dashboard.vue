@@ -517,8 +517,14 @@ function onDragEnd() {
 }
 
 async function refresh() {
-  await store.refreshStocks()
-  lastUpdate.value = fmtTime()
+  try {
+    await store.refreshStocks()
+    lastUpdate.value = fmtTime()
+  } catch (e) {
+    if (e?.response?.status === 401) {
+      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+    }
+  }
 }
 
 const hideToast = ref('')
@@ -608,8 +614,13 @@ function closeSysMenu(e) {
   }
 }
 
+function stopRefreshTimer() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+}
+
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
+  window.addEventListener('auth:logout', stopRefreshTimer)
   await store.loadWatchlist()
   await refresh()
   loadQuanScores()  // fire-and-forget, may have no data yet
@@ -619,7 +630,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
-  if (refreshTimer) clearInterval(refreshTimer)
+  window.removeEventListener('auth:logout', stopRefreshTimer)
+  stopRefreshTimer()
   document.removeEventListener('click', closeSysMenu)
 })
 </script>
@@ -1271,5 +1283,15 @@ onUnmounted(() => {
   }
 
   .drag-handle { display: none; }
+
+  /* Main tabs: horizontal scroll on small screens */
+  .main-tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+  .main-tab-bar::-webkit-scrollbar { display: none; }
+  .main-tab { flex-shrink: 0; font-size: 0.82em; padding: 8px 14px; }
 }
 </style>

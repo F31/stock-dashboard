@@ -42,10 +42,10 @@
       </div>
 
       <!-- Universe tabs (between header and stats) -->
-      <div class="universe-tabs">
+      <div class="universe-tabs h-scroll">
         <button
           v-for="tab in universeTabs" :key="tab.key"
-          :class="['utab', { active: activeUniverse === tab.key }]"
+          :class="['utab no-shrink', { active: activeUniverse === tab.key }]"
           @click="activeUniverse = tab.key; currentPage = 0; searchQuery = ''"
         >
           {{ tab.label }}
@@ -982,13 +982,26 @@ function oppTagTip(row) {
 .modal-tbl-row .pct-bar-wrap { background: #e5e7eb; }
 
 @media (max-width: 640px) {
-  .tbl-head, .tbl-row { grid-template-columns: 36px 120px 0 70px 1fr 88px; }
+  /* Condensed 4-col layout: rank | code+name | score | label */
+  .tbl-head, .tbl-row { grid-template-columns: 32px 1fr 48px 82px; }
+  .tbl-head span:nth-child(3),
+  .tbl-head span:nth-child(4) { display: none; }
+  .modal-tbl-head, .modal-tbl-row { grid-template-columns: 32px 1fr 48px 82px; }
+  .modal-tbl-head span:nth-child(3),
+  .modal-tbl-head span:nth-child(4) { display: none; }
   .industry-col { display: none; }
+  .price-col    { display: none; }
+  .pct-bar-wrap { display: none; }
+  .pct-val      { min-width: unset; font-size: 0.72em; }
+  /* Stats */
   .stats-row { gap: 6px; }
   .stat-card { min-width: 60px; padding: 10px 4px; }
   .stat-val  { font-size: 1.3em; }
+  /* Header controls */
+  .quan-hdr   { flex-wrap: wrap; gap: 6px; padding: 10px 14px; }
+  .quan-hdr-l { flex-wrap: wrap; }
   .search-input { width: 110px; }
-  .modal-tbl-head, .modal-tbl-row { grid-template-columns: 36px 130px 0 70px 1fr 88px; }
+  .chain-select { min-width: 140px; }
   .warn-tag { font-size: 0.60em; padding: 1px 4px; }
 }
 
@@ -1168,12 +1181,16 @@ function oppTagTip(row) {
 .sv-pricey    { background: #fff7ed; color: #c2410c; }
 .sv-expensive { background: #fee2e2; color: #dc2626; }
 
-/* ── Detail modal 移动端 ── */
+/* ── 移动端：所有弹窗改为底部弹出 (bottom sheet) ── */
 @media (max-width: 640px) {
   .modal-overlay { padding: 0; align-items: flex-end; }
-  .detail-modal { max-width: 100vw; border-radius: 20px 20px 0 0; max-height: 96dvh; }
+  .modal {
+    max-width: 100vw !important; width: 100%;
+    border-radius: 16px 16px 0 0; max-height: 92dvh;
+  }
+  .detail-modal { border-radius: 20px 20px 0 0; max-height: 96dvh; }
+  .rules-modal  { border-radius: 0; max-height: 100dvh; max-width: 100vw; }
   .fund-grid { grid-template-columns: repeat(2, 1fr); }
-  .rules-modal { max-width: 100vw; max-height: 100dvh; border-radius: 0; }
   .sector-val-row { gap: 6px; padding: 8px 10px; }
   .sv-verdict { margin-left: 0; }
 }
