@@ -34,6 +34,38 @@ CACHE_TTL_MACRO = 86400   # 24 hours — monthly releases, once per day
 
 _ak_sem = asyncio.Semaphore(2)
 
+# Per-key locks: prevent thundering-herd when cache is cold and multiple
+# clients hit the same endpoint simultaneously.
+_fetch_locks: Dict[str, asyncio.Lock] = {}
+
+
+def _fetch_lock(key: str) -> asyncio.Lock:
+    """Return (creating if needed) the asyncio.Lock for a cache key."""
+    if key not in _fetch_locks:
+        _fetch_locks[key] = asyncio.Lock()
+    return _fetch_locks[key]
+
+
+async def _cached_fetch(cache_key: str, ttl: int, fetch_fn):
+    """Double-checked locking wrapper.
+
+    1. L1/L2 cache hit → return immediately (no lock).
+    2. Cache miss → acquire per-key lock → re-check (another coroutine may
+       have populated it while we waited) → call fetch_fn() → store if truthy.
+    Returns the cached / freshly-fetched value, or {} / [] on failure.
+    """
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+    async with _fetch_lock(cache_key):
+        cached = _get_cached(cache_key)   # re-check inside lock
+        if cached is not None:
+            return cached
+        result = await fetch_fn()
+        if result:                        # don't cache empty/error returns
+            _set_cache(cache_key, result, ttl)
+        return result
+
 _EM_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 _EM_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -214,75 +246,62 @@ async def fetch_all_yields() -> Dict[str, Any]:
         "spread_10y": -2.82   # CN 10Y minus US 10Y
       }
     """
-    cache_key = "macro:yields"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        try:
+            import math
+            start = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
+            df = await _run_ak("bond_zh_us_rate", start_date=start)
+            if df is None or df.empty:
+                raise ValueError("empty DataFrame")
 
-    try:
-        import math
-        start = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
-        df = await _run_ak("bond_zh_us_rate", start_date=start)
-        if df is None or df.empty:
-            raise ValueError("empty DataFrame")
+            def _last_valid_row(anchor_col: str):
+                for _, row in df.iloc[::-1].iterrows():
+                    try:
+                        v = float(row[anchor_col])
+                        if not math.isnan(v):
+                            return row
+                    except (TypeError, ValueError, KeyError):
+                        pass
+                return None
 
-        def _last_valid_row(anchor_col: str):
-            """Return the last row where anchor_col is a finite number."""
-            for _, row in df.iloc[::-1].iterrows():
+            us_row = _last_valid_row("美国国债收益率10年")
+            cn_row = _last_valid_row("中国国债收益率10年")
+            date_str = _fmt_date(df.iloc[-1]["日期"])
+
+            def _get(row, col) -> Optional[float]:
+                if row is None:
+                    return None
                 try:
-                    v = float(row[anchor_col])
-                    if not math.isnan(v):
-                        return row
+                    v = float(row[col])
+                    return round(v, 4) if not math.isnan(v) else None
                 except (TypeError, ValueError, KeyError):
-                    pass
+                    return None
+
+            us_yields, cn_yields = [], []
+            for term, cn_col, us_col in [
+                ("2Y",  "中国国债收益率2年",  "美国国债收益率2年"),
+                ("5Y",  "中国国债收益率5年",  "美国国债收益率5年"),
+                ("10Y", "中国国债收益率10年", "美国国债收益率10年"),
+                ("30Y", "中国国债收益率30年", "美国国债收益率30年"),
+            ]:
+                cn_v = _get(cn_row, cn_col)
+                us_v = _get(us_row, us_col)
+                if cn_v is not None:
+                    cn_yields.append({"term": term, "value": cn_v})
+                if us_v is not None:
+                    us_yields.append({"term": term, "value": us_v})
+
+            cn10 = _get(cn_row, "中国国债收益率10年")
+            us10 = _get(us_row, "美国国债收益率10年")
+            spread = round(cn10 - us10, 4) if (cn10 is not None and us10 is not None) else None
+            result = {"date": date_str, "us": us_yields, "cn": cn_yields, "spread_10y": spread}
+            logger.info(f"Yields loaded: date={date_str}, US10Y={us10}%, CN10Y={cn10}%")
+            return result
+        except Exception as e:
+            logger.warning(f"fetch_all_yields error: {e}")
             return None
 
-        us_row = _last_valid_row("美国国债收益率10年")
-        cn_row = _last_valid_row("中国国债收益率10年")
-
-        # Display date: latest of the two valid rows
-        date_str = _fmt_date(df.iloc[-1]["日期"])
-
-        def _get(row, col) -> Optional[float]:
-            if row is None:
-                return None
-            try:
-                v = float(row[col])
-                return round(v, 4) if not math.isnan(v) else None
-            except (TypeError, ValueError, KeyError):
-                return None
-
-        us_yields, cn_yields = [], []
-        for term, cn_col, us_col in [
-            ("2Y",  "中国国债收益率2年",  "美国国债收益率2年"),
-            ("5Y",  "中国国债收益率5年",  "美国国债收益率5年"),
-            ("10Y", "中国国债收益率10年", "美国国债收益率10年"),
-            ("30Y", "中国国债收益率30年", "美国国债收益率30年"),
-        ]:
-            cn_v = _get(cn_row, cn_col)
-            us_v = _get(us_row, us_col)
-            if cn_v is not None:
-                cn_yields.append({"term": term, "value": cn_v})
-            if us_v is not None:
-                us_yields.append({"term": term, "value": us_v})
-
-        cn10 = _get(cn_row, "中国国债收益率10年")
-        us10 = _get(us_row, "美国国债收益率10年")
-        spread = round(cn10 - us10, 4) if (cn10 is not None and us10 is not None) else None
-
-        result = {
-            "date": date_str,
-            "us": us_yields,
-            "cn": cn_yields,
-            "spread_10y": spread,
-        }
-        _set_cache(cache_key, result, CACHE_TTL_BONDS)
-        logger.info(f"Yields loaded: date={date_str}, US10Y={us10}%, CN10Y={cn10}%")
-        return result
-
-    except Exception as e:
-        logger.warning(f"fetch_all_yields error: {e}")
-        return {}
+    return await _cached_fetch("macro:yields", CACHE_TTL_BONDS, _fetch) or {}
 
 
 # ── China CPI (EastMoney primary, akshare fallback) ─────────────────────────
@@ -292,33 +311,30 @@ async def fetch_cn_cpi() -> Dict[str, Any]:
     China CPI YoY% and MoM%.
     Returns: {"period": "2026-04", "yoy": 1.2, "mom": 0.3, "prev": 1.0}
     """
-    cache_key = "macro:cn_cpi"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        try:
+            rows = await _fetch_eastmoney(
+                "RPT_ECONOMY_CPI",
+                "REPORT_DATE,NATIONAL_SAME,NATIONAL_SEQUENTIAL",
+                page_size=2,
+            )
+            if not rows:
+                raise ValueError("empty")
+            row = rows[0]
+            prev_row = rows[1] if len(rows) >= 2 else None
+            result = {
+                "period": _ym(row["REPORT_DATE"]),
+                "yoy": round(float(row["NATIONAL_SAME"]), 2),
+                "mom": round(float(row["NATIONAL_SEQUENTIAL"]), 2) if row.get("NATIONAL_SEQUENTIAL") is not None else None,
+                "prev": round(float(prev_row["NATIONAL_SAME"]), 2) if prev_row else None,
+            }
+            logger.info(f"CPI (EastMoney): {result}")
+            return result
+        except Exception as e:
+            logger.warning(f"fetch_cn_cpi EastMoney error: {e}, falling back to akshare")
+            return await _fetch_cn_cpi_akshare() or None
 
-    try:
-        rows = await _fetch_eastmoney(
-            "RPT_ECONOMY_CPI",
-            "REPORT_DATE,NATIONAL_SAME,NATIONAL_SEQUENTIAL",
-            page_size=2,
-        )
-        if not rows:
-            raise ValueError("empty")
-        row = rows[0]
-        prev_row = rows[1] if len(rows) >= 2 else None
-        result = {
-            "period": _ym(row["REPORT_DATE"]),
-            "yoy": round(float(row["NATIONAL_SAME"]), 2),
-            "mom": round(float(row["NATIONAL_SEQUENTIAL"]), 2) if row.get("NATIONAL_SEQUENTIAL") is not None else None,
-            "prev": round(float(prev_row["NATIONAL_SAME"]), 2) if prev_row else None,
-        }
-        _set_cache(cache_key, result, CACHE_TTL_MACRO)
-        logger.info(f"CPI (EastMoney): {result}")
-        return result
-    except Exception as e:
-        logger.warning(f"fetch_cn_cpi EastMoney error: {e}, falling back to akshare")
-        return await _fetch_cn_cpi_akshare()
+    return await _cached_fetch("macro:cn_cpi", CACHE_TTL_MACRO, _fetch) or {}
 
 
 async def _fetch_cn_cpi_akshare() -> Dict[str, Any]:
@@ -349,34 +365,27 @@ async def fetch_cn_ppi() -> Dict[str, Any]:
     China PPI YoY% (BASE field is price index; yoy% = BASE - 100).
     Returns: {"period": "2026-04", "yoy": 2.8, "prev": 0.5}
     """
-    cache_key = "macro:cn_ppi"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        try:
+            rows = await _fetch_eastmoney(
+                "RPT_ECONOMY_PPI",
+                "REPORT_DATE,BASE,BASE_ACCUMULATE",
+                page_size=2,
+            )
+            if not rows:
+                raise ValueError("empty")
+            row = rows[0]
+            prev_row = rows[1] if len(rows) >= 2 else None
+            yoy = round(float(row["BASE"]) - 100, 2)
+            prev = round(float(prev_row["BASE"]) - 100, 2) if prev_row else None
+            result = {"period": _ym(row["REPORT_DATE"]), "yoy": yoy, "prev": prev}
+            logger.info(f"PPI (EastMoney): {result}")
+            return result
+        except Exception as e:
+            logger.warning(f"fetch_cn_ppi EastMoney error: {e}, falling back to akshare")
+            return await _fetch_cn_ppi_akshare() or None
 
-    try:
-        rows = await _fetch_eastmoney(
-            "RPT_ECONOMY_PPI",
-            "REPORT_DATE,BASE,BASE_ACCUMULATE",
-            page_size=2,
-        )
-        if not rows:
-            raise ValueError("empty")
-        row = rows[0]
-        prev_row = rows[1] if len(rows) >= 2 else None
-        yoy = round(float(row["BASE"]) - 100, 2)
-        prev = round(float(prev_row["BASE"]) - 100, 2) if prev_row else None
-        result = {
-            "period": _ym(row["REPORT_DATE"]),
-            "yoy": yoy,
-            "prev": prev,
-        }
-        _set_cache(cache_key, result, CACHE_TTL_MACRO)
-        logger.info(f"PPI (EastMoney): {result}")
-        return result
-    except Exception as e:
-        logger.warning(f"fetch_cn_ppi EastMoney error: {e}, falling back to akshare")
-        return await _fetch_cn_ppi_akshare()
+    return await _cached_fetch("macro:cn_ppi", CACHE_TTL_MACRO, _fetch) or {}
 
 
 async def _fetch_cn_ppi_akshare() -> Dict[str, Any]:
@@ -418,37 +427,34 @@ async def fetch_cn_pmi() -> Dict[str, Any]:
         "svc_prev": 50.1,
       }
     """
-    cache_key = "macro:cn_pmi"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        try:
+            rows = await _fetch_eastmoney(
+                "RPT_ECONOMY_PMI",
+                "REPORT_DATE,MAKE_INDEX,NMAKE_INDEX",
+                page_size=2,
+            )
+            if not rows:
+                raise ValueError("empty")
+            row = rows[0]
+            prev_row = rows[1] if len(rows) >= 2 else None
+            period = _ym(row["REPORT_DATE"])
+            result: Dict[str, Any] = {
+                "mfg_period": period,
+                "mfg_value":  float(row["MAKE_INDEX"]) if row.get("MAKE_INDEX") is not None else None,
+                "mfg_prev":   float(prev_row["MAKE_INDEX"]) if prev_row and prev_row.get("MAKE_INDEX") is not None else None,
+                "mfg_source": "官方NBS",
+                "svc_period": period,
+                "svc_value":  float(row["NMAKE_INDEX"]) if row.get("NMAKE_INDEX") is not None else None,
+                "svc_prev":   float(prev_row["NMAKE_INDEX"]) if prev_row and prev_row.get("NMAKE_INDEX") is not None else None,
+            }
+            logger.info(f"PMI (EastMoney): mfg={result['mfg_value']}, svc={result['svc_value']}")
+            return result
+        except Exception as e:
+            logger.warning(f"fetch_cn_pmi EastMoney error: {e}, falling back to akshare")
+            return await _fetch_cn_pmi_akshare() or None
 
-    try:
-        rows = await _fetch_eastmoney(
-            "RPT_ECONOMY_PMI",
-            "REPORT_DATE,MAKE_INDEX,NMAKE_INDEX",
-            page_size=2,
-        )
-        if not rows:
-            raise ValueError("empty")
-        row = rows[0]
-        prev_row = rows[1] if len(rows) >= 2 else None
-        period = _ym(row["REPORT_DATE"])
-        result: Dict[str, Any] = {
-            "mfg_period": period,
-            "mfg_value":  float(row["MAKE_INDEX"]) if row.get("MAKE_INDEX") is not None else None,
-            "mfg_prev":   float(prev_row["MAKE_INDEX"]) if prev_row and prev_row.get("MAKE_INDEX") is not None else None,
-            "mfg_source": "官方NBS",
-            "svc_period": period,
-            "svc_value":  float(row["NMAKE_INDEX"]) if row.get("NMAKE_INDEX") is not None else None,
-            "svc_prev":   float(prev_row["NMAKE_INDEX"]) if prev_row and prev_row.get("NMAKE_INDEX") is not None else None,
-        }
-        _set_cache(cache_key, result, CACHE_TTL_MACRO)
-        logger.info(f"PMI (EastMoney): mfg={result['mfg_value']}, svc={result['svc_value']}")
-        return result
-    except Exception as e:
-        logger.warning(f"fetch_cn_pmi EastMoney error: {e}, falling back to akshare")
-        return await _fetch_cn_pmi_akshare()
+    return await _cached_fetch("macro:cn_pmi", CACHE_TTL_MACRO, _fetch) or {}
 
 
 async def _fetch_cn_pmi_akshare() -> Dict[str, Any]:
@@ -698,29 +704,21 @@ async def fetch_industrial_profit() -> list:
     Fallback: scrape NBS press release Excel attachments (any server, pagination-fixed).
     Each item: {period, total_profit, total_prev, total_yoy, elec_profit, elec_prev, elec_yoy}
     """
-    cache_key = "macro:industrial_profit"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        results = await _fetch_profit_from_nbs_easyquery()
+        if not results:
+            release_urls = await _nbs_find_profit_releases(max_pages=12, count=3)
+            logger.info(f"NBS profit releases (press release scraper): {release_urls}")
+            for url in release_urls:
+                try:
+                    data = await _nbs_parse_profit_release(url)
+                    if data:
+                        results.append(data)
+                except Exception as e:
+                    logger.warning(f"Failed to parse NBS profit release {url}: {e}")
+        return results or None
 
-    # Primary: NBS easyquery (China servers only)
-    results = await _fetch_profit_from_nbs_easyquery()
-
-    # Fallback: NBS press release Excel scraper (any server)
-    if not results:
-        release_urls = await _nbs_find_profit_releases(max_pages=12, count=3)
-        logger.info(f"NBS profit releases (press release scraper): {release_urls}")
-        for url in release_urls:
-            try:
-                data = await _nbs_parse_profit_release(url)
-                if data:
-                    results.append(data)
-            except Exception as e:
-                logger.warning(f"Failed to parse NBS profit release {url}: {e}")
-
-    if results:
-        _set_cache(cache_key, results, CACHE_TTL_MACRO)
-    return results
+    return await _cached_fetch("macro:industrial_profit", CACHE_TTL_MACRO, _fetch) or []
 
 
 # ── NBS Industrial Charts (工业增加值 + 工业出口交货值) ─────────────────────
@@ -1079,18 +1077,13 @@ async def fetch_industrial_profit_history() -> dict:
        "elec":  [{"period": "2024-02", "value": 249.1}, ...],
        "latest_period": "2026-03"}
     """
-    cache_key = "macro:industrial_profit_history"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        result = await _fetch_profit_history_nbs_easyquery()
+        if not result:
+            result = await _fetch_profit_history_from_releases(count=30)
+        return result or None
 
-    result = await _fetch_profit_history_nbs_easyquery()
-    if not result:
-        result = await _fetch_profit_history_from_releases(count=30)
-
-    if result:
-        _set_cache(cache_key, result, CACHE_TTL_MACRO)
-    return result or {}
+    return await _cached_fetch("macro:industrial_profit_history", CACHE_TTL_MACRO, _fetch) or {}
 
 
 async def _fetch_profit_history_nbs_easyquery() -> dict:
@@ -1228,88 +1221,76 @@ async def fetch_nbs_industrial_charts() -> Dict[str, Any]:
       3. NBS press release Excel scraper — any server, builds 24-month series
       4. Jin10 fallback — any server, 工业增加值 YoY only
     """
-    cache_key = "macro:nbs_industrial_charts"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        result: Dict[str, Any] = {}
 
-    result: Dict[str, Any] = {}
+        iva_series = await _fetch_nbs_indicator(["工业生产 > 工业增加值"], kind="月度经济图表")
+        if not iva_series:
+            iva_series = await _fetch_nbs_indicator([
+                "工业 > 规模以上工业增加值",
+                "工业 > 规模以上工业 > 工业增加值",
+            ])
 
-    # ── 工业增加值 ──────────────────────────────────────────────────────────
-    # 1. 月度经济图表 (user-specified path)
-    iva_series = await _fetch_nbs_indicator(["工业生产 > 工业增加值"], kind="月度经济图表")
-    # 2. 月度数据 alternate paths
-    if not iva_series:
-        iva_series = await _fetch_nbs_indicator([
-            "工业 > 规模以上工业增加值",
-            "工业 > 规模以上工业 > 工业增加值",
-        ])
+        exp_series = await _fetch_nbs_indicator(["工业生产 > 工业出口交货值"], kind="月度经济图表")
+        if not exp_series:
+            exp_series = await _fetch_nbs_indicator([
+                "工业 > 工业出口交货值",
+                "工业 > 工业总产值及出口交货值 > 工业出口交货值",
+                "工业 > 工业分大类行业出口交货值(2018-至今) > 总计",
+            ])
 
-    # ── 工业出口交货值 ──────────────────────────────────────────────────────
-    # 1. 月度经济图表 (user-specified path)
-    exp_series = await _fetch_nbs_indicator(["工业生产 > 工业出口交货值"], kind="月度经济图表")
-    # 2. 月度数据 alternate paths
-    if not exp_series:
-        exp_series = await _fetch_nbs_indicator([
-            "工业 > 工业出口交货值",
-            "工业 > 工业总产值及出口交货值 > 工业出口交货值",
-            "工业 > 工业分大类行业出口交货值(2018-至今) > 总计",
-        ])
+        if iva_series:
+            result["industrial_value_added"] = {
+                "title": "规模以上工业增加值", "unit": "%",
+                "chart_type": "dual_line", "series": _annotate_series(iva_series),
+            }
+        if exp_series:
+            result["industrial_export"] = {
+                "title": "工业出口交货值", "unit": "亿元",
+                "chart_type": "bar_line", "series": _annotate_series(exp_series),
+            }
 
-    if iva_series:
-        result["industrial_value_added"] = {
-            "title": "规模以上工业增加值", "unit": "%",
-            "chart_type": "dual_line", "series": _annotate_series(iva_series),
-        }
-    if exp_series:
-        result["industrial_export"] = {
-            "title": "工业出口交货值", "unit": "亿元",
-            "chart_type": "bar_line", "series": _annotate_series(exp_series),
-        }
+        need_iva = not result.get('industrial_value_added')
+        need_exp = not result.get('industrial_export')
+        if need_iva or need_exp:
+            try:
+                scraper = await _fetch_nbs_industrial_charts_from_releases(max_pages=50, count=24)
+                if need_iva and scraper.get('industrial_value_added'):
+                    result['industrial_value_added'] = scraper['industrial_value_added']
+                if need_exp and scraper.get('industrial_export'):
+                    result['industrial_export'] = scraper['industrial_export']
+            except Exception as e:
+                logger.warning(f"NBS industrial press release scraper failed: {e}")
 
-    # ── Fallback: press release Excel scraper (any server) ──────────────────
-    need_iva = not result.get('industrial_value_added')
-    need_exp = not result.get('industrial_export')
-    if need_iva or need_exp:
-        try:
-            scraper = await _fetch_nbs_industrial_charts_from_releases(max_pages=50, count=24)
-            if need_iva and scraper.get('industrial_value_added'):
-                result['industrial_value_added'] = scraper['industrial_value_added']
-            if need_exp and scraper.get('industrial_export'):
-                result['industrial_export'] = scraper['industrial_export']
-        except Exception as e:
-            logger.warning(f"NBS industrial press release scraper failed: {e}")
+        if not result.get('industrial_value_added'):
+            try:
+                df = await _run_ak("macro_china_industrial_production_yoy")
+                if df is not None and not df.empty:
+                    import math
+                    points = []
+                    for _, row in df.iterrows():
+                        try:
+                            v = float(row.get("今值") or row.get("当前值") or 0)
+                            period = str(row.get("日期", ""))[:7]
+                            if v == v and period:
+                                points.append({"period": period, "value": round(v, 2)})
+                        except Exception:
+                            pass
+                    points.sort(key=lambda x: x["period"])
+                    points = [p for p in points if p["value"] is not None][-36:]
+                    if points:
+                        result["industrial_value_added"] = {
+                            "title": "规模以上工业增加值", "unit": "%",
+                            "chart_type": "dual_line",
+                            "series": [{"name": "当月同比(%)", "data": points, "series_type": "yoy"}],
+                        }
+            except Exception as e:
+                logger.debug(f"Jin10 工业增加值 fallback error: {e}")
 
-    # ── Jin10 last-resort fallback for 工业增加值 ────────────────────────────
-    if not result.get('industrial_value_added'):
-        try:
-            df = await _run_ak("macro_china_industrial_production_yoy")
-            if df is not None and not df.empty:
-                import math
-                points = []
-                for _, row in df.iterrows():
-                    try:
-                        v = float(row.get("今值") or row.get("当前值") or 0)
-                        period = str(row.get("日期", ""))[:7]
-                        if v == v and period:
-                            points.append({"period": period, "value": round(v, 2)})
-                    except Exception:
-                        pass
-                points.sort(key=lambda x: x["period"])
-                points = [p for p in points if p["value"] is not None][-36:]
-                if points:
-                    result["industrial_value_added"] = {
-                        "title": "规模以上工业增加值", "unit": "%",
-                        "chart_type": "dual_line",
-                        "series": [{"name": "当月同比(%)", "data": points, "series_type": "yoy"}],
-                    }
-        except Exception as e:
-            logger.debug(f"Jin10 工业增加值 fallback error: {e}")
+        logger.info(f"NBS industrial charts fetched: keys={list(result.keys())}")
+        return result or None
 
-    if result:
-        _set_cache(cache_key, result, CACHE_TTL_INDUSTRIAL)
-    logger.info(f"NBS industrial charts fetched: keys={list(result.keys())}")
-    return result
+    return await _cached_fetch("macro:nbs_industrial_charts", CACHE_TTL_INDUSTRIAL, _fetch) or {}
 
 
 # ── US Macro (FRED API) ────────────────────────────────────────────────────
@@ -1320,26 +1301,22 @@ async def fetch_us_fred_macro() -> Dict[str, Any]:
     返回格式: {key: {label, period, value}, ...}
     缓存 12 小时（同 CN 月度数据）。
     """
-    cache_key = "macro:us_fred"
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
+    async def _fetch():
+        try:
+            from premarket.collector import _fetch_fred_us_macro
+            import os
+            api_key = os.environ.get("FRED_API_KEY", "").strip()
+            if not api_key:
+                return None
+            data, errors = await asyncio.to_thread(_fetch_fred_us_macro, api_key)
+            if errors:
+                logger.warning("FRED fetch partial errors: %s", errors)
+            return data or None
+        except Exception as e:
+            logger.warning("fetch_us_fred_macro error: %s", e)
+            return None
 
-    try:
-        from premarket.collector import _fetch_fred_us_macro
-        import os
-        api_key = os.environ.get("FRED_API_KEY", "").strip()
-        if not api_key:
-            return {}
-        data, errors = await asyncio.to_thread(_fetch_fred_us_macro, api_key)
-        if errors:
-            logger.warning("FRED fetch partial errors: %s", errors)
-        if data:
-            _set_cache(cache_key, data, CACHE_TTL_MACRO)
-        return data
-    except Exception as e:
-        logger.warning("fetch_us_fred_macro error: %s", e)
-        return {}
+    return await _cached_fetch("macro:us_fred", CACHE_TTL_MACRO, _fetch) or {}
 
 
 # ── Aggregate ───────────────────────────────────────────────────────────────

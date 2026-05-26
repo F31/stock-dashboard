@@ -189,27 +189,14 @@ def remove_stock(stock_id: int, request: Request,
     if not stock:
         raise HTTPException(404, "Stock not found")
 
-    # If the stock has reports, hide it instead of deleting
-    has_reports = (db.query(StockReport)
-                   .filter(StockReport.stock_code == stock.stock_code,
-                           StockReport.market == stock.market)
-                   .count()) > 0
-    if has_reports:
-        stock.hidden = 1
-        db.commit()
-        log_action(db, user.id, user.username, "hide_stock",
-                   target=f"{stock.stock_code} ({stock.market})",
-                   detail=f"name={stock.stock_name}, has_reports=True",
-                   ip_address=get_client_ip(request))
-        return {"action": "hidden", "id": stock_id}
-
-    log_action(db, user.id, user.username, "remove_stock",
+    # Always soft-delete so the stock remains recoverable from the stock list
+    stock.hidden = 1
+    db.commit()
+    log_action(db, user.id, user.username, "hide_stock",
                target=f"{stock.stock_code} ({stock.market})",
                detail=f"name={stock.stock_name}",
                ip_address=get_client_ip(request))
-    db.delete(stock)
-    db.commit()
-    return {"action": "deleted", "id": stock_id}
+    return {"action": "hidden", "id": stock_id}
 
 
 @router.patch("/stocks/{stock_id}/show")

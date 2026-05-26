@@ -73,19 +73,11 @@ export const useStockStore = defineStore('stocks', {
 
     async removeStock(id) {
       try {
-        const res = await removeStock(id)
-        if (res.data.action === 'hidden') {
-          // Stock has reports — mark hidden locally instead of removing
-          const item = this.stocks.find((s) => s.id === id)
-          if (item) item.hidden = 1
-          return 'hidden'
-        } else {
-          // Truly deleted — remove from local state
-          const item = this.stocks.find((s) => s.id === id)
-          if (item) delete this.realtime[`${item.market}:${item.stock_code}`]
-          this.stocks = this.stocks.filter((s) => s.id !== id)
-          return 'deleted'
-        }
+        await removeStock(id)
+        // Always soft-delete: mark hidden so the stock stays in the list for recovery
+        const item = this.stocks.find((s) => s.id === id)
+        if (item) item.hidden = 1
+        return 'hidden'
       } catch (e) {
         this.error = 'Failed to remove stock'
       }
