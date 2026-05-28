@@ -611,44 +611,67 @@ def _table_exists(table: str = "quan_daily_scores") -> bool:
         return False
 
 
-# ── Theme-chain subsector metadata (mirrors stock_quan/core/theme_definitions.py) ──
-# ── 子板块元数据：从 stock_quan 的 theme_definitions 实时加载 ──────────────
-# 不再硬编码，增删子板块只需改 theme_definitions.py 一处
+# ── 子板块元数据：从 DB 读取（不依赖 stock_quan 工程） ──────────────────
+# 数据来源：system_settings.subsector_config（由 pipeline Step 0 写入）
+# 内置 fallback：DB 无数据时使用（与 stock_quan 配置保持一致）
+_BUILTIN_SUBSECTORS: dict[str, dict] = {
+    "chip_semiconductor":     {"name": "芯片半导体",        "chain": "科技链", "chain_key": "tech"},
+    "optical_module":         {"name": "光模块",            "chain": "科技链", "chain_key": "tech"},
+    "ai_big_model":           {"name": "AI大模型",          "chain": "科技链", "chain_key": "tech"},
+    "robot":                  {"name": "机器人",             "chain": "科技链", "chain_key": "tech"},
+    "quantum_computing":      {"name": "量子计算",           "chain": "科技链", "chain_key": "tech"},
+    "lithography_material":   {"name": "光刻机原材料",       "chain": "科技链", "chain_key": "tech"},
+    "memory_storage":         {"name": "存储",               "chain": "科技链", "chain_key": "tech"},
+    "power_equipment":        {"name": "电力设备新能源",     "chain": "科技链", "chain_key": "tech"},
+    "satellite_internet":     {"name": "卫星互联网",         "chain": "航天链", "chain_key": "space"},
+    "launch_rocket":          {"name": "运载火箭",           "chain": "航天链", "chain_key": "space"},
+    "space_application":      {"name": "航天应用",           "chain": "航天链", "chain_key": "space"},
+    "innovative_drug":        {"name": "创新药",             "chain": "生物链", "chain_key": "bio"},
+    "cro_cdmo":               {"name": "CRO/CDMO",          "chain": "生物链", "chain_key": "bio"},
+    "medical_device":         {"name": "医疗器械",           "chain": "生物链", "chain_key": "bio"},
+    "genomics_synthetic_bio": {"name": "基因组学合成生物",   "chain": "生物链", "chain_key": "bio"},
+}
+
+
 def _load_subsector_meta() -> dict[str, dict]:
-    """Read sub-sector display info from stock_quan's theme_definitions.
-    
-    Returns {ss_key: {"name": str, "chain": str, "chain_key": str}}.
+    """读取子板块元数据，优先从 DB system_settings 表。
+
+    DB 中有配置时使用 DB 的（含训练权重等完整配置）；
+    DB 无配置时使用内置 fallback（仅中英文名+分类，不含权重）。
     """
-    import sys as _sys
-    from pathlib import Path as _Path
-    _quan = _Path(__file__).resolve().parent.parent.parent.parent / "stock_quan"
-    _sp = str(_quan / "core")
-    if _sp not in _sys.path:
-        _sys.path.insert(0, str(_quan))
     try:
-        from core.theme_definitions import THEME_REGISTRY, THEME_ALIAS
-    except ImportError:
-        return {}
-
-    # reverse alias map
-    _chain_alias: dict[str, str] = {v: k for k, v in THEME_ALIAS.items() if v != "__all__"}
-    _chain_labels: dict[str, str] = {
-        "tech":  "科技链",
-        "space": "航天链",
-        "bio":   "生物链",
-    }
-
-    result: dict[str, dict] = {}
-    for chain_cn, chain_dict in THEME_REGISTRY.items():
-        ck = _chain_alias.get(chain_cn, "tech")
-        cl = _chain_labels.get(ck, chain_cn)
-        for ss_key, ss in chain_dict.items():
-            result[ss_key] = {
-                "name":      ss.name,
-                "chain":     cl,
-                "chain_key": ck,
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT value FROM system_settings WHERE key='subsector_config'"
+            ).fetchone()
+        if row and row[0]:
+            import json as _json
+            data = _json.loads(row[0])
+            # 从完整配置中提取显示名+分类
+            result: dict[str, dict] = {}
+            _chain_map: dict[str, str] = {
+                "科技产业链": "tech",
+                "商业航天": "space",
+                "生物医药": "bio",
             }
-    return result
+            _chain_label: dict[str, str] = {
+                "tech": "科技链", "space": "航天链", "bio": "生物链",
+            }
+            for chain_cn, subs in data.items():
+                ck = _chain_map.get(chain_cn, "tech")
+                cl = _chain_label.get(ck, chain_cn)
+                for ss_key, ss_data in subs.items():
+                    result[ss_key] = {
+                        "name": ss_data.get("name", ss_key),
+                        "chain": cl,
+                        "chain_key": ck,
+                    }
+            return result
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "Failed to load subsector config from DB: %s (using built-in)", e
+        )
+    return dict(_BUILTIN_SUBSECTORS)
 
 
 _SUBSECTOR_META: dict[str, dict] = _load_subsector_meta()
