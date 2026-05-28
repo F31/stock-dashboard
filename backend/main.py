@@ -411,11 +411,25 @@ async def _daily_capex_refresh():
         await asyncio.sleep(24 * 3600)
 
 
+async def _daily_pe_backfill():
+    """Background task: backfill missing/negative PE from Tencent API once daily."""
+    await asyncio.sleep(120)  # start after other tasks
+    while True:
+        try:
+            from services.valuation_backfill import backfill_pe
+            result = backfill_pe()
+            logging.info("PE backfill result: %s", result)
+        except Exception as exc:
+            logging.warning("PE backfill error: %s", exc)
+        await asyncio.sleep(24 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task_macro = asyncio.create_task(_daily_macro_refresh())
     task_capex = asyncio.create_task(_daily_capex_refresh())
     task_cleanup = asyncio.create_task(_periodic_stale_cleanup())
+    task_pe = asyncio.create_task(_daily_pe_backfill())
     # 启动盘前分析调度器
     try:
         from premarket.scheduler import start as sched_start, stop as sched_stop
@@ -425,7 +439,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.warning(f"Scheduler start error: {e}")
     yield
-    for t in (task_macro, task_capex, task_cleanup):
+    for t in (task_macro, task_capex, task_cleanup, task_pe):
         t.cancel()
         try:
             await t

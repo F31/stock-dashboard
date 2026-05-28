@@ -53,10 +53,6 @@
               <div class="pipe-sec-title">触发训练</div>
               <div class="pipe-controls">
                 <input v-model="pipelineDate" class="pipe-date-input" type="date" />
-                <label class="pipe-expand-lbl">
-                  <input type="checkbox" v-model="pipelineExpand" />
-                  AKShare扩展（慢）
-                </label>
                 <button class="pipe-run-btn"
                         :disabled="pipelineState.status === 'running'"
                         @click="runPipeline">
@@ -170,6 +166,7 @@
         </div>
         <div class="tbl-head">
           <span>排名</span><span>代码 / 名称</span><span>行业</span>
+          <span>行业排名</span><span>PE</span><span>PEG</span>
           <span>股价 / 涨跌</span><span>百分位</span><span>评级</span>
         </div>
         <div v-for="row in pagedScores" :key="row.stock_code"
@@ -184,6 +181,22 @@
             <span v-if="activeUniverse === 'theme' && row.subsector && !selectedSubsector"
                   class="subsector-tag">{{ subsectorDisplayName(row.subsector) }}</span>
           </div>
+          <span class="ind-rank-col">
+            <span v-if="row.industry_rank" class="ind-rank-val">{{ row.industry_rank }}</span>
+            <span v-if="row.industry_total" class="ind-rank-sep">/</span>
+            <span v-if="row.industry_total" class="ind-rank-total">{{ row.industry_total }}</span>
+            <span v-else class="ind-rank-na">—</span>
+          </span>
+          <span class="pe-col">
+            <span v-if="row.pe != null" :class="['pe-val', peCls(row.pe)]">
+              {{ row.pe.toFixed(1) }}<span class="pe-sym">×</span>
+            </span>
+            <span v-else class="pe-na">—</span>
+          </span>
+          <span class="peg-col">
+            <span v-if="row.peg != null" :class="pegCls(row.peg)">{{ row.peg.toFixed(2) }}</span>
+            <span v-else class="peg-na">—</span>
+          </span>
           <div class="price-col">
             <span class="price-val">{{ row.price != null ? row.price.toFixed(2) : '—' }}</span>
             <span :class="['chg-val', chgCls(row.change_pct)]">{{ fmtChg(row.change_pct) }}</span>
@@ -242,6 +255,7 @@
           <div class="modal-body">
             <div class="tbl-head modal-tbl-head">
               <span>排名</span><span>代码 / 名称</span><span>行业</span>
+              <span>行业排名</span><span>PE</span><span>PEG</span>
               <span>股价 / 涨跌</span><span>百分位</span><span>评级</span>
             </div>
             <div v-for="row in filteredModalStocks" :key="row.stock_code"
@@ -252,6 +266,22 @@
                 <span class="name-text name-text--dark">{{ row.stock_name || '—' }}</span>
               </div>
               <span class="industry-col industry-col--dark" :title="row.industry || ''">{{ row.industry || '—' }}</span>
+              <span class="ind-rank-col">
+                <span v-if="row.industry_rank" class="ind-rank-val">{{ row.industry_rank }}</span>
+                <span v-if="row.industry_total" class="ind-rank-sep">/</span>
+                <span v-if="row.industry_total" class="ind-rank-total">{{ row.industry_total }}</span>
+                <span v-else class="ind-rank-na">—</span>
+              </span>
+              <span class="pe-col">
+                <span v-if="row.pe != null" :class="['pe-val', peCls(row.pe)]">
+                  {{ row.pe.toFixed(1) }}<span class="pe-sym">×</span>
+                </span>
+                <span v-else class="pe-na">—</span>
+              </span>
+              <span class="peg-col">
+                <span v-if="row.peg != null" :class="pegCls(row.peg)">{{ row.peg.toFixed(2) }}</span>
+                <span v-else class="peg-na">—</span>
+              </span>
               <div class="price-col">
                 <span class="price-val">{{ row.price != null ? row.price.toFixed(2) : '—' }}</span>
                 <span :class="['chg-val', chgCls(row.change_pct)]">{{ fmtChg(row.change_pct) }}</span>
@@ -587,7 +617,6 @@ const detailModal    = ref({ show: false, stock: null, levels: null, loading: fa
 // Pipeline control
 const pipelineModal   = ref(false)
 const pipelineDate    = ref(new Date().toISOString().slice(0, 10))
-const pipelineExpand  = ref(false)
 const pipelineState   = ref({ status: 'idle', pid: null, started: null, ended: null, date: null, tail: '' })
 const pipelineLog     = ref('')
 const poolStats       = ref({ total: 0, by_chain: [], by_source: [] })
@@ -769,6 +798,16 @@ function fmtChg(v) {
   if (v == null) return '—'
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
 }
+function pegCls(v) {
+  if (v == null) return 'peg-na'
+  if (v <= 1) return 'peg-low'
+  if (v <= 2) return 'peg-mid'
+  return 'peg-high'
+}
+function peCls(v) {
+  if (v == null) return ''
+  return v > 0 ? 'pe-pos' : 'pe-neg'
+}
 
 // ── Detail modal helpers ────────────────────────────────────────────────────
 function fbCls(v) {
@@ -836,7 +875,7 @@ const pipelineStatusCls = computed(() => ({
 
 async function runPipeline() {
   try {
-    const res = await triggerPipeline(pipelineDate.value, pipelineExpand.value)
+    const res = await triggerPipeline(pipelineDate.value)
     pipelineState.value = res.data.state || pipelineState.value
     // Auto-poll status while running
     const poll = setInterval(async () => {
@@ -1101,14 +1140,14 @@ function oppTagTip(row) {
 /* ── Table ── */
 .tbl-head {
   display: grid;
-  grid-template-columns: 44px 160px 100px 100px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 100px 1fr 120px;
   font-size: 0.63em; color: #6b7280;
   padding: 3px 10px 5px; font-weight: 600; letter-spacing: .3px;
   border-bottom: 1px solid #e5e7eb; margin-bottom: 4px;
 }
 .tbl-row {
   display: grid;
-  grid-template-columns: 44px 160px 100px 100px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 100px 1fr 120px;
   align-items: center;
   padding: 7px 10px; border-radius: 8px;
   background: #f9fafb;
@@ -1137,6 +1176,25 @@ function oppTagTip(row) {
 .industry-col > span:first-child {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.ind-rank-col {
+  font-size: 0.75em; display: flex; align-items: center; gap: 2px;
+}
+.ind-rank-val   { font-weight: 700; color: #111827; }
+.ind-rank-sep   { color: #9ca3af; font-size: 0.85em; }
+.ind-rank-total { color: #9ca3af; }
+.ind-rank-na    { color: #d1d5db; }
+.pe-col {
+  font-size: 0.78em; font-weight: 600; font-family: monospace;
+}
+.pe-pos        { color: #374151; }
+.pe-neg        { color: #dc2626; }
+.pe-sym        { color: #9ca3af; font-weight: 400; }
+.pe-na          { color: #d1d5db; font-weight: 400; }
+.peg-col   { font-size: 0.72em; font-family: monospace; font-weight: 700; }
+.peg-low   { color: #16a34a; }   /* PEG ≤ 1 — attractive */
+.peg-mid   { color: #ca8a04; }   /* 1 < PEG ≤ 2 — fair */
+.peg-high  { color: #dc2626; }   /* PEG > 2 — expensive */
+.peg-na    { color: #d1d5db; font-weight: 400; }
 .price-col   { display: flex; flex-direction: column; gap: 2px; }
 .price-val   { font-size: 0.82em; font-weight: 600; color: #111827; }
 .chg-val     { font-size: 0.72em; font-weight: 700; }
@@ -1219,11 +1277,11 @@ function oppTagTip(row) {
 
 /* Modal table */
 .modal-tbl-head {
-  grid-template-columns: 44px 160px 100px 90px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 90px 1fr 120px;
   color: #6b7280; border-bottom-color: #e5e7eb;
 }
 .modal-tbl-row {
-  grid-template-columns: 44px 160px 100px 90px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 90px 1fr 120px;
   background: #f9fafb;
 }
 .modal-tbl-row:hover { background: #f3f4f6; }

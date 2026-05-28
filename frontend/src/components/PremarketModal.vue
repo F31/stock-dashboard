@@ -221,66 +221,40 @@ import { getLatestPremarket, triggerPremarket, getPremarketReport, getStreamText
 
 const emit = defineEmits(['close'])
 
-// ── TTS — HTMLAudioElement + 分块流式朗读 ────────────────────────────────────
-// 核心策略：
-// 1. 用 HTMLAudioElement 取代 AudioContext —— iOS Safari 对 <audio> 的支持
-//    远比 WebAudio API 稳定，pause/play 语义清晰，不存在 suspend 后无法 resume 的问题。
-// 2. 全文切成 700 字块，超前预取 LOOKAHEAD 块 —— 第一块 5~8 s 内到达，
-//    完全在 iOS 用户手势上下文有效期内，解决"长请求导致手势超时"问题。
-// 3. Blob URL 生命周期管理：播完即 revoke，避免内存泄漏。
+// ── TTS — Web Speech API + edge-tts 双引擎 ────────────────────────────
+// 策略：
+// 1. 优先用浏览器原生 SpeechSynthesis（移动端可靠、零网络依赖、秒播）
+// 2. 若 SpeechSynthesis 不支持或无中文语音 → fallback 到 edge-tts 服务端合成
+// 3. 分句朗读支持暂停/继续，长文本不限长度
 
-const CHUNK_MAX = 700
-const LOOKAHEAD = 2
-
-const ttsState  = ref('idle')  // 'idle' | 'loading' | 'playing' | 'paused'
+const ttsState  = ref('idle')  // 'idle' | 'preparing' | 'playing' | 'paused'
 const ttsError  = ref('')
 const ttsChunkProgress = ref({ cur: 0, total: 0 })
 
-let _audio    = null   // HTMLAudioElement（在用户手势中创建）
-let _audioCtx = null   // AudioContext（全平台音频解锁）
-let _chunks   = []     // string[]
-let _playIdx  = 0
-let _buffers  = {}     // idx → blob URL
-let _fetching = {}     // idx → true（请求进行中）
-let _session  = 0      // 每次 start/stop 自增，使过期回调失效
+let _utter      = null         // SpeechSynthesisUtterance
+let _sentences  = []           // 拆分后的句子列表
+let _sIdx       = 0
+let _session    = 0
 
-// ── 全平台音频解锁（Android / iOS / 桌面） ────────────────────────────────
-// AudioContext.resume() 必须在用户手势（click/touch）中调用，之后页面生命
-// 周期内所有音频播放（HTMLAudioElement / AudioContext）均不再受自动播放策略
-// 限制。这是 W3C 标准 API，华为浏览器、Chrome、Safari 均支持。
-function _ensureAudioUnlocked() {
-  if (!_audioCtx) {
-    const AC = window.AudioContext || window.webkitAudioContext
-    if (AC) {
-      try { _audioCtx = new AC() } catch {}
-    }
-  }
-  if (_audioCtx && _audioCtx.state === 'suspended') {
-    _audioCtx.resume().catch(() => {})
-  }
-  // 播一个 1 秒静音 buffer，唤醒音频输出硬件
-  if (_audioCtx) {
-    try {
-      const buf = _audioCtx.createBuffer(1, 22050, 22050)
-      const src = _audioCtx.createBufferSource()
-      src.buffer = buf
-      src.connect(_audioCtx.destination)
-      src.start()
-    } catch {}
-  }
+function _isSpeechReady() {
+  return !!window.speechSynthesis
 }
 
-const ttsBtnTitle = computed(() => {
-  const m = { idle: '朗读报告', loading: '正在合成语音…', playing: '暂停朗读', paused: '继续朗读' }
-  return m[ttsState.value] ?? '朗读报告'
-})
-
-const ttsVoices = [
-  { label: '小晓 (女声)', value: 'zh-CN-XiaoxiaoNeural' },
-  { label: '云杨 (男声)', value: 'zh-CN-YunyangNeural'  },
-  { label: '云希 (男声)', value: 'zh-CN-YunxiNeural'    },
-]
-const selectedVoice = ref('zh-CN-XiaoxiaoNeural')
+function _getChineseVoice() {
+  if (!window.speechSynthesis) return null
+  const voices = window.speechSynthesis.getVoices()
+  // 优先: 中文女声
+  for (const v of voices) {
+    if (v.lang.startsWith('zh') && v.name.includes('Xiaoxiao')) return v
+    if (v.lang.startsWith('zh') && v.name.includes('Huihui')) return v
+    if (v.lang.startsWith('zh') && v.name.includes('Mei-Jia')) return v
+  }
+  // 其次: 任意中文语音
+  for (const v of voices) {
+    if (v.lang.startsWith('zh')) return v
+  }
+  return null
+}
 
 function buildSpeechText() {
   if (!analysis.value) return ''
@@ -311,7 +285,226 @@ function buildSpeechText() {
   return parts.join('\n')
 }
 
-// 按句子边界切块，每块最多 CHUNK_MAX 字
+// 按句子边界拆分
+function _splitSentences(text) {
+  const raw = text.trim()
+  if (!raw) return []
+  // 按句号/问号/感叹号/换行拆，保留分隔符
+  const segs = raw.split(/(?<=[。！？\n])/).map(s => s.trim()).filter(s => s.length > 0)
+  // 过长的句子再按逗号/分号拆分
+  const result = []
+  for (const seg of segs) {
+    if (seg.length > 300) {
+      const sub = seg.split(/(?<=[；，、])/).map(s => s.trim()).filter(s => s.length > 0)
+      result.push(...sub)
+    } else {
+      result.push(seg)
+    }
+  }
+  return result
+}
+
+function _speakNext() {
+  const mySid = _session
+  if (ttsState.value !== 'playing' && ttsState.value !== 'preparing') return
+  if (_sIdx >= _sentences.length) {
+    ttsState.value = 'idle'
+    ttsChunkProgress.value = { cur: 0, total: 0 }
+    return
+  }
+
+  const text = _sentences[_sIdx]
+  if (!text.trim()) { _sIdx++; _speakNext(); return }
+
+  const utter = new SpeechSynthesisUtterance(text)
+  utter.lang = 'zh-CN'
+  utter.rate = 1.05
+  utter.pitch = 1.0
+  utter.volume = 1.0
+
+  const voice = _getChineseVoice()
+  if (voice) utter.voice = voice
+
+  utter.onstart = () => {
+    if (_session !== mySid) { window.speechSynthesis.cancel(); return }
+    ttsState.value = 'playing'
+    ttsChunkProgress.value = { cur: _sIdx + 1, total: _sentences.length }
+  }
+
+  utter.onend = () => {
+    if (_session !== mySid) return
+    _sIdx++
+    _speakNext()
+  }
+
+  utter.onerror = (e) => {
+    if (_session !== mySid) return
+    console.error('SpeechSynthesis error:', e)
+    _sIdx++
+    _speakNext()  // 跳过出错句子继续
+  }
+
+  _utter = utter
+  window.speechSynthesis.speak(utter)
+}
+
+const ttsBtnTitle = computed(() => {
+  const m = { idle: '朗读报告', preparing: '准备中…', playing: '暂停朗读', paused: '继续朗读' }
+  return m[ttsState.value] ?? '朗读报告'
+})
+
+const ttsVoices = [
+  { label: '浏览器语音 (推荐移动端)', value: '__browser__' },
+  { label: '小晓 (女声)', value: 'zh-CN-XiaoxiaoNeural' },
+  { label: '云杨 (男声)', value: 'zh-CN-YunyangNeural'  },
+  { label: '云希 (男声)', value: 'zh-CN-YunxiNeural'    },
+]
+const selectedVoice = ref('__browser__')
+
+async function toggleTTS() {
+  if (ttsState.value === 'preparing') return
+
+  // 暂停/继续：浏览器语音模式
+  if (ttsState.value === 'playing' && selectedVoice.value === '__browser__') {
+    window.speechSynthesis.pause()
+    ttsState.value = 'paused'
+    return
+  }
+  if (ttsState.value === 'paused' && selectedVoice.value === '__browser__') {
+    window.speechSynthesis.resume()
+    ttsState.value = 'playing'
+    return
+  }
+  // 暂停/继续：edge-tts 模式
+  if (ttsState.value === 'playing' && selectedVoice.value !== '__browser__') {
+    if (_audio) { _audio.pause() }
+    ttsState.value = 'paused'
+    return
+  }
+  if (ttsState.value === 'paused' && selectedVoice.value !== '__browser__') {
+    if (_audio) {
+      try { await _audio.play(); ttsState.value = 'playing' } catch { ttsState.value = 'idle' }
+    } else { ttsState.value = 'idle' }
+    return
+  }
+
+  // 停止并重新开始
+  _session++
+  window.speechSynthesis.cancel()
+  _utter = null
+
+  const text = buildSpeechText()
+  if (!text) return
+
+  // 如果用浏览器语音
+  if (selectedVoice.value === '__browser__') {
+    if (!_isSpeechReady()) {
+      ttsError.value = '当前浏览器不支持语音朗读'
+      return
+    }
+    // 预加载语音列表（SpeechSynthesis.getVoices 首次异步）
+    if (window.speechSynthesis.getVoices().length === 0) {
+      await new Promise(resolve => {
+        window.speechSynthesis.onvoiceschanged = resolve
+        // 兜底：某些浏览器不发事件，0.5秒后自动跳过
+        setTimeout(resolve, 500)
+      })
+    }
+    const voice = _getChineseVoice()
+    if (!voice) {
+      ttsError.value = '未找到中文语音，请检查浏览器设置'
+      return
+    }
+
+    _session++
+    _sentences = _splitSentences(text)
+    if (!_sentences.length) return
+    _sIdx = 0
+    ttsError.value = ''
+    ttsState.value = 'preparing'
+    ttsChunkProgress.value = { cur: 0, total: _sentences.length }
+    _speakNext()
+    return
+  }
+
+  // ── 后备：edge-tts 服务端合成（非浏览器语音时） ──
+  // 保持原有的分块 HTMLAudioElement 逻辑
+  _fallbackEdgeTTS(text)
+}
+
+async function _fallbackEdgeTTS(text) {
+  // 原有的 edge-tts 实现（保持完整）
+  _ensureAudioUnlocked()
+  if (!_audio) {
+    _audio = new Audio()
+    _audio.preload = 'auto'
+  }
+  const _SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
+  _audio.loop = true
+  _audio.volume = 0.01
+  _audio.src = _SILENT
+  _audio.play().catch(() => {})
+
+  _chunks = _buildChunks(text)
+  if (!_chunks.length) return
+  _session++
+  _playIdx = 0
+  _revokeAll()
+  ttsError.value = ''
+  ttsState.value = 'loading'
+  ttsChunkProgress.value = { cur: 0, total: _chunks.length }
+  _prefetch()
+}
+
+function stopTTS() {
+  _session++
+  window.speechSynthesis.cancel()
+  _utter = null
+  if (_audio) {
+    _audio.pause()
+    const oldSrc = _audio.src
+    _audio.src = ''
+    _audio.onended = null
+    if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
+  }
+  _revokeAll()
+  ttsState.value = 'idle'
+  ttsError.value = ''
+  ttsChunkProgress.value = { cur: 0, total: 0 }
+}
+
+// ── pause/resume for edge-tts (保留) ──
+// 以下函数在浏览器语音模式下toggleTTS已经处理了
+
+// ── edge-tts 后备引擎所需的变量和函数 ─────────────────────────────────────
+const CHUNK_MAX = 700
+const LOOKAHEAD = 2
+let _audio    = null
+let _audioCtx = null
+let _chunks   = []
+let _playIdx  = 0
+let _buffers  = {}
+let _fetching = {}
+
+function _ensureAudioUnlocked() {
+  if (!_audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (AC) { try { _audioCtx = new AC() } catch {} }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {})
+  }
+  if (_audioCtx) {
+    try {
+      const buf = _audioCtx.createBuffer(1, 22050, 22050)
+      const src = _audioCtx.createBufferSource()
+      src.buffer = buf
+      src.connect(_audioCtx.destination)
+      src.start()
+    } catch {}
+  }
+}
+
 function _buildChunks(text) {
   const chunks = []
   let t = text.trim()
@@ -329,7 +522,6 @@ function _buildChunks(text) {
   return chunks.filter(c => c.length > 0)
 }
 
-// 异步预取一块并缓存为 Blob URL
 async function _fetchChunk(idx) {
   if (idx < 0 || idx >= _chunks.length) return
   if (_buffers[idx] !== undefined || _fetching[idx]) return
@@ -337,10 +529,9 @@ async function _fetchChunk(idx) {
   _fetching[idx] = true
   try {
     const res = await synthesizeTTS(_chunks[idx], selectedVoice.value)
-    if (_session !== mySid) return           // 已停止，丢弃
+    if (_session !== mySid) return
     _buffers[idx] = URL.createObjectURL(res.data)
     delete _fetching[idx]
-    // 若此时正等待这一块，立即播放
     if (ttsState.value === 'loading' && idx === _playIdx) _playChunk(idx)
   } catch (e) {
     if (_session !== mySid) return
@@ -356,22 +547,16 @@ function _prefetch() {
   for (let i = 0; i < LOOKAHEAD; i++) _fetchChunk(_playIdx + i)
 }
 
-// 播放指定块（已在 _buffers 中）
 function _playChunk(idx) {
   if (!_audio || _buffers[idx] === undefined) return
   const mySid = _session
-  // 每次播放前保证 AudioContext 处于 running 状态
   _ensureAudioUnlocked()
   const oldSrc = _audio.src
-  // iOS 修复：不调用 pause()！在正在播放的元素上直接更换 src，
-  // Safari 会自动停止旧源加载新源并继续播放，不丢失信任状态。
   _audio.loop = false
   _audio.volume = 1.0
   _audio.onended = null
   _audio.src = _buffers[idx]
-  // 释放上一块的 Blob URL
   if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
-
   _audio.onended = () => {
     if (_session !== mySid || ttsState.value !== 'playing') return
     delete _buffers[idx]
@@ -380,115 +565,44 @@ function _playChunk(idx) {
     if (_playIdx >= _chunks.length) { ttsState.value = 'idle'; return }
     _prefetch()
     if (_buffers[_playIdx] !== undefined) _playChunk(_playIdx)
-    else ttsState.value = 'loading'   // 等待下一块到达
+    else ttsState.value = 'loading'
   }
-
-  _audio.play()
-    .then(() => {
-      ttsState.value = 'playing'
-      ttsChunkProgress.value = { cur: idx + 1, total: _chunks.length }
-    })
-    .catch(e => {
-      if (_session !== mySid) return
-      // 尝试创建全新 Audio 元素重试 —— 某些移动浏览器上 AudioContext
-      // unlock 后新元素信任度更高
-      try {
-        const fresh = new Audio()
-        fresh.preload = 'auto'
-        fresh.loop = false
-        fresh.volume = 1.0
-        fresh.src = _buffers[idx]
-        fresh.onended = _audio.onended
-        const p2 = fresh.play()
-        if (p2) {
-          p2.then(() => {
-            _audio = fresh
-            ttsState.value = 'playing'
-            ttsChunkProgress.value = { cur: idx + 1, total: _chunks.length }
-          }).catch(e2 => {
-            ttsState.value = 'idle'
-            ttsError.value = '播放失败，请重试'
-            console.error('TTS play error (fallback)', e2)
-          })
-        }
-      } catch {
-        ttsState.value = 'idle'
-        ttsError.value = '播放失败，请重试'
-        console.error('TTS play error', e)
+  _audio.play().then(() => {
+    ttsState.value = 'playing'
+    ttsChunkProgress.value = { cur: idx + 1, total: _chunks.length }
+  }).catch(e => {
+    if (_session !== mySid) return
+    try {
+      const fresh = new Audio()
+      fresh.preload = 'auto'
+      fresh.loop = false
+      fresh.volume = 1.0
+      fresh.src = _buffers[idx]
+      fresh.onended = _audio.onended
+      const p2 = fresh.play()
+      if (p2) {
+        p2.then(() => {
+          _audio = fresh
+          ttsState.value = 'playing'
+          ttsChunkProgress.value = { cur: idx + 1, total: _chunks.length }
+        }).catch(e2 => {
+          ttsState.value = 'idle'
+          ttsError.value = '播放失败，请重试'
+          console.error('TTS play error (fallback)', e2)
+        })
       }
-    })
+    } catch {
+      ttsState.value = 'idle'
+      ttsError.value = '播放失败，请重试'
+      console.error('TTS play error', e)
+    }
+  })
 }
 
 function _revokeAll() {
   Object.values(_buffers).forEach(url => { if (url) try { URL.revokeObjectURL(url) } catch {} })
   _buffers = {}
   _fetching = {}
-}
-
-async function toggleTTS() {
-  if (ttsState.value === 'loading') return
-
-  // 全平台音频解锁：AudioContext.resume() 必须在用户手势中调用
-  _ensureAudioUnlocked()
-
-  if (ttsState.value === 'idle') {
-    const text = buildSpeechText()
-    if (!text) return
-
-    // iOS Safari 音频解锁策略（针对长异步延迟场景）：
-    // 播放一个循环的极低音量静音音频，使 Audio element 在 API 请求期间保持"播放中"状态。
-    // iOS 仅在元素处于 active/playing 状态时接受后续的 src 更换和 play() 调用。
-    // 不可 pause()，否则信任状态丢失。
-    if (!_audio) {
-      _audio = new Audio()
-      _audio.preload = 'auto'
-    }
-    const _SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
-    _audio.loop = true
-    _audio.volume = 0.01   // 几乎无声但保持音频会话活跃
-    _audio.src = _SILENT
-    _audio.play().catch(() => {})  // fire-and-forget，不 await 不 pause
-
-    _chunks  = _buildChunks(text)
-    if (!_chunks.length) return
-
-    _session++
-    _playIdx = 0
-    _revokeAll()
-    ttsError.value = ''
-    ttsState.value = 'loading'
-    ttsChunkProgress.value = { cur: 0, total: _chunks.length }
-
-    _prefetch()
-
-  } else if (ttsState.value === 'playing') {
-    _audio.pause()
-    ttsState.value = 'paused'
-
-  } else if (ttsState.value === 'paused') {
-    try {
-      await _audio.play()
-      ttsState.value = 'playing'
-    } catch {
-      ttsState.value = 'idle'
-      ttsError.value = '恢复播放失败，请重新点击朗读'
-    }
-  }
-}
-
-function stopTTS() {
-  _session++
-  if (_audio) {
-    _audio.pause()
-    const oldSrc = _audio.src
-    _audio.src = ''
-    _audio.onended = null
-    if (oldSrc && oldSrc.startsWith('blob:')) { try { URL.revokeObjectURL(oldSrc) } catch {} }
-  }
-  _revokeAll()
-  ttsState.value = 'idle'
-  ttsError.value = ''
-  ttsChunkProgress.value = { cur: 0, total: 0 }
 }
 
 const loading = ref(true)
@@ -668,7 +782,13 @@ function stopTimers() {
   if (streamTimer){ clearInterval(streamTimer); streamTimer = null }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  // 预加载中文语音列表（SpeechSynthesis 首次 getVoices 异步返回）
+  if (window.speechSynthesis) {
+    window.speechSynthesis.getVoices()
+  }
+})
 onUnmounted(() => {
   stopTimers()
   stopTTS()

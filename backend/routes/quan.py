@@ -612,23 +612,46 @@ def _table_exists(table: str = "quan_daily_scores") -> bool:
 
 
 # ── Theme-chain subsector metadata (mirrors stock_quan/core/theme_definitions.py) ──
-_SUBSECTOR_META: dict[str, dict] = {
-    "chip_semiconductor":     {"name": "芯片半导体",        "chain": "科技链", "chain_key": "tech"},
-    "optical_module":         {"name": "光模块",            "chain": "科技链", "chain_key": "tech"},
-    "ai_big_model":           {"name": "AI大模型",          "chain": "科技链", "chain_key": "tech"},
-    "robot":                  {"name": "机器人",             "chain": "科技链", "chain_key": "tech"},
-    "quantum_computing":      {"name": "量子计算",           "chain": "科技链", "chain_key": "tech"},
-    "lithography_material":   {"name": "光刻机原材料",       "chain": "科技链", "chain_key": "tech"},
-    "memory_storage":         {"name": "存储",               "chain": "科技链", "chain_key": "tech"},
-    "power_equipment":        {"name": "电力设备新能源",     "chain": "科技链", "chain_key": "tech"},
-    "satellite_internet":     {"name": "卫星互联网",         "chain": "航天链", "chain_key": "space"},
-    "launch_rocket":          {"name": "运载火箭",           "chain": "航天链", "chain_key": "space"},
-    "space_application":      {"name": "航天应用",           "chain": "航天链", "chain_key": "space"},
-    "innovative_drug":        {"name": "创新药",             "chain": "生物链", "chain_key": "bio"},
-    "cro_cdmo":               {"name": "CRO/CDMO",          "chain": "生物链", "chain_key": "bio"},
-    "medical_device":         {"name": "医疗器械",           "chain": "生物链", "chain_key": "bio"},
-    "genomics_synthetic_bio": {"name": "基因组学/合成生物",  "chain": "生物链", "chain_key": "bio"},
-}
+# ── 子板块元数据：从 stock_quan 的 theme_definitions 实时加载 ──────────────
+# 不再硬编码，增删子板块只需改 theme_definitions.py 一处
+def _load_subsector_meta() -> dict[str, dict]:
+    """Read sub-sector display info from stock_quan's theme_definitions.
+    
+    Returns {ss_key: {"name": str, "chain": str, "chain_key": str}}.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _quan = _Path(__file__).resolve().parent.parent.parent.parent / "stock_quan"
+    _sp = str(_quan / "core")
+    if _sp not in _sys.path:
+        _sys.path.insert(0, str(_quan))
+    try:
+        from core.theme_definitions import THEME_REGISTRY, THEME_ALIAS
+    except ImportError:
+        return {}
+
+    # reverse alias map
+    _chain_alias: dict[str, str] = {v: k for k, v in THEME_ALIAS.items() if v != "__all__"}
+    _chain_labels: dict[str, str] = {
+        "tech":  "科技链",
+        "space": "航天链",
+        "bio":   "生物链",
+    }
+
+    result: dict[str, dict] = {}
+    for chain_cn, chain_dict in THEME_REGISTRY.items():
+        ck = _chain_alias.get(chain_cn, "tech")
+        cl = _chain_labels.get(ck, chain_cn)
+        for ss_key, ss in chain_dict.items():
+            result[ss_key] = {
+                "name":      ss.name,
+                "chain":     cl,
+                "chain_key": ck,
+            }
+    return result
+
+
+_SUBSECTOR_META: dict[str, dict] = _load_subsector_meta()
 
 _THEME_HISTORY_DB = "/root/projects/stock_quan/data/training_results/training_history.db"
 
@@ -666,14 +689,40 @@ def _resolve_date(conn, trade_date, model):
 
 
 def _enrich(scores: list[dict], price_map: dict) -> list[dict]:
+    # Add price data
     for s in scores:
         px = price_map.get(s["stock_code"], {})
         s["price"]      = px.get("price")       # None if suspended / no data
         s["change_pct"] = px.get("change_pct")
+
+    # Compute industry rank: within each industry, rank by percentile_score desc
+    from collections import defaultdict
+    ind_scores = defaultdict(list)
+    for s in scores:
+        ind = s.get("industry", "")
+        if ind:
+            ind_scores[ind].append(s["percentile_score"])
+
+    # For each industry, precompute percentile thresholds for rank mapping
+    ind_rank_map: dict[str, dict[int, int]] = {}
+    for ind, vals in ind_scores.items():
+        sorted_vals = sorted(vals, reverse=True)
+        ind_rank_map[ind] = {v: i + 1 for i, v in enumerate(sorted_vals)}
+
+    for s in scores:
+        ind = s.get("industry", "")
+        if ind and ind in ind_rank_map:
+            s["industry_rank"] = ind_rank_map[ind].get(s["percentile_score"], 0)
+            s["industry_total"] = len(ind_scores[ind])
+        else:
+            s["industry_rank"] = 0
+            s["industry_total"] = 0
+
     return scores
 
 
 def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) -> list[dict]:
+    """Fetch scores with latest PE (up to trade_date) and latest earnings data."""
     sql = """
         SELECT q.stock_code, q.trade_date, q.model_name,
                q.raw_score, q.percentile_score, q.label, q.rank,
@@ -687,7 +736,11 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
                COALESCE(q.sector_warning, '')           AS sector_warning,
                COALESCE(q.subsector, '')                AS subsector,
                COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
-               COALESCE(i.industry, '')                 AS industry
+               COALESCE(i.industry, '')                 AS industry,
+               p.pe                                          AS pe,
+               (CASE WHEN p.pe > 0 AND e.profit_yoy IS NOT NULL AND e.profit_yoy > 0
+                     THEN ROUND(p.pe / e.profit_yoy, 2)
+                     ELSE NULL END)                     AS peg
         FROM quan_daily_scores q
         LEFT JOIN (
             SELECT stock_code, MAX(stock_name) AS stock_name, MAX(industry) AS industry
@@ -698,9 +751,31 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
             FROM watchlist WHERE stock_name IS NOT NULL AND stock_name != ''
             GROUP BY stock_code
         ) w ON w.stock_code = q.stock_code
+        -- PE: latest non-null value up to score date (NOT exact date match)
+        LEFT JOIN (
+            SELECT p1.stock_code, p1.pe
+            FROM daily_pe p1
+            INNER JOIN (
+                SELECT stock_code, MAX(trade_date) AS max_date
+                FROM daily_pe
+                WHERE pe IS NOT NULL AND trade_date <= ?
+                GROUP BY stock_code
+            ) p2 ON p1.stock_code = p2.stock_code AND p1.trade_date = p2.max_date
+        ) p ON p.stock_code = q.stock_code
+        -- Earnings: latest quarter with non-null profit_yoy
+        LEFT JOIN (
+            SELECT e1.stock_code, e1.profit_yoy
+            FROM earnings_quarterly e1
+            INNER JOIN (
+                SELECT stock_code, MAX(report_date) AS max_date
+                FROM earnings_quarterly
+                WHERE profit_yoy IS NOT NULL AND profit_yoy > 0
+                GROUP BY stock_code
+            ) e2 ON e1.stock_code = e2.stock_code AND e1.report_date = e2.max_date
+        ) e ON e.stock_code = q.stock_code
         WHERE q.trade_date=? AND q.model_name=? AND q.percentile_score>=?
     """
-    params: list = [trade_date, model, min_percentile]
+    params: list = [trade_date, trade_date, model, min_percentile]
 
     if codes_filter:
         ph = ",".join("?" * len(codes_filter))
@@ -911,7 +986,11 @@ async def get_theme_scores(
                    COALESCE(q.sentiment_score, 50) AS sentiment_score,
                    COALESCE(q.subsector, '')        AS subsector,
                    COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
-                   COALESCE(i.industry, '')         AS industry
+                   COALESCE(i.industry, '')         AS industry,
+                   p.pe                                  AS pe,
+                   (CASE WHEN p.pe > 0 AND e.profit_yoy IS NOT NULL AND e.profit_yoy > 0
+                         THEN ROUND(p.pe / e.profit_yoy, 2)
+                         ELSE NULL END)             AS peg
             FROM quan_daily_scores q
             LEFT JOIN (
                 SELECT stock_code, MAX(stock_name) AS stock_name, MAX(industry) AS industry
@@ -922,9 +1001,29 @@ async def get_theme_scores(
                 FROM watchlist WHERE stock_name IS NOT NULL AND stock_name != ''
                 GROUP BY stock_code
             ) w ON w.stock_code = q.stock_code
+            LEFT JOIN (
+                SELECT p1.stock_code, p1.pe
+                FROM daily_pe p1
+                INNER JOIN (
+                    SELECT stock_code, MAX(trade_date) AS max_date
+                    FROM daily_pe
+                    WHERE pe IS NOT NULL AND trade_date <= ?
+                    GROUP BY stock_code
+                ) p2 ON p1.stock_code = p2.stock_code AND p1.trade_date = p2.max_date
+            ) p ON p.stock_code = q.stock_code
+            LEFT JOIN (
+                SELECT e1.stock_code, e1.profit_yoy
+                FROM earnings_quarterly e1
+                INNER JOIN (
+                    SELECT stock_code, MAX(report_date) AS max_date
+                    FROM earnings_quarterly
+                    WHERE profit_yoy IS NOT NULL AND profit_yoy > 0
+                    GROUP BY stock_code
+                ) e2 ON e1.stock_code = e2.stock_code AND e1.report_date = e2.max_date
+            ) e ON e.stock_code = q.stock_code
             WHERE q.trade_date=? AND q.model_name='theme_3chain'
         """
-        params: list = [td]
+        params: list = [td, td]
         if subsector:
             sql += " AND q.subsector=?"
             params.append(subsector)
@@ -1122,12 +1221,10 @@ _pipeline_state: dict = {
 _pipeline_lock = _threading.Lock()
 
 
-def _run_pipeline_bg(trade_date: str, expand: bool) -> None:
+def _run_pipeline_bg(trade_date: str) -> None:
     """Background thread that executes run_pipeline.sh."""
     import shlex
     cmd = ["bash", _PIPELINE_SCRIPT, trade_date]
-    if expand:
-        cmd.append("--expand")
     log_path = f"{_PIPELINE_ROOT}/logs/pipeline_{trade_date.replace('-','')}.log"
     try:
         with open(log_path, "w") as lf, _pipeline_lock:
@@ -1168,7 +1265,6 @@ def _run_pipeline_bg(trade_date: str, expand: bool) -> None:
 @router.post("/pipeline/trigger")
 async def trigger_pipeline(
     trade_date: Optional[str] = Body(None, embed=True),
-    expand: bool = Body(False, embed=True),
     current_user: User = Depends(get_current_user),
 ):
     """Trigger the AI industry chain quantitative training pipeline.
@@ -1190,9 +1286,9 @@ async def trigger_pipeline(
         _pipeline_state["status"]  = "pending"
         _pipeline_state["started"] = _datetime.now().isoformat()
 
-    t = _threading.Thread(target=_run_pipeline_bg, args=(td, expand), daemon=True)
+    t = _threading.Thread(target=_run_pipeline_bg, args=(td,), daemon=True)
     t.start()
-    logger.info("Pipeline triggered by %s for date=%s expand=%s", current_user.username, td, expand)
+    logger.info("Pipeline triggered by %s for date=%s", current_user.username, td)
     return {"ok": True, "message": f"Pipeline started for {td}", "state": dict(_pipeline_state)}
 
 
@@ -1247,3 +1343,17 @@ async def pool_stats(current_user: User = Depends(get_current_user)):
         }
     except Exception as e:
         return {"total": 0, "by_chain": [], "by_source": [], "error": str(e)}
+
+
+@router.post("/quan/pe-backfill")
+async def trigger_pe_backfill(
+    trade_date: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger PE backfill from Tencent API for missing values."""
+    try:
+        from services.valuation_backfill import backfill_pe
+        result = backfill_pe(trade_date)
+        return result
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

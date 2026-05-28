@@ -132,6 +132,14 @@ export function fetchIndustrialCharts() {
   return api.get('/macro/industrial-charts')
 }
 
+// ── Northbound (北向资金) ──
+export function fetchNorthboundFlow() {
+  return api.get('/macro/northbound')
+}
+export function refreshNorthboundFlow() {
+  return api.post('/macro/northbound/refresh')
+}
+
 export function refreshIndustrialCharts() {
   return api.post('/macro/industrial-charts/refresh')
 }
