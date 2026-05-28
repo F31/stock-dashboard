@@ -153,31 +153,6 @@
           <div class="ind-tag" :class="usFredClass(key, item.value)">{{ usFredTag(key, item.value) }}</div>
         </div>
       </div>
-      <!-- ── 北向资金 ── -->
-      <div class="section-title">
-        🇭🇰 北向资金流向
-        <span class="section-sub" v-if="nbData?.last_update">{{ nbData.last_update }} 数据</span>
-        <button class="refresh-btn" :class="{ spinning: nbLoading }" @click="loadNorthbound(true)" title="刷新北向数据">↻</button>
-      </div>
-      <div v-if="nbLoading && !nbData" class="loading-tip">北向资金数据加载中...</div>
-      <div v-else-if="nbData?.dates?.length" class="nb-section" :class="{ 'nb-section--loaded': !!nbData }">
-        <!-- Summary cards row -->
-        <div class="nb-summary">
-          <div class="nb-stat">
-            <span class="nb-stat-val" :class="nbColor(totalNetRecent)">{{ fmtNb(totalNetRecent) }}</span>
-            <span class="nb-stat-lbl">近5日净流入</span>
-          </div>
-          <div class="nb-stat">
-            <span class="nb-stat-val" :class="nbColor(nbData.total_net_buy?.[nbData.total_net_buy.length - 1] || 0)">{{ fmtNb(nbData.total_net_buy?.[nbData.total_net_buy.length - 1] || 0) }}</span>
-            <span class="nb-stat-lbl">当日净流入（亿）</span>
-          </div>
-        </div>
-        <!-- Chart -->
-        <div class="nb-chart-wrap">
-          <canvas ref="nbCanvasRef" class="nb-canvas"></canvas>
-        </div>
-      </div>
-      <div v-else class="empty-nb">暂无北向资金数据</div>
 
     </div>
   </div>
@@ -185,7 +160,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { fetchMacroData, refreshMacroData, fetchNorthboundFlow, refreshNorthboundFlow } from '../api'
+import { fetchMacroData, refreshMacroData } from '../api'
 import {
   Chart, CategoryScale, LinearScale, BarElement, LineElement,
   PointElement, Filler, Tooltip, Legend,
@@ -198,121 +173,6 @@ const macro = ref({})
 const loading = ref(false)
 const lastUpdate = ref('')
 let timer = null
-
-// ── Northbound ──
-const nbLoading = ref(false)
-const nbData = ref(null)
-const nbCanvasRef = ref(null)
-let nbChart = null
-
-const totalNetRecent = computed(() => {
-  if (!nbData.value?.total_net_buy) return 0
-  const arr = nbData.value.total_net_buy
-  const recent = arr.slice(-5)
-  return recent.reduce((s, v) => s + (v || 0), 0)
-})
-const totalCum = computed(() => {
-  const arr = nbData.value?.total_cumulative
-  return arr ? arr[arr.length - 1] || 0 : 0
-})
-
-async function loadNorthbound(forced = false) {
-  nbLoading.value = true
-  try {
-    const res = forced ? await refreshNorthboundFlow() : await fetchNorthboundFlow()
-    nbData.value = res.data || {}
-    await nextTick()
-    renderNbChart()
-  } catch { /* silent */ }
-  finally { nbLoading.value = false }
-}
-
-function renderNbChart() {
-  if (!nbCanvasRef.value) return
-  const d = nbData.value
-  if (!d?.dates?.length) return
-
-  // Destroy old chart
-  if (nbChart) { nbChart.destroy(); nbChart = null }
-
-  const ctx = nbCanvasRef.value.getContext('2d')
-  if (!ctx) return
-
-  const labels = d.dates.map(date => date.slice(5))  // "MM-DD"
-  // Limit x-axis labels to ~8 ticks
-  const tickStep = Math.max(1, Math.floor(labels.length / 8))
-  const tickIndices = labels.map((_, i) => i % tickStep === 0 ? labels[i] : '')
-
-  nbChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: tickIndices,
-      datasets: [
-        {
-          label: '沪股通',
-          data: d.sh_net_buy,
-          backgroundColor: d.sh_net_buy.map(v => v >= 0 ? 'rgba(239,68,68,0.75)' : 'rgba(34,197,94,0.75)'),
-          borderColor: d.sh_net_buy.map(v => v >= 0 ? 'rgba(239,68,68,1)' : 'rgba(34,197,94,1)'),
-          borderWidth: 1,
-          order: 2,
-        },
-        {
-          label: '深股通',
-          data: d.sz_net_buy,
-          backgroundColor: d.sz_net_buy.map(v => v >= 0 ? 'rgba(251,146,60,0.65)' : 'rgba(52,211,153,0.65)'),
-          borderColor: d.sz_net_buy.map(v => v >= 0 ? 'rgba(251,146,60,1)' : 'rgba(52,211,153,1)'),
-          borderWidth: 1,
-          order: 2,
-        },
-        {
-          label: '累计净流入',
-          data: d.total_cumulative,
-          type: 'line',
-          borderColor: 'rgba(96,165,250,1)',
-          backgroundColor: 'rgba(96,165,250,0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 2,
-          pointHoverRadius: 5,
-          yAxisID: 'y1',
-          order: 1,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          position: 'top',
-          labels: { boxWidth: 12, padding: 12, color: '#cbd5e1', font: { size: 11 } },
-        },
-        tooltip: {
-          callbacks: {
-            label: ctx => `${ctx.dataset.label}: ${(ctx.raw || 0).toFixed(1)} 亿`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          ticks: { color: '#94a3b8', maxRotation: 45, font: { size: 9 } },
-          grid: { color: 'rgba(51,65,85,0.3)' },
-        },
-        y: {
-          position: 'left',
-          ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => v + '亿' },
-          grid: { color: 'rgba(51,65,85,0.3)' },
-        },
-        y1: {
-          position: 'right',
-          ticks: { color: '#60a5fa', font: { size: 10 }, callback: v => (v / 10000).toFixed(0) + '万' },
-          grid: { display: false },
-        },
-      },
-    },
-  })
-}
 
 // Shortcuts to nested data
 const yields = computed(() => macro.value.yields || {})
@@ -344,8 +204,7 @@ function forceRefresh() { load(true) }
 
 onMounted(() => {
   load()
-  loadNorthbound()
-  timer = setInterval(() => { load(); loadNorthbound() }, 60 * 60 * 1000)  // hourly refresh
+  timer = setInterval(load, 60 * 60 * 1000)  // hourly refresh
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 
@@ -364,7 +223,6 @@ function barStyle(value, lo, hi) {
   return { width: `${pct}%` }
 }
 
-// ── Northbound helpers ──
 function nbColor(v) {
   if (v == null) return ''
   return v >= 0 ? 'red' : 'green'
@@ -602,35 +460,6 @@ function usFredTag(key, val) {
 
 /* US FRED row — slightly smaller number to fit value+unit */
 .us-big { font-size: 1.3em !important; }
-
-/* ── Northbound ── */
-.nb-section {
-  margin: 6px 0 0;
-  animation: fadeIn .3s ease;
-}
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-.nb-summary {
-  display: flex; gap: 12px; margin-bottom: 14px;
-}
-.nb-stat {
-  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 10px; padding: 12px 14px; text-align: center;
-}
-.nb-stat-val {
-  font-size: 1.3em; font-weight: 800; display: block; line-height: 1.3;
-}
-.nb-stat-val.red    { color: #ef4444; }
-.nb-stat-val.green  { color: #22c55e; }
-.nb-stat-lbl {
-  font-size: 0.78em; color: var(--text-muted); margin-top: 3px;
-}
-.nb-chart-wrap {
-  background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 10px; padding: 10px; height: 320px;
-}
-.nb-canvas { width: 100% !important; height: 100% !important; }
-.empty-nb { color: var(--text-muted); font-size: 0.85em; padding: 20px 0; text-align: center; }
 
 .section-sub {
   font-size: 0.75em; color: var(--text-muted); font-weight: 400; margin-left: 6px;

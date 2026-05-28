@@ -179,7 +179,11 @@
           <div class="industry-col" :title="row.industry || ''">
             <span>{{ row.industry || '—' }}</span>
             <span v-if="activeUniverse === 'theme' && row.subsector && !selectedSubsector"
-                  class="subsector-tag">{{ subsectorDisplayName(row.subsector) }}</span>
+                  class="subsector-tag"
+                  :class="{ 'has-multi': row.subsectors_all?.length }"
+                  :data-tip="row.subsectors_all ? subsectorTooltip(row) : ''">
+              {{ subsectorDisplayName(row.subsector) }}
+            </span>
           </div>
           <span class="ind-rank-col">
             <span v-if="row.industry_rank" class="ind-rank-val">{{ row.industry_rank }}</span>
@@ -702,10 +706,17 @@ const orderedSubsectors = computed(() => {
 
 // Grouped by chain for the dropdown optgroups and picker modal
 const ssecByChain = computed(() => {
+  // 从 API 返回的 subsectors 数据动态推导链标签，不硬编码
+  const chainLabels = {}
+  for (const ss of subsectorList.value) {
+    if (ss.chain && ss.chain_key && !chainLabels[ss.chain_key]) {
+      chainLabels[ss.chain_key] = ss.chain
+    }
+  }
   const chains = [
-    { key: 'tech',  label: '科技链' },
-    { key: 'space', label: '航天链' },
-    { key: 'bio',   label: '生物链' },
+    { key: 'tech',  label: chainLabels['tech']  || '科技链' },
+    { key: 'space', label: chainLabels['space'] || '航天军工' },
+    { key: 'bio',   label: chainLabels['bio']   || '生物医药' },
     { key: 'other', label: '其他' },
   ]
   return chains
@@ -747,6 +758,12 @@ const detailFactorWeights = computed(() => {
 
 function subsectorDisplayName(key) {
   return subsectorList.value.find(s => s.key === key)?.name || key
+}
+
+function subsectorTooltip(row) {
+  if (!row.subsectors_all?.length) return ''
+  const names = row.subsectors_all.map(k => subsectorDisplayName(k))
+  return '归属板块：' + names.join('、')
 }
 
 function onSsecSelect(val) {
@@ -1071,6 +1088,27 @@ function oppTagTip(row) {
   font-size: 0.65em; color: #059669;
   background: #ecfdf5; border: 1px solid #a7f3d0;
   border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+  position: relative; cursor: default;
+}
+.subsector-tag.has-multi {
+  border-color: #6ee7b7; cursor: help;
+  border-bottom: 1px dashed #059669;
+}
+.subsector-tag[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: #1f2937; color: #f9fafb;
+  padding: 6px 10px; border-radius: 6px;
+  font-size: 0.72em; white-space: nowrap;
+  font-weight: 400; z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  pointer-events: none;
+}
+.subsector-tag[data-tip]:hover::before {
+  content: '';
+  position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #1f2937;
+  z-index: 100; pointer-events: none;
 }
 
 .subsector-badge {

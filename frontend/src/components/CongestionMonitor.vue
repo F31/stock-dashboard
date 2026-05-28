@@ -60,6 +60,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchSectorCongestion } from '../api'
+import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
 
 const sectors = ref([])
 const loading = ref(false)
@@ -81,13 +82,30 @@ async function load() {
 }
 
 onMounted(() => {
+  initTradeCalendar()
   load()
-  timer = setInterval(load, 30000)
+  scheduleRefresh()
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
+
+function scheduleRefresh() {
+  if (timer) { clearInterval(timer); timer = null }
+  if (isMarketOpen()) {
+    timer = setInterval(() => {
+      load()
+      if (!isMarketOpen()) { clearInterval(timer); timer = null }
+    }, 30000)
+  } else {
+    const ms = msUntilNextOpen()
+    timer = setTimeout(() => {
+      load()
+      scheduleRefresh()
+    }, Math.min(ms, 3600000))
+  }
+}
 
 // ── Computed stats ──
 const upCount = computed(() => sectors.value.filter(s => (s.change_pct ?? 0) >= 0).length)

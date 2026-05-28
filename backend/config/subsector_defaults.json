@@ -1,0 +1,25 @@
+{
+  "科技产业链": {
+    "chip_semiconductor":     {"name": "芯片半导体"},
+    "optical_module":         {"name": "光模块"},
+    "ai_big_model":           {"name": "AI大模型"},
+    "robot":                  {"name": "机器人"},
+    "quantum_computing":      {"name": "量子计算"},
+    "lithography_material":   {"name": "光刻机原材料"},
+    "memory_storage":         {"name": "存储"},
+    "power_equipment":        {"name": "电力设备新能源"}
+  },
+  "航天军工": {
+    "satellite_internet":     {"name": "卫星互联网"},
+    "launch_rocket":          {"name": "运载火箭"},
+    "aviation_equipment":     {"name": "航空装备"},
+    "naval_equipment":        {"name": "船舶制造"},
+    "ground_equipment":       {"name": "地面装备"}
+  },
+  "生物医药": {
+    "innovative_drug":        {"name": "创新药"},
+    "cro_cdmo":               {"name": "CRO/CDMO"},
+    "medical_device":         {"name": "医疗器械"},
+    "genomics_synthetic_bio": {"name": "基因组学合成生物"}
+  }
+}

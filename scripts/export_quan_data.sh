@@ -131,7 +131,6 @@ TABLES=(
   "system_settings"
   "analysis_framework"
   # 北向资金（可选依赖，如果表存在则导出）
-  "northbound_holdings"
 )
 
 # ── 导出每张表 ──

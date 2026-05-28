@@ -187,10 +187,11 @@ async def _fetch_all_bk_changes() -> Dict[str, Dict]:
         for entry in data.get("data", {}).get("allbk", []):
             code = entry.get("c", "").upper()
             if code:
+                raw_flow = _float(entry.get("zjl"))
                 result[code] = {
                     "name": entry.get("n", ""),
                     "change_pct": _float(entry.get("u")),
-                    "fund_flow": _float(entry.get("zjl")),  # 主力净流入 (yuan)
+                    "fund_flow": raw_flow * 10000 if raw_flow is not None else None,  # zjl is 万元, convert to 元
                 }
         logger.info(f"bk_changes: loaded {len(result)} boards from push2ex")
     except Exception as e:
@@ -438,7 +439,7 @@ async def fetch_sector_top5(code: str) -> list:
 
     url = "https://push2.eastmoney.com/api/qt/clist/get"
     params = {
-        "pn": "1", "pz": "5", "po": "1", "np": "1",
+        "pn": "1", "pz": "10", "po": "1", "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",
         "fltt": "2", "invt": "2", "fid": "f20",
         "fs": f"b:{code_up}",
@@ -458,6 +459,11 @@ async def fetch_sector_top5(code: str) -> list:
     result = []
     for rank, item in enumerate(diff, 1):
         raw_code = str(item.get("f12", "")).zfill(6)
+        price = _float(item.get("f2"))
+        change_pct = _float(item.get("f3"))
+        # Skip stocks with no price or no change — suspended / delisted / no data
+        if price is None or change_pct is None:
+            continue
         pe = _float(item.get("f9"))
         if pe is not None and pe < 0:
             pe = None  # loss-making — suppress display
@@ -466,8 +472,8 @@ async def fetch_sector_top5(code: str) -> list:
             "code": raw_code,
             "market": "A",
             "name": item.get("f14", ""),
-            "price": _float(item.get("f2")),
-            "change_pct": _float(item.get("f3")),
+            "price": price,
+            "change_pct": change_pct,
             "pe": pe,
             "market_cap": _float(item.get("f20")),  # yuan
             "peg": None,
@@ -493,6 +499,60 @@ async def fetch_sector_top5(code: str) -> list:
     return result
 
 
+async def fetch_sector_top5_by_change(code: str) -> list:
+    """Return top-5 constituents of a sector by change% (涨幅).
+
+    Calls EastMoney clist API (fltt=2, sorted by f3 desc).
+    Simpler variant — no PEG computation.
+    Cached 60 s.
+    """
+    code_up = code.upper()
+    cache_key = f"sector_top5_change:{code_up}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1", "pz": "10", "po": "1", "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2", "invt": "2", "fid": "f3",
+        "fs": f"b:{code_up}",
+        "fields": "f2,f3,f12,f13,f14,f20",
+    }
+
+    try:
+        async with _make_client(timeout=8) as client:
+            resp = await client.get(url, params=params, headers=_HEADERS_EM)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.warning(f"sector_top5_by_change fetch error {code}: {e}")
+        return []
+
+    diff = (data.get("data") or {}).get("diff") or []
+    result = []
+    for rank, item in enumerate(diff, 1):
+        raw_code = str(item.get("f12", "")).zfill(6)
+        price = _float(item.get("f2"))
+        change_pct = _float(item.get("f3"))
+        # Skip stocks with no price or no change — they are suspended / delisted / no data
+        if price is None or change_pct is None:
+            continue
+        result.append({
+            "rank": rank,
+            "code": raw_code,
+            "market": item.get("f13", "A"),
+            "name": item.get("f14", ""),
+            "price": price,
+            "change_pct": change_pct,
+            "market_cap": _float(item.get("f20")),
+        })
+
+    _set_cache(cache_key, result, 60)
+    return result
+
+
 # ── Helpers ──
 
 def _float(v):
@@ -502,3 +562,48 @@ def _float(v):
         return float(v)
     except (ValueError, TypeError):
         return None
+
+
+# ── Top-N queries backed by getAllBKChanges ──
+
+
+async def fetch_sector_fund_flow_top10() -> list:
+    """Return top-10 boards sorted by fund_flow (主力净流入) descending.
+
+    Uses the batched getAllBKChanges endpoint (fast, single API call).
+    Only BK-format industry boards are included.
+    """
+    changes = await _fetch_all_bk_changes()
+    entries = []
+    for code, info in changes.items():
+        if is_industry_board_code(code) and info.get("fund_flow") is not None:
+            entries.append({
+                "code": code,
+                "name": info.get("name", ""),
+                "change_pct": info.get("change_pct"),
+                "fund_flow": info.get("fund_flow"),
+            })
+    entries.sort(key=lambda x: x["fund_flow"], reverse=True)
+    return entries[:10]
+
+
+async def fetch_heatmap_data() -> list:
+    """Return top-100 boards with change_pct and fund_flow for heatmap rendering.
+
+    Uses the batched getAllBKChanges endpoint.  Sorted by descending
+    absolute fund_flow so the most active boards appear first.
+    Only BK-format industry boards are included.
+    """
+    changes = await _fetch_all_bk_changes()
+    entries = []
+    for code, info in changes.items():
+        if is_industry_board_code(code):
+            entries.append({
+                "code": code,
+                "name": info.get("name", ""),
+                "change_pct": info.get("change_pct"),
+                "fund_flow": info.get("fund_flow"),
+            })
+    # Sort by |fund_flow| descending — most active boards first
+    entries.sort(key=lambda x: abs(x["fund_flow"]) if x["fund_flow"] is not None else 0, reverse=True)
+    return entries[:100]

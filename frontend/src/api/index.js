@@ -132,14 +132,6 @@ export function fetchIndustrialCharts() {
   return api.get('/macro/industrial-charts')
 }
 
-// ── Northbound (北向资金) ──
-export function fetchNorthboundFlow() {
-  return api.get('/macro/northbound')
-}
-export function refreshNorthboundFlow() {
-  return api.post('/macro/northbound/refresh')
-}
-
 export function refreshIndustrialCharts() {
   return api.post('/macro/industrial-charts/refresh')
 }
@@ -150,6 +142,11 @@ export function fetchIndustrialProfitHistory() {
 
 export function refreshIndustrialProfitHistory() {
   return api.post('/macro/profit-history/refresh')
+}
+
+// ── 主力净流入 TOP 20 ──
+export function fetchFundFlowTop20() {
+  return api.get('/macro/fund-flow/top20')
 }
 
 // ── Analysis Reports ──
@@ -304,5 +301,19 @@ export function fetchPoolStats() { return api.get('/pipeline/pool-stats') }
 // qlib subprocess cold-start can take 40 s; override the 30 s global timeout
 export function fetchQuanStockLevels(stockCode) {
   return api.get(`/quan/scores/${stockCode}/levels`, { timeout: 90000 })
+}
+
+// ── Sector ──
+
+export function fetchSectorTop5ByChange(code) {
+  return api.get(`/sectors/${encodeURIComponent(code)}/top5-by-change`)
+}
+
+export function fetchSectorFundFlowTop10() {
+  return api.get('/sector/fund-flow/top10')
+}
+
+export function fetchSectorHeatmap() {
+  return api.get('/sector/heatmap')
 }
 

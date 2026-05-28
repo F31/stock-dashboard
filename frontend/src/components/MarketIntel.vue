@@ -34,6 +34,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchMarketIntel } from '../api'
+import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
 
 const props = defineProps({ mode: { type: String, default: '' } })
 
@@ -52,9 +53,26 @@ async function load() {
   }
 }
 
+function scheduleRefresh() {
+  if (timer) { clearInterval(timer); timer = null }
+  if (isMarketOpen()) {
+    timer = setInterval(() => {
+      load()
+      if (!isMarketOpen()) { clearInterval(timer); timer = null }
+    }, 60000)
+  } else {
+    const ms = msUntilNextOpen()
+    timer = setTimeout(() => {
+      load()
+      scheduleRefresh()
+    }, Math.min(ms, 3600000))
+  }
+}
+
 onMounted(() => {
+  initTradeCalendar()
   load()
-  timer = setInterval(load, 60000)
+  scheduleRefresh()
 })
 
 onUnmounted(() => {

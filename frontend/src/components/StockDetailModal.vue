@@ -54,7 +54,7 @@
             </div>
             <!-- Sector Top5 Constituents -->
             <div v-if="isSector" class="top5-section">
-              <div class="sec-ttl">🏆 Top5 成分股（按市值）</div>
+              <div class="sec-ttl">🏆 Top10 成分股（按市值）</div>
               <div v-if="top5Loading" class="empty-tip">加载中...</div>
               <div v-else-if="top5Data.length === 0" class="empty-tip">暂无数据</div>
               <div class="m-table-wrap">

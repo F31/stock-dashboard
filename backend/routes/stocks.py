@@ -447,6 +447,33 @@ async def get_sector_top5(code: str, db: Session = Depends(get_db),
     return top5
 
 
+@router.get("/sectors/{code}/top5-by-change")
+async def get_sector_top5_by_change(code: str, db: Session = Depends(get_db),
+                                    user=Depends(get_current_user)):
+    """Top-5 constituent stocks of a sector (by change percentage)."""
+    from services.sector_service import fetch_sector_top5_by_change
+    items = await fetch_sector_top5_by_change(code)
+    return items
+
+
+@router.get("/sector/fund-flow/top10")
+async def get_sector_fund_flow_top10(db: Session = Depends(get_db),
+                                     user=Depends(get_current_user)):
+    """Top-10 sectors by fund flow."""
+    from services.sector_service import fetch_sector_fund_flow_top10
+    items = await fetch_sector_fund_flow_top10()
+    return items
+
+
+@router.get("/sector/heatmap")
+async def get_sector_heatmap(db: Session = Depends(get_db),
+                             user=Depends(get_current_user)):
+    """Sector heatmap data (all boards with change_pct + fund_flow)."""
+    from services.sector_service import fetch_heatmap_data
+    data = await fetch_heatmap_data()
+    return {"boards": data, "total": len(data), "update_time": None}
+
+
 @router.post("/stocks/capex/refresh")
 async def refresh_capex(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Trigger a Capex refresh for all of this user's watchlist items (runs in background)."""

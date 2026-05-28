@@ -85,6 +85,11 @@
               <span class="tab-count">{{ tab.count }}</span>
             </button>
             <div class="tab-bar-r">
+              <!-- SECTOR tab view mode toggle -->
+              <template v-if="activeTab === 'SECTOR'">
+                <button class="tab-action-btn" :class="{ 'tab-active': sectorViewMode === 'heatmap' }" @click="sectorViewMode = 'heatmap'">📊 热力图</button>
+                <button class="tab-action-btn" :class="{ 'tab-active': sectorViewMode === 'list' }" @click="sectorViewMode = 'list'">📋 我的板块</button>
+              </template>
               <select
                 v-if="activeTab === 'A'"
                 v-model="quanLabelFilter"
@@ -119,30 +124,98 @@
           </div>
         </div>
 
-        <!-- Stock Grid -->
-        <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
-          <div
-            v-for="(stock, idx) in visibleStocks"
-            :key="stock.id"
-            class="card-wrap"
-            :class="{ 'drag-over': dragOverIdx === idx }"
-            draggable="true"
-            @dragstart="onDragStart(idx)"
-            @dragover.prevent="onDragOver(idx)"
-            @dragleave="onDragLeave"
-            @drop="onDrop($event, idx)"
-            @dragend="onDragEnd"
-          >
-            <div class="drag-handle" title="拖动排序">⠿</div>
-            <StockCard
-              :stock="stock"
-              :quan-score="quanScoresMap[stock.stock_code] || null"
-              @remove="handleRemove(stock.id)"
-              @rename="handleRename"
-              @open-detail="handleOpenDetail"
-            />
+        <!-- SECTOR tab: heatmap + sector fund flow (replaces stock grid) -->
+        <template v-if="activeTab === 'SECTOR'">
+          <div class="stock-flow-layout">
+            <!-- Left: shared container for heatmap/list + floating TOP5 -->
+            <div class="sector-heatmap-area">
+              <template v-if="sectorViewMode === 'heatmap'">
+                <SectorHeatmap @select-board="onSelectBoard" />
+              </template>
+              <template v-else>
+                <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+                  <template v-for="(stock, idx) in visibleStocks" :key="stock.id">
+                    <div v-if="stock._pad" class="card-wrap card-pad"></div>
+                    <div v-else class="card-wrap" :class="{ 'drag-over': dragOverIdx === idx }"
+                         draggable="true" @dragstart="onDragStart(idx)" @dragover.prevent="onDragOver(idx)"
+                         @dragleave="onDragLeave" @drop="onDrop($event, idx)" @dragend="onDragEnd">
+                      <div class="drag-handle" title="拖动排序">⠿</div>
+                      <StockCard :stock="stock" :quan-score="quanScoresMap[stock.stock_code] || null"
+                                 @remove="handleRemove(stock.id)" @rename="handleRename"
+                                 @open-detail="onSectorNameClick(stock)" />
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <!-- Floating TOP5 panel (shared: heatmap tile click OR list mode sector card dblclick) -->
+              <div v-if="selectedBoard" class="sector-top5-overlay" @click.self="selectedBoard = null">
+                <div class="sector-top5-card" :style="{ top: top5Pos + 'px' }">
+                  <div class="st5-hdr">
+                    <span class="st5-title">{{ selectedBoard.name }} <small>({{ selectedBoard.code }})</small></span>
+                    <div class="st5-sort-group">
+                      <button class="st5-sort-btn" :class="{ active: top5SortMode === 'change' }" @click="toggleTop5Sort">按涨幅</button>
+                      <button class="st5-sort-btn" :class="{ active: top5SortMode === 'market_cap' }" @click="toggleTop5Sort">按市值</button>
+                    </div>
+                    <button class="st5-close" @click="selectedBoard = null">✕</button>
+                  </div>
+                  <div v-if="top5Loading" class="st5-loading">加载中...</div>
+                  <div v-else class="st5-list">
+                    <div class="st5-row st5-row-hdr">
+                      <span class="st5-rank">#</span>
+                      <span class="st5-code">代码</span>
+                      <span class="st5-name">名称</span>
+                      <span class="st5-chg">涨跌幅</span>
+                      <span class="st5-price">现价</span>
+                    </div>
+                    <div v-for="s in top5Stocks" :key="s.code" class="st5-row st5-row-body" @click="$emit('open-detail', s.code)">
+                      <span class="st5-rank">{{ s.rank }}</span>
+                      <span class="st5-code">{{ s.code }}</span>
+                      <span class="st5-name">{{ s.name }}</span>
+                      <span :class="['st5-chg', s.change_pct >= 0 ? 'up' : 'dn']">{{ s.change_pct != null ? (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%' : '—' }}</span>
+                      <span class="st5-price">{{ s.price != null ? s.price.toFixed(2) : '—' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Right: SectorFundFlowPanel (always visible for SECTOR tab) -->
+            <SectorFundFlowPanel />
           </div>
+        </template>
+
+        <!-- Non-SECTOR tabs: stock grid + FundFlowPanel -->
+        <template v-if="activeTab !== 'SECTOR'">
+        <div class="stock-flow-layout">
+          <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+            <template v-for="(stock, idx) in visibleStocks" :key="stock.id">
+              <!-- Padding card: invisible, just fills grid space to keep 3 equal rows -->
+              <div v-if="stock._pad" class="card-wrap card-pad"></div>
+              <!-- Real stock card -->
+              <div
+                v-else
+                class="card-wrap"
+                :class="{ 'drag-over': dragOverIdx === idx }"
+                draggable="true"
+                @dragstart="onDragStart(idx)"
+                @dragover.prevent="onDragOver(idx)"
+                @dragleave="onDragLeave"
+                @drop="onDrop($event, idx)"
+                @dragend="onDragEnd"
+              >
+                <div class="drag-handle" title="拖动排序">⠿</div>
+                <StockCard
+                  :stock="stock"
+                  :quan-score="quanScoresMap[stock.stock_code] || null"
+                  @remove="handleRemove(stock.id)"
+                  @rename="handleRename"
+                  @open-detail="handleOpenDetail"
+                />
+              </div>
+            </template>
+          </div>
+          <FundFlowPanel @open-detail="handleOpenDetail" />
         </div>
+        </template>
 
         <!-- Pagination -->
         <div v-if="totalPages > 1" class="pagination">
@@ -278,11 +351,15 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComp
 import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
 import { useAuthStore } from '../stores/authStore.js'
-import { fetchQuanScores } from '../api/index.js'
+import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
+import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5 } from '../api/index.js'
 
 // ── Always on first paint ───────────────────────────────────────────────────
 import StockCard      from '../components/StockCard.vue'
 import MarketIntel    from '../components/MarketIntel.vue'
+import FundFlowPanel  from '../components/FundFlowPanel.vue'
+import SectorHeatmap      from '../components/SectorHeatmap.vue'
+import SectorFundFlowPanel from '../components/SectorFundFlowPanel.vue'
 
 // ── Lazy: shown only after a user action (modal / tab switch) ───────────────
 const AddStockModal      = defineAsyncComponent(() => import('../components/AddStockModal.vue'))
@@ -335,6 +412,55 @@ const quanScoresMap = ref({})
 const quanSort = ref('default')
 const hasQuanData = computed(() => Object.keys(quanScoresMap.value).length > 0)
 
+// ── Sector tab state ──
+const sectorViewMode = ref('heatmap')  // 'heatmap' | 'list'
+const selectedBoard = ref(null)        // {code, name} when a heatmap tile is clicked
+const top5Stocks = ref([])
+const top5Loading = ref(false)
+const top5Pos = ref(0)
+const top5SortMode = ref('change')     // 'change' | 'market_cap'
+
+async function loadTop5(code, sortMode) {
+  top5Loading.value = true
+  top5Stocks.value = []
+  try {
+    const fn = sortMode === 'change' ? fetchSectorTop5ByChange : fetchSectorTop5
+    const res = await fn(code)
+    top5Stocks.value = Array.isArray(res.data) ? res.data : []
+  } catch (e) {
+    console.error('Failed to load sector top5', e)
+  } finally {
+    top5Loading.value = false
+  }
+}
+
+async function onSelectBoard(board) {
+  selectedBoard.value = board
+  top5SortMode.value = 'change'
+  top5Pos.value = Math.min(window.innerHeight * 0.15, 120)
+  await loadTop5(board.code, 'change')
+}
+
+function toggleTop5Sort() {
+  const next = top5SortMode.value === 'change' ? 'market_cap' : 'change'
+  top5SortMode.value = next
+  if (selectedBoard.value) {
+    loadTop5(selectedBoard.value.code, next)
+  }
+}
+
+/** StockCard emits open-detail when clicking sector name — route to TOP5 for sectors */
+function onSectorNameClick(stock) {
+  if (stock.item_type === 'sector' || stock.data?.item_type === 'sector') {
+    selectedBoard.value = { code: stock.stock_code, name: stock.stock_name || stock.data?.stock_name }
+    top5SortMode.value = 'market_cap'
+    top5Pos.value = Math.min(window.innerHeight * 0.15, 120)
+    loadTop5(selectedBoard.value.code, 'market_cap')
+  } else {
+    handleOpenDetail(stock)
+  }
+}
+
 async function loadQuanScores() {
   try {
     const res = await fetchQuanScores({ model: 'factor', min_percentile: 0 })
@@ -380,9 +506,9 @@ const gridCols = computed(() => {
   return Math.min(5, Math.max(1, Math.floor((avail + gap) / (280 + gap))))
 })
 
-// Mobile (1 col): show all; Desktop: max 2 rows per page
+// Mobile (1 col): show all; Desktop: exactly 3 rows × 3 cols = 9 cards
 const MAX_VISIBLE = computed(() =>
-  gridCols.value <= 1 ? 9999 : gridCols.value * 2
+  gridCols.value <= 1 ? 9999 : 9
 )
 
 const filteredStocks = computed(() => {
@@ -410,9 +536,20 @@ const totalPages = computed(() =>
 const pageStart = computed(() => currentPage.value * MAX_VISIBLE.value)
 const pageEnd = computed(() => Math.min(pageStart.value + MAX_VISIBLE.value, filteredStocks.value.length))
 
-const visibleStocks = computed(() =>
-  filteredStocks.value.slice(pageStart.value, pageEnd.value)
-)
+const visibleStocks = computed(() => {
+  const sliced = filteredStocks.value.slice(pageStart.value, pageEnd.value)
+  // Desktop dual-panel: pad to exactly 9 so the grid always has 3 full rows.
+  // This keeps 港股/美股/概念板块 cards the same height as A股 cards
+  // and prevents single-row stretching when there are fewer than 9 items.
+  if (gridCols.value > 1 && sliced.length < MAX_VISIBLE.value) {
+    const pads = []
+    for (let i = sliced.length; i < MAX_VISIBLE.value; i++) {
+      pads.push({ id: `__pad_${i}`, _pad: true })
+    }
+    return [...sliced, ...pads]
+  }
+  return sliced
+})
 
 const watchlist = computed(() => store.watchlistWithData)
 // Only non-hidden items for display in the grid and counts
@@ -628,14 +765,35 @@ function stopRefreshTimer() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
 }
 
+/** 交易时段感知的自动刷新调度器 */
+function scheduleNextRefresh() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+  if (isMarketOpen()) {
+    // 交易时段: 每 30 秒刷新
+    refreshTimer = setInterval(() => {
+      refresh()
+      // 每次执行后检查是否已收盘
+      if (!isMarketOpen()) stopRefreshTimer()
+    }, 30000)
+  } else {
+    // 非交易时段: 等到下次开盘再启动
+    const ms = msUntilNextOpen()
+    refreshTimer = setTimeout(() => {
+      refresh()
+      scheduleNextRefresh()
+    }, Math.min(ms, 3600000))  // 最多少 1 小时检查一次
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('auth:logout', stopRefreshTimer)
   await store.loadWatchlist()
   await refresh()
   loadQuanScores()  // fire-and-forget, may have no data yet
-  refreshTimer = setInterval(refresh, 30000)
+  scheduleNextRefresh()
   document.addEventListener('click', closeSysMenu)
+  initTradeCalendar()
 })
 
 onUnmounted(() => {
@@ -960,12 +1118,191 @@ onUnmounted(() => {
 }
 
 /* ── Stock Grid (fluid: auto-fill, min card 280px) ── */
+/* ── Stock Grid (inside dual layout or standalone) ── */
 .stock-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: clamp(8px, 1.5vw, 14px);
   padding: 4px 0 16px;
   touch-action: pan-y;
+}
+
+/* ── Stock Grid + Fund Flow dual layout ── */
+.stock-flow-layout {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.stock-flow-layout .stock-grid {
+  flex: 1;
+  min-width: 0;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+.stock-flow-layout .card-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 70px;
+}
+.stock-flow-layout .card-wrap > .card {
+  flex: 1;
+}
+
+/* Padding card: invisible, occupies grid cell to maintain 3 equal rows */
+.card-pad {
+  visibility: hidden;
+  pointer-events: none;
+  min-height: 0;
+}
+
+/* ── Sector heatmap area ── */
+.sector-heatmap-area {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+/* ── Sector TOP5 floating overlay ── */
+.sector-top5-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: rgba(0,0,0,0.15);
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+}
+.sector-top5-card {
+  position: absolute;
+  width: 380px;
+  max-width: 90%;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  padding: 14px;
+  z-index: 21;
+}
+.st5-hdr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.st5-title {
+  font-size: 0.9em;
+  font-weight: 700;
+  color: #111827;
+}
+.st5-title small {
+  font-weight: 400;
+  color: #9ca3af;
+  font-size: 0.8em;
+}
+.st5-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1em;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.st5-close:hover { background: #f3f4f6; color: #374151; }
+
+/* ── TOP5 sort toggle buttons ── */
+.st5-sort-group {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+.st5-sort-btn {
+  background: transparent;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.72em;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.12s;
+}
+.st5-sort-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+.st5-sort-btn.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.st5-sort-btn.active:hover {
+  background: #1d4ed8;
+}
+
+.st5-loading {
+  text-align: center;
+  color: #9ca3af;
+  padding: 20px;
+  font-size: 0.82em;
+}
+.st5-list { display: flex; flex-direction: column; gap: 2px; }
+.st5-row {
+  display: grid;
+  grid-template-columns: 28px 76px 1fr 72px 72px;
+  align-items: center;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 0.75em;
+  gap: 4px;
+}
+.st5-row-hdr {
+  color: #9ca3af;
+  font-weight: 600;
+  font-size: 0.7em;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+.st5-row-body { cursor: pointer; transition: background 0.12s; }
+.st5-row-body:hover { background: #f3f4f6; }
+.st5-rank  { font-weight: 700; color: #6b7280; text-align: center; }
+.st5-code  { font-family: monospace; color: #6b7280; font-size: 0.9em; }
+.st5-name  { font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st5-chg   { text-align: right; font-weight: 700; font-family: monospace; }
+.st5-chg.up { color: #dc2626; }
+.st5-chg.dn { color: #16a34a; }
+.st5-price { text-align: right; font-family: monospace; color: #374151; font-weight: 600; }
+
+/* ── Sector view mode toggle active state ── */
+.tab-active {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #2563eb !important;
+}
+
+/* Desktop dual-panel: fix exactly 3 rows so cards are always equal height */
+@media (min-width: 1201px) {
+  .stock-flow-layout .stock-grid {
+    grid-template-rows: repeat(3, 1fr);
+    grid-auto-rows: 0;
+  }
+}
+
+@media (max-width: 1200px) {
+  .stock-flow-layout { flex-direction: column; }
+}
+@media (max-width: 768px) {
+  .stock-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 400px) {
+  .stock-grid { grid-template-columns: 1fr; }
 }
 
 /* ── Tab bar right-side action group ── */
@@ -1132,15 +1469,6 @@ onUnmounted(() => {
 }
 
 /* ── Ultrawide cap ── */
-@media (min-width: 1800px) {
-  .stock-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-}
-
-/* ── Phone portrait: single column ── */
-@media (max-width: 400px) {
-  .stock-grid { grid-template-columns: 1fr; }
-}
-
 /* ── Drag-and-Drop ── */
 .card-wrap {
   position: relative;

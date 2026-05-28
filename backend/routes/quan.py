@@ -611,26 +611,45 @@ def _table_exists(table: str = "quan_daily_scores") -> bool:
         return False
 
 
-# ── 子板块元数据：从 DB 读取（不依赖 stock_quan 工程） ──────────────────
-# 数据来源：system_settings.subsector_config（由 pipeline Step 0 写入）
-# 内置 fallback：DB 无数据时使用（与 stock_quan 配置保持一致）
-_BUILTIN_SUBSECTORS: dict[str, dict] = {
-    "chip_semiconductor":     {"name": "芯片半导体",        "chain": "科技链", "chain_key": "tech"},
-    "optical_module":         {"name": "光模块",            "chain": "科技链", "chain_key": "tech"},
-    "ai_big_model":           {"name": "AI大模型",          "chain": "科技链", "chain_key": "tech"},
-    "robot":                  {"name": "机器人",             "chain": "科技链", "chain_key": "tech"},
-    "quantum_computing":      {"name": "量子计算",           "chain": "科技链", "chain_key": "tech"},
-    "lithography_material":   {"name": "光刻机原材料",       "chain": "科技链", "chain_key": "tech"},
-    "memory_storage":         {"name": "存储",               "chain": "科技链", "chain_key": "tech"},
-    "power_equipment":        {"name": "电力设备新能源",     "chain": "科技链", "chain_key": "tech"},
-    "satellite_internet":     {"name": "卫星互联网",         "chain": "航天链", "chain_key": "space"},
-    "launch_rocket":          {"name": "运载火箭",           "chain": "航天链", "chain_key": "space"},
-    "space_application":      {"name": "航天应用",           "chain": "航天链", "chain_key": "space"},
-    "innovative_drug":        {"name": "创新药",             "chain": "生物链", "chain_key": "bio"},
-    "cro_cdmo":               {"name": "CRO/CDMO",          "chain": "生物链", "chain_key": "bio"},
-    "medical_device":         {"name": "医疗器械",           "chain": "生物链", "chain_key": "bio"},
-    "genomics_synthetic_bio": {"name": "基因组学合成生物",   "chain": "生物链", "chain_key": "bio"},
-}
+# ── 子板块元数据：从 DB 读取，兜底从共享 JSON 加载 ──────────────────
+# 数据来源：
+#   1. system_settings.subsector_config（由 pipeline Step 0 写入）
+#   2. 兜底: config/subsector_defaults.json（与 stock_quan 共享，无代码重复）
+# 仅含显示名+分类，不含权重/patterns 等配置（权重从 training_history.db 加载）
+
+
+def _load_subsector_defaults() -> dict[str, dict]:
+    """从共享 JSON 加载兜底子板块列表（仅显示名+分类+链映射）。"""
+    import json as _json
+    from pathlib import Path as _Path
+    default_path = _Path(__file__).resolve().parent.parent / "config" / "subsector_defaults.json"
+    try:
+        if default_path.exists():
+            with open(default_path) as f:
+                data = _json.load(f)
+        else:
+            raise FileNotFoundError(str(default_path))
+    except Exception:
+        # 极简兜底：JSON 不存在时的最后防线
+        return {}
+
+    _chain_map: dict[str, str] = {
+        "科技产业链": "tech", "航天军工": "space", "生物医药": "bio",
+    }
+    _chain_label: dict[str, str] = {
+        "tech": "科技链", "space": "航天军工", "bio": "生物医药",
+    }
+    result: dict[str, dict] = {}
+    for chain_cn, subs in data.items():
+        ck = _chain_map.get(chain_cn, "tech")
+        cl = _chain_label.get(ck, chain_cn)
+        for ss_key, ss_data in subs.items():
+            result[ss_key] = {
+                "name": ss_data.get("name", ss_key),
+                "chain": cl,
+                "chain_key": ck,
+            }
+    return result
 
 
 def _load_subsector_meta() -> dict[str, dict]:
@@ -640,7 +659,7 @@ def _load_subsector_meta() -> dict[str, dict]:
     DB 无配置时使用内置 fallback（仅中英文名+分类，不含权重）。
     """
     try:
-        with sqlite3.connect(_DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             row = conn.execute(
                 "SELECT value FROM system_settings WHERE key='subsector_config'"
             ).fetchone()
@@ -651,27 +670,31 @@ def _load_subsector_meta() -> dict[str, dict]:
             result: dict[str, dict] = {}
             _chain_map: dict[str, str] = {
                 "科技产业链": "tech",
-                "商业航天": "space",
+                "航天军工": "space",
                 "生物医药": "bio",
             }
             _chain_label: dict[str, str] = {
-                "tech": "科技链", "space": "航天链", "bio": "生物链",
+                "tech": "科技链", "space": "航天军工", "bio": "生物医药",
             }
             for chain_cn, subs in data.items():
                 ck = _chain_map.get(chain_cn, "tech")
                 cl = _chain_label.get(ck, chain_cn)
                 for ss_key, ss_data in subs.items():
-                    result[ss_key] = {
+                    entry: dict = {
                         "name": ss_data.get("name", ss_key),
                         "chain": cl,
                         "chain_key": ck,
                     }
+                    # 透传 valuation_peers（仅 DB 配置中有，JSON 兜底无）
+                    if "valuation_peers" in ss_data:
+                        entry["valuation_peers"] = ss_data["valuation_peers"]
+                    result[ss_key] = entry
             return result
     except Exception as e:
         logging.getLogger(__name__).warning(
-            "Failed to load subsector config from DB: %s (using built-in)", e
+            "Failed to load subsector config from DB: %s (falling back to JSON)", e
         )
-    return dict(_BUILTIN_SUBSECTORS)
+    return _load_subsector_defaults()
 
 
 _SUBSECTOR_META: dict[str, dict] = _load_subsector_meta()
@@ -1054,6 +1077,27 @@ async def get_theme_scores(
 
         scores = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
+        # 从 ai_pool_cache 加载多板块归属（悬浮浮窗用）
+        try:
+            _pool_db = "/root/projects/stock_quan/data/feature_store.db"
+            with sqlite3.connect(_pool_db) as _pc:
+                _ph = ",".join("?" * min(len(scores), 500))
+                if scores and _ph:
+                    _codes = list({s["stock_code"] for s in scores})
+                    _ph_all = ",".join("?" * len(_codes))
+                    _pool_rows = _pc.execute(
+                        f"SELECT stock_code, subsector FROM ai_pool_cache "
+                        f"WHERE stock_code IN ({_ph_all}) AND subsector LIKE '%,%'",
+                        _codes,
+                    ).fetchall()
+                    _multi_map = {r[0]: r[1] for r in _pool_rows}
+                    for s in scores:
+                        subs = _multi_map.get(s["stock_code"])
+                        if subs:
+                            s["subsectors_all"] = [x.strip() for x in subs.split(",")]
+        except Exception:
+            pass
+
     # Per-subsector stock counts
     ss_counts: dict[str, int] = {}
     for s in scores:
@@ -1077,6 +1121,7 @@ async def get_theme_scores(
                     "chain_key": meta["chain_key"],
                     "n_stocks":  ss_counts[key],
                     "weights":   weights_map.get(key, {}),
+                    "valuation_peers": meta.get("valuation_peers"),
                 })
     # Any unknown subsectors last
     for key, cnt in ss_counts.items():
