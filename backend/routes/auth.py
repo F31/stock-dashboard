@@ -34,12 +34,11 @@ def get_current_user(token: HTTPAuthorizationCredentials = Depends(security),
     credentials_exception = HTTPException(401, "Invalid or expired token")
     try:
         payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = int(payload.get("sub"))
-        if user_id is None:
+        sub = payload.get("sub")
+        if sub is None:
             raise credentials_exception
-    except ExpiredSignatureError:
-        raise credentials_exception
-    except InvalidTokenError:
+        user_id: int = int(sub)
+    except (ExpiredSignatureError, InvalidTokenError, ValueError, TypeError):
         raise credentials_exception
 
     from sqlalchemy import text

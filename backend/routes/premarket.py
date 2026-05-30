@@ -124,22 +124,27 @@ async def text_to_speech(req: _TTSReq, _: User = Depends(get_current_user)):
     if len(text) > 8000:
         text = text[:8000]
 
-    try:
-        communicate = edge_tts.Communicate(text, voice=req.voice, rate=req.rate)
-        buf = bytearray()
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                buf.extend(chunk["data"])
-        if not buf:
-            raise HTTPException(500, "TTS 合成返回空音频")
-        return Response(content=bytes(buf), media_type="audio/mpeg",
-                        headers={"Cache-Control": "no-store"})
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        logger.error("TTS synthesis failed: %s\n%s", e, traceback.format_exc())
-        raise HTTPException(500, f"语音合成失败：{type(e).__name__}: {e}")
+    last_err = None
+    for attempt in range(3):
+        try:
+            communicate = edge_tts.Communicate(text, voice=req.voice, rate=req.rate)
+            buf = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    buf.extend(chunk["data"])
+            if not buf:
+                raise RuntimeError("TTS 合成返回空音频")
+            return Response(content=bytes(buf), media_type="audio/mpeg",
+                            headers={"Cache-Control": "no-store"})
+        except Exception as e:
+            last_err = e
+            import traceback
+            logger.warning("TTS attempt %d failed: %s\n%s", attempt + 1, e, traceback.format_exc())
+            if attempt < 2:
+                import asyncio
+                await asyncio.sleep(0.5 * (attempt + 1))
+    logger.error("TTS all 3 attempts failed, last: %s", last_err)
+    raise HTTPException(500, f"语音合成失败（已重试3次）：{type(last_err).__name__}: {last_err}")
 
 
 @router.get("/reports/{report_id}")
