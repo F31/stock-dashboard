@@ -96,6 +96,14 @@ export function refreshAll() {
   return api.post('/stocks/refresh')
 }
 
+/**
+ * Price-only refresh: skips news and financial snapshots.
+ * Fast path used by the 30-second auto-refresh interval.
+ */
+export function refreshPriceOnly() {
+  return api.post('/stocks/refresh?mode=price')
+}
+
 export function searchStocks(keyword) {
   return api.get(`/stocks/search/${encodeURIComponent(keyword)}`)
 }

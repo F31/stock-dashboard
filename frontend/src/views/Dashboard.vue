@@ -139,7 +139,9 @@
                 <div class="stock-grid" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
                   <template v-for="(stock, idx) in visibleStocks" :key="stock.id">
                     <div v-if="stock._pad" class="card-wrap card-pad"></div>
-                    <div v-else class="card-wrap" :class="{ 'drag-over': dragOverIdx === idx }"
+                    <div v-else
+                         v-memo="[stock.data?.price, stock.data?.change_pct, dragOverIdx === idx, stock.stock_name]"
+                         class="card-wrap" :class="{ 'drag-over': dragOverIdx === idx }"
                          draggable="true" @dragstart="onDragStart(idx)" @dragover.prevent="onDragOver(idx)"
                          @dragleave="onDragLeave" @drop="onDrop($event, idx)" @dragend="onDragEnd">
                       <div class="drag-handle" title="拖动排序">⠿</div>
@@ -193,9 +195,10 @@
             <template v-for="(stock, idx) in visibleStocks" :key="stock.id">
               <!-- Padding card: invisible, just fills grid space to keep 3 equal rows -->
               <div v-if="stock._pad" class="card-wrap card-pad"></div>
-              <!-- Real stock card -->
+              <!-- Real stock card: v-memo skips vdom diff when price/score/drag haven't changed -->
               <div
                 v-else
+                v-memo="[stock.data?.price, stock.data?.change_pct, quanScoresMap[stock.stock_code]?.percentile_score, dragOverIdx === idx, stock.stock_name]"
                 class="card-wrap"
                 :class="{ 'drag-over': dragOverIdx === idx }"
                 draggable="true"
@@ -433,13 +436,25 @@ const top5Loading = ref(false)
 const top5Pos = ref(0)
 const top5SortMode = ref('change')     // 'change' | 'market_cap'
 
+// 前端缓存：key = `${code}:${sortMode}`，TTL 1 min，避免重复点击重复请求
+const _top10Cache = new Map()
+const _TOP5_TTL = 60000
+
 async function loadTop5(code, sortMode) {
+  const cacheKey = `${code}:${sortMode}`
+  const hit = _top10Cache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < _TOP5_TTL) {
+    top5Stocks.value = hit.data
+    return
+  }
   top5Loading.value = true
   top5Stocks.value = []
   try {
     const fn = sortMode === 'change' ? fetchSectorTop5ByChange : fetchSectorTop5
     const res = await fn(code)
-    top5Stocks.value = Array.isArray(res.data) ? res.data : []
+    const data = Array.isArray(res.data) ? res.data : []
+    _top10Cache.set(cacheKey, { data, ts: Date.now() })
+    top5Stocks.value = data
   } catch (e) {
     console.error('Failed to load sector top5', e)
   } finally {
@@ -505,6 +520,7 @@ const lastUpdate = ref('')
 const dragIdx = ref(-1)
 const dragOverIdx = ref(-1)
 let refreshTimer = null
+let _autoRefreshTick = 0  // counts 30s ticks; every 10th tick triggers a full refresh
 
 // ── Responsive grid: track window width to compute visible card count ──
 const windowWidth = ref(window.innerWidth)
@@ -519,9 +535,9 @@ const gridCols = computed(() => {
   return Math.min(5, Math.max(1, Math.floor((avail + gap) / (280 + gap))))
 })
 
-// Mobile (1 col): show all; Desktop: exactly 3 rows × 3 cols = 9 cards
+// Mobile: cap at 20 cards to bound DOM size; Desktop: exactly 3 rows × 3 cols = 9 cards
 const MAX_VISIBLE = computed(() =>
-  gridCols.value <= 1 ? 9999 : 9
+  gridCols.value <= 1 ? 20 : 9
 )
 
 const filteredStocks = computed(() => {
@@ -544,7 +560,7 @@ const filteredStocks = computed(() => {
 // ── Pagination ──
 const currentPage = ref(0)
 const totalPages = computed(() =>
-  MAX_VISIBLE.value >= 9999 ? 1 : Math.max(1, Math.ceil(filteredStocks.value.length / MAX_VISIBLE.value))
+  Math.max(1, Math.ceil(filteredStocks.value.length / MAX_VISIBLE.value))
 )
 const pageStart = computed(() => currentPage.value * MAX_VISIBLE.value)
 const pageEnd = computed(() => Math.min(pageStart.value + MAX_VISIBLE.value, filteredStocks.value.length))
@@ -678,6 +694,7 @@ function onDragEnd() {
 
 async function refresh() {
   try {
+    _autoRefreshTick = 0  // reset so next full refresh is another 5 min away
     await store.refreshStocks()
     lastUpdate.value = fmtTime()
   } catch (e) {
@@ -855,14 +872,19 @@ function stopRefreshTimer() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
 }
 
-/** 交易时段感知的自动刷新调度器 */
+/** 交易时段感知的自动刷新调度器
+ *  每 30 秒运行一次价格刷新（快速），每 10 个 tick（约 5 分钟）运行一次完整刷新（含新闻）。
+ */
 function scheduleNextRefresh() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
   if (isMarketOpen()) {
-    // 交易时段: 每 30 秒刷新
     refreshTimer = setInterval(() => {
-      refresh()
-      // 每次执行后检查是否已收盘
+      _autoRefreshTick++
+      if (_autoRefreshTick % 10 === 0) {
+        refresh()  // 完整刷新（含新闻）约每 5 分钟一次
+      } else {
+        store.refreshPriceOnly()  // 仅价格刷新，快速，不阻塞 UI
+      }
       if (!isMarketOpen()) stopRefreshTimer()
     }, 30000)
   } else {

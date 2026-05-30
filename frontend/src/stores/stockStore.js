@@ -10,8 +10,17 @@ import {
   reorderStocks,
   batchFetch,
   refreshAll,
+  refreshPriceOnly as apiRefreshPriceOnly,
   searchStocks,
 } from '../api'
+
+// Fields updated by the fast price-only refresh cycle
+const PRICE_FIELDS = [
+  'price', 'change', 'change_pct', 'prev_close', 'open', 'high', 'low',
+  'volume', 'amount', 'turnover_rate', 'amplitude', 'pe', 'pe_ttm',
+  'market_cap', 'float_market_cap', 'up_count', 'down_count', 'stock_name',
+  'board_type',
+]
 
 export const useStockStore = defineStore('stocks', {
   state: () => ({
@@ -146,7 +155,8 @@ export const useStockStore = defineStore('stocks', {
     /**
      * Refresh all stock data in ONE batch API call.
      * Uses the server-side /stocks/refresh endpoint which fetches
-     * realtime + financial data + news + chart data for all stocks in parallel.
+     * realtime + financial data + news for all stocks in parallel.
+     * Uses in-place mutation so cards that haven't changed skip re-render.
      */
     async refreshStocks() {
       if (this.stocks.length === 0) return
@@ -156,7 +166,8 @@ export const useStockStore = defineStore('stocks', {
       try {
         const res = await refreshAll()
         for (const item of res.data) {
-          this.realtime[`${item.market}:${item.stock_code}`] = {
+          const key = `${item.market}:${item.stock_code}`
+          const entry = {
             stock_name: item.stock_name,
             price: item.price,
             change: item.change,
@@ -188,6 +199,13 @@ export const useStockStore = defineStore('stocks', {
             capex: item.capex ?? null,
             capex_period: item.capex_period ?? '',
           }
+          // In-place mutation: keeps the same reactive object so v-memo can
+          // skip re-rendering cards whose price/change_pct didn't actually change
+          if (this.realtime[key]) {
+            Object.assign(this.realtime[key], entry)
+          } else {
+            this.realtime[key] = entry
+          }
           // Sync stock_name into local stocks array for cards that rely on stock.stock_name
           const local = this.stocks.find(s => s.id === item.id)
           if (local && item.stock_name && !local.stock_name) {
@@ -198,6 +216,46 @@ export const useStockStore = defineStore('stocks', {
         this.error = 'Failed to refresh stock data'
       } finally {
         this.loading = false
+      }
+    },
+
+    /**
+     * Fast price-only refresh (30-second auto cycle).
+     * Skips news and financial snapshots; only updates price fields in-place
+     * so cards whose price hasn't changed are not re-rendered.
+     */
+    async refreshPriceOnly() {
+      if (this.stocks.length === 0) return
+      try {
+        const res = await apiRefreshPriceOnly()
+        for (const item of res.data) {
+          const key = `${item.market}:${item.stock_code}`
+          if (this.realtime[key]) {
+            for (const f of PRICE_FIELDS) {
+              if (item[f] != null) this.realtime[key][f] = item[f]
+            }
+          } else {
+            // First-time entry before a full refresh completes
+            this.realtime[key] = {
+              stock_name: item.stock_name, price: item.price,
+              change: item.change, change_pct: item.change_pct,
+              prev_close: item.prev_close, open: item.open,
+              high: item.high, low: item.low,
+              volume: item.volume, amount: item.amount,
+              turnover_rate: item.turnover_rate, amplitude: item.amplitude,
+              pe: item.pe, pe_ttm: item.pe_ttm ?? null,
+              market_cap: item.market_cap, float_market_cap: item.float_market_cap,
+              up_count: item.up_count, down_count: item.down_count,
+              board_type: item.board_type || '', item_type: item.item_type || 'stock',
+              news: [], chart_data: [],
+              profit_growth_rate: null, roe: null, debt_ratio: null,
+              cash_profit_ratio: null, peg: null, signal: null,
+              capex: null, capex_period: '',
+            }
+          }
+        }
+      } catch (_) {
+        // Price refresh failures are silent — full refresh will catch up
       }
     },
 

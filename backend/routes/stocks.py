@@ -1,7 +1,7 @@
 """Stock API routes."""
 import logging
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from typing import List, Optional
 from pydantic import BaseModel
 
@@ -328,8 +328,11 @@ async def search_stocks(keyword: str):
 
 
 @router.post("/stocks/refresh")
-async def refresh_stocks(db: Session = Depends(get_db),
-                         user=Depends(get_current_user)):
+async def refresh_stocks(
+    mode: str = Query(default="full"),  # "full" or "price" (price skips news + financials)
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     stocks = (db.query(WatchlistItem)
               .filter(WatchlistItem.user_id == user.id)
               .order_by(WatchlistItem.sort_order)
@@ -342,13 +345,13 @@ async def refresh_stocks(db: Session = Depends(get_db),
 
     data_map = {}
 
-    # Fetch realtime quotes batch
+    # Fetch realtime quotes batch (always)
     if stock_items:
         batch_items = [{"code": s.stock_code, "market": s.market} for s in stock_items]
         for r in await fetch_stocks_batch(batch_items):
             data_map[(r.get("code"), r.get("market"))] = r
 
-    # Fetch sector data
+    # Fetch sector data (always)
     sector_data = {}
     if sector_items:
         async def _fetch_sector_safe(code: str) -> tuple:
@@ -366,20 +369,23 @@ async def refresh_stocks(db: Session = Depends(get_db),
             if sr:
                 sector_data[code] = sr
 
-    # Fetch news only (no chart data)
-    news_tasks = [fetch_stock_news(s.stock_code, s.market) for s in stock_items]
-    try:
-        all_news = await asyncio.wait_for(asyncio.gather(*news_tasks), timeout=60) if news_tasks else []
-    except (asyncio.TimeoutError, Exception):
-        all_news = [[] for _ in stock_items]
+    # News + financial snapshots: full mode only (price mode skips to stay fast)
+    if mode == "full":
+        news_tasks = [fetch_stock_news(s.stock_code, s.market) for s in stock_items]
+        try:
+            all_news = await asyncio.wait_for(asyncio.gather(*news_tasks), timeout=60) if news_tasks else []
+        except (asyncio.TimeoutError, Exception):
+            all_news = [[] for _ in stock_items]
 
-    # Batch-fetch financial snapshots (A-shares only, 24h cached) — 1 EM request instead of N
-    try:
-        all_snaps = await asyncio.wait_for(
-            batch_fetch_financial_snapshots([(s.stock_code, s.market) for s in stock_items]),
-            timeout=30,
-        ) if stock_items else []
-    except (asyncio.TimeoutError, Exception):
+        try:
+            all_snaps = await asyncio.wait_for(
+                batch_fetch_financial_snapshots([(s.stock_code, s.market) for s in stock_items]),
+                timeout=30,
+            ) if stock_items else []
+        except (asyncio.TimeoutError, Exception):
+            all_snaps = [{} for _ in stock_items]
+    else:
+        all_news = [[] for _ in stock_items]
         all_snaps = [{} for _ in stock_items]
 
     result = []
@@ -409,7 +415,7 @@ async def refresh_stocks(db: Session = Depends(get_db),
             pe = rt.get("pe")
             peg = compute_peg(pe, growth)
             signal = compute_signal(pe, peg, growth, s.market)
-            _cx, _cxp = get_capex_record_from_db(s.stock_code, s.market, db)
+            _cx, _cxp = get_capex_record_from_db(s.stock_code, s.market, db) if mode == "full" else (None, "")
             result.append(StockDataResponse(
                 id=s.id, stock_code=s.stock_code, market=s.market,
                 stock_name=name, notes=s.notes, item_type="stock",

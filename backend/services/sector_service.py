@@ -112,6 +112,7 @@ def _make_client(timeout: float = 8) -> httpx.AsyncClient:
         timeout=timeout,
         mounts={
             "https://push2.eastmoney.com": None,
+            "https://push2delay.eastmoney.com": None,
             "https://push2his.eastmoney.com": None,
             "https://push2ex.eastmoney.com": None,
             "https://quote.eastmoney.com": None,
@@ -451,7 +452,7 @@ async def fetch_sector_top5(code: str) -> list:
     if cached is not None:
         return cached
 
-    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    url = "https://push2delay.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1", "pz": "10", "po": "1", "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",
@@ -526,7 +527,7 @@ async def fetch_sector_top5_by_change(code: str) -> list:
     if cached is not None:
         return cached
 
-    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    url = "https://push2delay.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1", "pz": "10", "po": "1", "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",
