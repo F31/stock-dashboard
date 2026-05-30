@@ -101,6 +101,11 @@ def get_stream_text(
     """返回指定记录 ID 的 LLM 流式输出快照（text + done）。"""
     from premarket.analyzer import get_stream_snapshot
     snapshot = get_stream_snapshot(record_id)
+    # 内存缓冲区在服务重启后丢失；若报告已完成，强制返回 done=True 避免前端无限轮询
+    if not snapshot["done"]:
+        r = db.query(PremarketReport).filter(PremarketReport.id == record_id).first()
+        if r and r.status in ("completed", "failed"):
+            snapshot = {"text": snapshot["text"], "done": True}
     return {"text": snapshot["text"], "done": snapshot["done"]}
 
 
