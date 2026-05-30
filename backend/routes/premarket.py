@@ -137,8 +137,9 @@ async def text_to_speech(req: _TTSReq, _: User = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("TTS synthesis failed: %s", e)
-        raise HTTPException(500, f"语音合成失败：{e}")
+        import traceback
+        logger.error("TTS synthesis failed: %s\n%s", e, traceback.format_exc())
+        raise HTTPException(500, f"语音合成失败：{type(e).__name__}: {e}")
 
 
 @router.get("/reports/{report_id}")

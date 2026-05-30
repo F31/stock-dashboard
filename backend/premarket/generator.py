@@ -723,6 +723,9 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     filename = f"{report_date}-{now.strftime('%H%M%S')}.html"
     filepath = os.path.join(_BASE, filename)
 
+    speech_text      = _build_speech_text(analysis)
+    speech_text_json = json.dumps(speech_text, ensure_ascii=False)
+
     watchlist         = analysis.get("watchlist", [])
     data_gaps         = analysis.get("data_gaps", [])
     error             = analysis.get("error", "")
@@ -959,46 +962,49 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   </div>
 </div>
 
+<script>window._TTS_TEXT = {speech_text_json};</script>
 <script>
 (function(){{
-  /* ── 全文分块流式朗读 (HTMLAudioElement 版，兼容 iOS/Android Safari)
-     策略：运行时从 DOM 提取文本 → 按句切成 ~700 字块 →
-           始终预取前方 LOOKAHEAD 块，当前块播完立即衔接下一块。
-     注意：使用 HTMLAudioElement 代替 AudioContext，避免 iOS 手势解锁失效问题。  */
+  /* TTS 双引擎:
+     桌面: HTMLAudioElement + AudioContext 解锁
+     移动: Web Audio API (AudioContext.decodeAudioData + BufferSourceNode)
+           iOS autoplay 限制下，手势解锁 AudioContext 后，后续 async decode/start 不受限。
+     文本: 优先使用服务端预建的语音文本（干净、无 emoji/表格），降级才提取 DOM。  */
   var CHUNK_MAX = 700;
-  var LOOKAHEAD = 2;   // 超前预取块数
+  var LOOKAHEAD = 2;
+  var _isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-  var _audio = null, _state = 'idle';
-  var _audioCtx = null;  // AudioContext 全平台解锁
-  var _chunks = [], _playIdx = 0;
-  var _buffers = {{}};   // idx → Blob URL
-  var _fetching = {{}};  // idx → true（正在请求中）
-  var _session = 0;      // 每次 start/stop 递增，使过期回调失效
+  var _audio    = null;   // HTMLAudioElement（桌面）
+  var _audioCtx = null;   // AudioContext（全平台解锁 + 移动播放）
+  var _curSrc   = null;   // BufferSourceNode（移动当前正在播放的片段）
+  var _state    = 'idle';
+  var _chunks   = [], _playIdx = 0;
+  var _buffers  = {{}};   // idx → AudioBuffer（移动）或 blob URL（桌面）
+  var _fetching = {{}};
+  var _session  = 0;
 
-  // ── 全平台音频解锁（Android / iOS / 桌面） ──────────────────────────────
+  // ── 音频解锁 ──────────────────────────────────────────────────────────────
   function _ensureAudioUnlocked() {{
     if (!_audioCtx) {{
       var AC = window.AudioContext || window.webkitAudioContext;
       if (AC) try {{ _audioCtx = new AC(); }} catch(e) {{}}
     }}
     if (_audioCtx && _audioCtx.state === 'suspended') {{
-      _audioCtx.resume().catch(function(){{}});
+      _audioCtx.resume().catch(function() {{}});
     }}
     if (_audioCtx) {{
       try {{
-        var buf = _audioCtx.createBuffer(1, 22050, 22050);
+        var buf = _audioCtx.createBuffer(1, 1, 22050);
         var src = _audioCtx.createBufferSource();
-        src.buffer = buf;
-        src.connect(_audioCtx.destination);
-        src.start();
+        src.buffer = buf; src.connect(_audioCtx.destination); src.start(0);
       }} catch(e) {{}}
     }}
   }}
 
-  // ── 文本提取 ──────────────────────────────────────────────────────────────
-  function _extractText() {{
-    var el = document.querySelector('.container');
-    if (!el) el = document.body;
+  // ── 文本 ──────────────────────────────────────────────────────────────────
+  function _getText() {{
+    if (window._TTS_TEXT && window._TTS_TEXT.trim()) return window._TTS_TEXT;
+    var el = document.querySelector('.container') || document.body;
     var clone = el.cloneNode(true);
     ['#tts-panel','script','style','noscript'].forEach(function(s) {{
       clone.querySelectorAll(s).forEach(function(n) {{ n.remove(); }});
@@ -1007,7 +1013,7 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   }}
 
   function _buildChunks(text) {{
-    var chunks = [], t = text;
+    var chunks = [], t = text.trim();
     while (t.length > 0) {{
       if (t.length <= CHUNK_MAX) {{ chunks.push(t); break; }}
       var cut = CHUNK_MAX;
@@ -1022,12 +1028,14 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     return chunks.filter(function(c){{ return c.length>0; }});
   }}
 
-  // ── Blob URL 管理 ─────────────────────────────────────────────────────────
+  // ── 资源管理 ──────────────────────────────────────────────────────────────
   function _revokeAll() {{
-    Object.keys(_buffers).forEach(function(k) {{
-      try {{ URL.revokeObjectURL(_buffers[k]); }} catch(e) {{}}
-    }});
-    _buffers = {{}};
+    if (!_isMobile) {{
+      Object.keys(_buffers).forEach(function(k) {{
+        if (typeof _buffers[k]==='string') try {{ URL.revokeObjectURL(_buffers[k]); }} catch(e) {{}}
+      }});
+    }}
+    _buffers = {{}}; _fetching = {{}};
   }}
 
   // ── UI ────────────────────────────────────────────────────────────────────
@@ -1038,12 +1046,11 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     var progEl  = document.getElementById('tts-progress');
     var labels  = {{idle:'🔊 朗读全文',loading:'合成中…',playing:'⏸ 暂停',paused:'▶ 继续'}};
     playBtn.innerHTML = (s==='loading'?'<span class="tts-spin"></span>':'') + (labels[s]||'🔊 朗读全文');
-    playBtn.disabled  = s === 'loading';
-    stopBtn.style.display  = s !== 'idle' ? 'flex' : 'none';
-    progEl.style.display   = (s !== 'idle' && _chunks.length > 1) ? 'block' : 'none';
-    if (s !== 'idle' && _chunks.length > 0) {{
+    playBtn.disabled  = (s === 'loading');
+    stopBtn.style.display = (s !== 'idle') ? 'flex' : 'none';
+    progEl.style.display  = (s !== 'idle' && _chunks.length > 1) ? 'block' : 'none';
+    if (s !== 'idle' && _chunks.length > 0)
       progEl.textContent = '第 ' + (_playIdx+1) + ' / ' + _chunks.length + ' 段';
-    }}
   }}
 
   function _showErr(msg) {{
@@ -1058,26 +1065,41 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     if (_buffers[idx] !== undefined || _fetching[idx]) return;
     var mySid = _session;
     var voice = document.getElementById('tts-voice').value;
-    var token = (window.location.hash.match(/token=([^&]+)/) || [])[1] ? decodeURIComponent(window.location.hash.match(/token=([^&]+)/)[1]) : (localStorage.getItem('token') || '');
+    var token = '';
+    var hm = window.location.hash.match(/token=([^&]+)/);
+    if (hm) token = decodeURIComponent(hm[1]);
+    else token = (window.localStorage && localStorage.getItem('token')) || '';
     _fetching[idx] = true;
     fetch('/api/premarket/tts', {{
-      method : 'POST',
-      headers: {{'Content-Type':'application/json','Authorization':'Bearer '+token}},
-      body   : JSON.stringify({{text:_chunks[idx], voice:voice, rate:'-5%'}})
+      method:'POST',
+      headers:{{'Content-Type':'application/json','Authorization':'Bearer '+token}},
+      body:JSON.stringify({{text:_chunks[idx],voice:voice,rate:'-5%'}})
     }}).then(function(r) {{
       if (!r.ok) throw new Error('HTTP '+r.status);
       return r.blob();
     }}).then(function(blob) {{
-      if (_session !== mySid) return;   // 已停止，丢弃
-      _buffers[idx] = URL.createObjectURL(blob);
-      delete _fetching[idx];
-      if (_state === 'loading' && idx === _playIdx) _playChunk(idx);
+      if (_session !== mySid) return;
+      if (_isMobile && _audioCtx) {{
+        return blob.arrayBuffer().then(function(ab) {{
+          if (_session !== mySid) return;
+          return _audioCtx.decodeAudioData(ab);
+        }}).then(function(audioBuf) {{
+          if (_session !== mySid) return;
+          _buffers[idx] = audioBuf;
+          delete _fetching[idx];
+          if (_state === 'loading' && idx === _playIdx) _playChunk(idx);
+        }});
+      }} else {{
+        _buffers[idx] = URL.createObjectURL(blob);
+        delete _fetching[idx];
+        if (_state === 'loading' && idx === _playIdx) _playChunk(idx);
+      }}
     }}).catch(function(e) {{
       if (_session !== mySid) return;
       delete _fetching[idx];
       if (_state === 'loading' && idx === _playIdx) {{
         _setState('idle');
-        _showErr('第 '+(idx+1)+' 段合成失败，请重试');
+        _showErr('第 '+(idx+1)+' 段合成失败，请检查网络后重试');
         console.error('TTS chunk '+idx, e);
       }}
     }});
@@ -1089,14 +1111,35 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
 
   // ── 播放 ──────────────────────────────────────────────────────────────────
   function _playChunk(idx) {{
-    if (!_audio || !_buffers[idx] || (_state!=='loading'&&_state!=='playing')) return;
+    if (_buffers[idx] === undefined) return;
+    if (_state !== 'loading' && _state !== 'playing') return;
     var mySid = _session;
-    // 每次播放前保证 AudioContext 处于 running 状态
+
+    if (_isMobile && _audioCtx) {{
+      if (_curSrc) {{ try {{ _curSrc.stop(); }} catch(e) {{}} _curSrc = null; }}
+      var src = _audioCtx.createBufferSource();
+      src.buffer = _buffers[idx];
+      src.connect(_audioCtx.destination);
+      src.onended = function() {{
+        if (_session !== mySid || _state !== 'playing') return;
+        delete _buffers[idx];
+        _playIdx++;
+        if (_playIdx >= _chunks.length) {{ _setState('idle'); return; }}
+        _setState('playing'); _prefetch();
+        if (_buffers[_playIdx] !== undefined) _playChunk(_playIdx);
+        else _setState('loading');
+      }};
+      _curSrc = src; src.start(0);
+      _setState('playing');
+      var progEl = document.getElementById('tts-progress');
+      if (progEl) progEl.textContent = '第 '+(idx+1)+' / '+_chunks.length+' 段';
+      return;
+    }}
+
+    if (!_audio) return;
     _ensureAudioUnlocked();
     var prevUrl = _audio.src;
-    _audio.loop = false;
-    _audio.volume = 1.0;
-    _audio.onended = null;
+    _audio.loop = false; _audio.volume = 1.0; _audio.onended = null;
     _audio.src = _buffers[idx];
     _audio.onended = function() {{
       if (_session !== mySid || _state !== 'playing') return;
@@ -1104,74 +1147,68 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
       delete _buffers[idx];
       _playIdx++;
       if (_playIdx >= _chunks.length) {{ _setState('idle'); return; }}
-      _setState('playing');  // 刷新进度
-      _prefetch();
+      _setState('playing'); _prefetch();
       if (_buffers[_playIdx] !== undefined) _playChunk(_playIdx);
-      else _setState('loading');  // 等待下一块到达
+      else _setState('loading');
     }};
     _audio.play().then(function() {{
-      _setState('playing');
-      _prefetch();
+      _setState('playing'); _prefetch();
     }}).catch(function(e) {{
       if (_session !== mySid) return;
-      _setState('idle');
-      _showErr('播放失败，请重试');
+      _setState('idle'); _showErr('播放失败，请重试');
       console.error('audio.play() failed', e);
     }});
   }}
 
   function _start() {{
-    var text = _extractText();
+    var text = _getText();
     if (!text) {{ _showErr('未找到可朗读的内容'); return; }}
     _chunks = _buildChunks(text);
     if (!_chunks.length) return;
-    _session++;
-    _playIdx = 0; _revokeAll(); _fetching = {{}};
-    _setState('loading');
-    _prefetch();
+    _session++; _playIdx = 0; _revokeAll();
+    _setState('loading'); _prefetch();
   }}
 
   // ── 公开接口 ──────────────────────────────────────────────────────────────
-  // iOS Safari: 最小静音 WAV，用于在用户手势栈中同步解锁 HTMLAudioElement
   var _SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
   window.toggleTTS = function() {{
     if (_state === 'loading') return;
-    // 全平台音频解锁：必须在用户手势中调用
-    _ensureAudioUnlocked();
+    _ensureAudioUnlocked();  // 必须在用户手势中同步调用
     if (_state === 'idle') {{
-      if (!_audio) {{
-        _audio = new Audio();
-        _audio.preload = 'auto';
+      if (_isMobile) {{
+        _start();
+      }} else {{
+        if (!_audio) {{ _audio = new Audio(); _audio.preload = 'auto'; }}
+        _audio.src = _SILENT; _audio.loop = true; _audio.volume = 0.01;
+        var p = _audio.play(); if (p) p.catch(function(){{}});
+        _start();
       }}
-      // iOS Safari: 循环播放极低音量静音音频保持元素 active/playing 状态。
-      // API 请求完成后直接更换 src，不 pause()，避免丢失信任。
-      _audio.src = _SILENT;
-      _audio.loop = true;
-      _audio.volume = 0.01;
-      var unlockP = _audio.play();
-      if (unlockP) unlockP.catch(function() {{}});
-      _start();
     }} else if (_state === 'playing') {{
-      _audio.pause();
+      if (_isMobile && _audioCtx) {{
+        _audioCtx.suspend().catch(function(){{}});
+      }} else if (_audio) {{
+        _audio.pause();
+      }}
       _setState('paused');
     }} else if (_state === 'paused') {{
-      _audio.play().then(function(){{ _setState('playing'); }}).catch(function(e){{
-        _showErr('恢复失败，请重试'); console.error(e);
-      }});
+      if (_isMobile && _audioCtx) {{
+        _audioCtx.resume().then(function(){{ _setState('playing'); }})
+          .catch(function(e){{ _showErr('恢复失败，请重试'); }});
+      }} else if (_audio) {{
+        _audio.play().then(function(){{ _setState('playing'); }})
+          .catch(function(e){{ _showErr('恢复失败，请重试'); }});
+      }}
     }}
   }};
 
   window.stopTTS = function() {{
     _session++;
-    if (_audio) {{
-      _audio.pause();
-      _audio.onended = null;
-      _audio.src = '';
+    if (_isMobile && _curSrc) {{
+      try {{ _curSrc.stop(); }} catch(e) {{}} _curSrc = null;
     }}
-    _revokeAll();
-    _fetching = {{}};
-    _setState('idle');
+    if (_audio) {{ _audio.pause(); _audio.onended = null; _audio.src = ''; }}
+    _revokeAll(); _setState('idle');
   }};
 }})();
 </script>
