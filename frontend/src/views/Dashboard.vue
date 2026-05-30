@@ -883,7 +883,7 @@ function scheduleNextRefresh() {
       if (_autoRefreshTick % 10 === 0) {
         refresh()  // 完整刷新（含新闻）约每 5 分钟一次
       } else {
-        store.refreshPriceOnly()  // 仅价格刷新，快速，不阻塞 UI
+        store.refreshPriceOnly().then(() => { lastUpdate.value = fmtTime() })
       }
       if (!isMarketOpen()) stopRefreshTimer()
     }, 30000)
@@ -901,8 +901,12 @@ onMounted(async () => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('auth:logout', stopRefreshTimer)
   await store.loadWatchlist()
-  await refresh()
-  loadQuanScores()  // fire-and-forget, may have no data yet
+  // Phase 1: show prices fast (~1-2s), no news/financials yet
+  await store.refreshPriceOnly()
+  lastUpdate.value = fmtTime()
+  // Phase 2: enrich with news + financials in background (silent update)
+  store.refreshStocks().then(() => { lastUpdate.value = fmtTime() })
+  loadQuanScores()
   scheduleNextRefresh()
   document.addEventListener('click', closeSysMenu)
   initTradeCalendar()

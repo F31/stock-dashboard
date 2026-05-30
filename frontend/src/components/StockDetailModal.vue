@@ -110,11 +110,12 @@
           </div>
         </div>
 
-        <!-- Tab: 最新资讯 -->
+        <!-- Tab: 最新资讯 (lazy-loaded on first tab visit) -->
         <div v-if="activeTab === 'news'" class="tab-body">
-          <div v-if="!isSector && data.news?.length" class="news-list">
+          <div v-if="newsLoading" class="empty-tip">加载中...</div>
+          <div v-else-if="!isSector && newsData.length" class="news-list">
             <a
-              v-for="(n, i) in data.news" :key="i"
+              v-for="(n, i) in newsData" :key="i"
               :href="n.url" target="_blank" rel="noopener"
               class="news-item"
             >
@@ -184,7 +185,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5 } from '../api/index.js'
+import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5, fetchStockNews } from '../api/index.js'
+
+// Module-level Map cache: survives modal open/close within the same session
+const _newsCache = new Map()   // "code:market" → { data: [], ts: number }
+const _NEWS_TTL  = 3600_000   // 1 hour — matches backend CACHE_TTL_NEWS
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -324,6 +329,37 @@ async function loadTop5() {
 
 watch(activeTab, v => { if (v === 'info' && isSector.value) loadTop5() })
 onMounted(() => { if (activeTab.value === 'info' && isSector.value) loadTop5() })
+
+// ── News: lazy-load on first tab visit ──
+const newsData    = ref([])
+const newsLoading = ref(false)
+const newsLoaded  = ref(false)
+
+async function loadNews() {
+  if (isSector.value || newsLoaded.value) return
+  const key = `${props.stock.stock_code}:${props.stock.market}`
+  const hit = _newsCache.get(key)
+  if (hit && Date.now() - hit.ts < _NEWS_TTL) {
+    newsData.value = hit.data
+    newsLoaded.value = true
+    return
+  }
+  newsLoading.value = true
+  try {
+    const res = await fetchStockNews(props.stock.stock_code, props.stock.market)
+    const list = Array.isArray(res.data) ? res.data : []
+    _newsCache.set(key, { data: list, ts: Date.now() })
+    newsData.value = list
+    newsLoaded.value = true
+  } catch {
+    newsData.value = []
+  } finally {
+    newsLoading.value = false
+  }
+}
+
+watch(activeTab, v => { if (v === 'news') loadNews() })
+onMounted(() => { if (activeTab.value === 'news') loadNews() })
 
 // ── Notes ──
 const editingNotes = ref(props.stock.notes || '')

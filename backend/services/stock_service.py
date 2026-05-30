@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 # ── Cache ──
 _cache: Dict[str, tuple] = {}
-CACHE_TTL = 15           # seconds — realtime quotes
+CACHE_TTL = 35           # seconds — realtime quotes (>30s interval so next auto-refresh hits cache)
 CACHE_TTL_CHART = 3600   # 1 hour — K-line data (changes once per trading day)
-CACHE_TTL_NEWS = 1800    # 30 min — news headlines
+CACHE_TTL_NEWS = 3600    # 1 h — news headlines (lazy-loaded only on modal open)
 CACHE_TTL_FINANCE = 3600 # 1 hour — PE, market cap, turnover rate
 
 # ── Thread pool throttle ──

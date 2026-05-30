@@ -108,6 +108,14 @@ export function searchStocks(keyword) {
   return api.get(`/stocks/search/${encodeURIComponent(keyword)}`)
 }
 
+/**
+ * Fetch news for a single stock. Only called when the news tab is opened.
+ * Backend caches 1 hour; frontend Map-caches the same duration.
+ */
+export function fetchStockNews(code, market = 'A') {
+  return api.get(`/stocks/news/${encodeURIComponent(code)}`, { params: { market } })
+}
+
 export function fetchMarketIntel() {
   return api.get('/market-intel')
 }

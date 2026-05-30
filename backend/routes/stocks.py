@@ -1,6 +1,7 @@
 """Stock API routes."""
 import logging
 import asyncio
+import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from typing import List, Optional
 from pydantic import BaseModel
@@ -119,6 +120,14 @@ async def preview_stock(code: str, market: str = "A", db: Session = Depends(get_
         "capex_period": capex_period,
         "chart_data": [],
     }
+
+
+@router.get("/stocks/news/{code}")
+async def get_stock_news(code: str, market: str = "A", user=Depends(get_current_user)):
+    """Fetch news for a single stock. Only called when the news tab in the detail modal is opened.
+    Backend caches for 1 hour; frontend Map-caches for the same duration."""
+    news = await fetch_stock_news(code, market)
+    return news
 
 
 @router.get("/stocks/{stock_id}")
@@ -327,6 +336,90 @@ async def search_stocks(keyword: str):
     return combined
 
 
+# ── Per-user SWR cache for price-only refreshes ──
+# user_id → {"ts": float, "data": List[StockDataResponse], "refreshing": bool}
+_price_swr: dict = {}
+_SWR_MAX_AGE = 35  # seconds — serve stale within this window
+
+
+async def _fetch_sector_safe(code: str) -> tuple:
+    try:
+        sr = await asyncio.wait_for(fetch_sector_realtime(code), timeout=6)
+        return code, sr
+    except Exception as e:
+        logger.debug(f"sector refresh error {code}: {e}")
+        return code, {}
+
+
+async def _build_price_result(stocks, stock_items, sector_items) -> list:
+    """Compute the price-only response (no news, no financial snapshots)."""
+    data_map: dict = {}
+    if stock_items:
+        batch_items = [{"code": s.stock_code, "market": s.market} for s in stock_items]
+        for r in await fetch_stocks_batch(batch_items):
+            data_map[(r.get("code"), r.get("market"))] = r
+
+    sector_data: dict = {}
+    if sector_items:
+        sector_results = await asyncio.gather(
+            *[_fetch_sector_safe(s.stock_code) for s in sector_items]
+        )
+        for code, sr in sector_results:
+            if sr:
+                sector_data[code] = sr
+
+    result = []
+    for s in stocks:
+        is_sector = (s.item_type or "stock") == "sector"
+        if is_sector:
+            sr = sector_data.get(s.stock_code, {})
+            name = sr.get("stock_name") or s.stock_name or ""
+            result.append(StockDataResponse(
+                id=s.id, stock_code=s.stock_code, market="SECTOR",
+                stock_name=name, notes=s.notes, item_type="sector",
+                board_type=sr.get("board_type", ""),
+                up_count=sr.get("up_count"),
+                down_count=sr.get("down_count"),
+                **{k: sr.get(k) for k in [
+                    "price", "change", "change_pct", "prev_close",
+                    "open", "high", "low", "volume", "amount",
+                    "turnover_rate", "amplitude", "market_cap",
+                ]},
+            ))
+        else:
+            rt = data_map.get((s.stock_code, s.market), {})
+            name = rt.get("stock_name") or s.stock_name or ""
+            pe = rt.get("pe")
+            peg = compute_peg(pe, None)
+            signal = compute_signal(pe, peg, None, s.market)
+            result.append(StockDataResponse(
+                id=s.id, stock_code=s.stock_code, market=s.market,
+                stock_name=name, notes=s.notes, item_type="stock",
+                **{k: rt.get(k) for k in [
+                    "price", "change", "change_pct", "prev_close",
+                    "open", "high", "low", "volume", "amount",
+                    "turnover_rate", "pe", "pe_ttm", "market_cap", "float_market_cap",
+                    "amplitude",
+                ]},
+                news=[], profit_growth_rate=None, roe=None, debt_ratio=None,
+                cash_profit_ratio=None, peg=peg, signal=signal,
+                capex=None, capex_period="",
+            ))
+    return result
+
+
+async def _bg_swr_refresh(user_id: int, stocks, stock_items, sector_items):
+    """Background: re-fetch prices and update SWR cache so next request is instant."""
+    try:
+        data = await _build_price_result(stocks, stock_items, sector_items)
+        _price_swr[user_id] = {"ts": time.time(), "data": data, "refreshing": False}
+    except Exception as e:
+        logger.debug("bg_swr_refresh user %s: %s", user_id, e)
+        entry = _price_swr.get(user_id)
+        if entry:
+            entry["refreshing"] = False
+
+
 @router.post("/stocks/refresh")
 async def refresh_stocks(
     mode: str = Query(default="full"),  # "full" or "price" (price skips news + financials)
@@ -343,25 +436,28 @@ async def refresh_stocks(
     stock_items = [s for s in stocks if (s.item_type or "stock") != "sector"]
     sector_items = [s for s in stocks if (s.item_type or "stock") == "sector"]
 
-    data_map = {}
+    # ── Price-only path with SWR ──
+    if mode == "price":
+        swr = _price_swr.get(user.id)
+        if swr and not swr.get("refreshing") and (time.time() - swr["ts"]) < _SWR_MAX_AGE:
+            # Serve stale immediately; background task updates cache for next call
+            swr["refreshing"] = True
+            asyncio.create_task(_bg_swr_refresh(user.id, stocks, stock_items, sector_items))
+            return swr["data"]
+        # No warm cache — fetch now, then populate SWR cache
+        result = await _build_price_result(stocks, stock_items, sector_items)
+        _price_swr[user.id] = {"ts": time.time(), "data": result, "refreshing": False}
+        return result
 
-    # Fetch realtime quotes batch (always)
+    # ── Full path (realtime + news + financial snapshots) ──
+    data_map: dict = {}
     if stock_items:
         batch_items = [{"code": s.stock_code, "market": s.market} for s in stock_items]
         for r in await fetch_stocks_batch(batch_items):
             data_map[(r.get("code"), r.get("market"))] = r
 
-    # Fetch sector data (always)
-    sector_data = {}
+    sector_data: dict = {}
     if sector_items:
-        async def _fetch_sector_safe(code: str) -> tuple:
-            try:
-                sr = await asyncio.wait_for(fetch_sector_realtime(code), timeout=6)
-                return code, sr
-            except Exception as e:
-                logger.debug(f"sector refresh error {code}: {e}")
-                return code, {}
-
         sector_results = await asyncio.gather(
             *[_fetch_sector_safe(s.stock_code) for s in sector_items]
         )
@@ -369,23 +465,16 @@ async def refresh_stocks(
             if sr:
                 sector_data[code] = sr
 
-    # News + financial snapshots: full mode only (price mode skips to stay fast)
-    if mode == "full":
-        news_tasks = [fetch_stock_news(s.stock_code, s.market) for s in stock_items]
-        try:
-            all_news = await asyncio.wait_for(asyncio.gather(*news_tasks), timeout=60) if news_tasks else []
-        except (asyncio.TimeoutError, Exception):
-            all_news = [[] for _ in stock_items]
+    # News is now lazy-loaded per-stock when the detail modal opens.
+    # Fetching it here for N stocks in parallel was the biggest latency source.
+    all_news = [[] for _ in stock_items]
 
-        try:
-            all_snaps = await asyncio.wait_for(
-                batch_fetch_financial_snapshots([(s.stock_code, s.market) for s in stock_items]),
-                timeout=30,
-            ) if stock_items else []
-        except (asyncio.TimeoutError, Exception):
-            all_snaps = [{} for _ in stock_items]
-    else:
-        all_news = [[] for _ in stock_items]
+    try:
+        all_snaps = await asyncio.wait_for(
+            batch_fetch_financial_snapshots([(s.stock_code, s.market) for s in stock_items]),
+            timeout=30,
+        ) if stock_items else []
+    except (asyncio.TimeoutError, Exception):
         all_snaps = [{} for _ in stock_items]
 
     result = []
@@ -415,7 +504,7 @@ async def refresh_stocks(
             pe = rt.get("pe")
             peg = compute_peg(pe, growth)
             signal = compute_signal(pe, peg, growth, s.market)
-            _cx, _cxp = get_capex_record_from_db(s.stock_code, s.market, db) if mode == "full" else (None, "")
+            _cx, _cxp = get_capex_record_from_db(s.stock_code, s.market, db)
             result.append(StockDataResponse(
                 id=s.id, stock_code=s.stock_code, market=s.market,
                 stock_name=name, notes=s.notes, item_type="stock",
