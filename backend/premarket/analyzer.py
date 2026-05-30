@@ -329,6 +329,46 @@ def _build_prompt(template: str, cleaned_data: dict) -> str:
             "{{ticker_news_json}}",
             json.dumps(_build_ticker_news(cleaned_data), ensure_ascii=False, indent=2),
         )
+
+    # ── 富集数据变量（enricher 注入）─────────────────────────────────────────
+    enriched: dict = cleaned_data.get("_enriched", {})
+
+    if "{{watchlist_quan_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{watchlist_quan_json}}",
+            json.dumps(enriched.get("watchlist_quan", []), ensure_ascii=False, indent=2),
+        )
+    if "{{fund_flow_top20_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{fund_flow_top20_json}}",
+            json.dumps(enriched.get("fund_flow_top20", []), ensure_ascii=False, indent=2),
+        )
+    if "{{sector_fund_flow_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{sector_fund_flow_json}}",
+            json.dumps(enriched.get("sector_fund_flow", []), ensure_ascii=False, indent=2),
+        )
+    if "{{sector_heatmap_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{sector_heatmap_json}}",
+            json.dumps(enriched.get("sector_heatmap", [])[:30], ensure_ascii=False, indent=2),
+        )
+    if "{{risk_summary_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{risk_summary_json}}",
+            json.dumps(enriched.get("risk_summary", {}), ensure_ascii=False, indent=2),
+        )
+    if "{{prev_chain_signals_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{prev_chain_signals_json}}",
+            json.dumps(enriched.get("prev_chain_signals", []), ensure_ascii=False, indent=2),
+        )
+    if "{{bull_candidates_json}}" in prompt:
+        prompt = prompt.replace(
+            "{{bull_candidates_json}}",
+            json.dumps(enriched.get("bull_candidates", []), ensure_ascii=False, indent=2),
+        )
+
     return prompt
 
 

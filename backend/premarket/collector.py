@@ -188,35 +188,60 @@ def _fetch_caixin(source: dict) -> list[dict]:
         return [{"_error": str(e), "source": source["name"]}]
 
 
-# ── 财联社电报（akshare） ──────────────────────────────────────────────────────
+# ── 财联社电报（东方财富快讯接口） ─────────────────────────────────────────────
+# 原 akshare.stock_info_global_cls() → cls.cn/nodeapi/telegraphList 已 404
+# 改用东方财富快讯列表接口，内容与财联社电报高度重叠，稳定可用。
+
+_EM_FLASH_URL = (
+    "https://np-listapi.eastmoney.com/comm/web/getFastNewsList"
+    "?client=web&biz=web_news_flash&fastColumn=102&sortEnd=0"
+    "&page=1&pageSize=50&req=2&req_trace={trace}"
+)
+_EM_FLASH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://kuaixun.eastmoney.com/",
+    "Accept": "application/json",
+}
+
 
 def _fetch_cls(source: dict) -> list[dict]:
-    """用 akshare.stock_info_global_cls() 获取财联社实时电报，原 API 已 404。"""
+    """东方财富快讯接口（替代已失效的 cls.cn nodeapi）。
+    字段：showTime=发布时间, title=标题, summary=正文摘要。
+    """
+    import uuid
+    trace = uuid.uuid4().hex
+    url = _EM_FLASH_URL.format(trace=trace)
     try:
-        import akshare as ak
-        df = ak.stock_info_global_cls()
-        # 列名：标题, 内容, 发布日期, 发布时间
+        r = requests.get(url, headers=_EM_FLASH_HEADERS, timeout=12)
+        r.raise_for_status()
+        data = r.json()
+        flash_list = (data.get("data") or {}).get("fastNewsList")
+        if not isinstance(flash_list, list):
+            raise ValueError(f"fastNewsList missing: code={data.get('code')} msg={data.get('message')}")
         items = []
-        for _, row in df.iterrows():
-            date_str = str(row.get("发布日期", ""))
-            time_str = str(row.get("发布时间", ""))
-            pub = _parse_time(f"{date_str} {time_str}".strip())
+        for it in flash_list:
+            pub = _parse_time(it.get("showTime", ""))
             if not _is_within_24h(pub):
                 continue
-            title = str(row.get("标题", "") or row.get("内容", ""))[:200]
-            summary = str(row.get("内容", ""))[:500]
+            title   = str(it.get("title", ""))[:200]
+            summary = str(it.get("summary", ""))[:500]
+            if not title and not summary:
+                continue
             items.append({
-                "source": source["name"],
-                "category": source.get("category", ""),
-                "title": title,
-                "url": "",
-                "summary": summary,
+                "source":      source["name"],
+                "category":    source.get("category", ""),
+                "title":       title,
+                "url":         "",
+                "summary":     summary,
                 "published_at": pub,
             })
-        logger.info(f"[CLS] {source['name']}: {len(items)} items")
+        logger.info(f"[CLS/EM] {source['name']}: {len(items)} items")
         return items
     except Exception as e:
-        logger.warning(f"[CLS] {source['name']} failed: {e}")
+        logger.warning(f"[CLS/EM] {source['name']} failed: {e}")
         return [{"_error": str(e), "source": source["name"]}]
 
 

@@ -252,19 +252,21 @@ def _macro_signals_card(analysis: dict) -> str:
             f"<td style='padding:8px 12px;color:#374151;font-size:13px;line-height:1.6;'>{value}</td></tr>"
         )
 
-    fed   = _coerce_str(ms.get("fed_policy", ""))
-    yield_= _coerce_str(ms.get("yield_curve", ""))
-    usd   = _coerce_str(ms.get("usd_impact", ""))
-    oil   = _coerce_str(ms.get("commodity_signal", ""))
-    cn    = _coerce_str(ms.get("china_policy", ""))
-    note  = _coerce_str(ms.get("key_risk", ""))
+    # Support both old field names and new field names
+    fed    = _coerce_str(ms.get("fed_rate_context") or ms.get("fed_policy", ""))
+    rf     = _coerce_str(ms.get("rates_and_fx") or ms.get("yield_curve", ""))
+    usd    = _coerce_str(ms.get("usd_impact", ""))
+    cn     = _coerce_str(ms.get("china_macro") or ms.get("china_policy", ""))
+    app    = _coerce_str(ms.get("global_risk_appetite", ""))
+    basis  = _coerce_str(ms.get("appetite_basis", ""))
+    note   = _coerce_str(ms.get("key_risk", ""))
 
     rows = (
-        _row("美联储政策", fed)
-        + _row("收益率曲线", yield_)
+        _row("全局风险偏好", (f"{app}　{basis}" if basis else app) if app else basis)
+        + _row("美联储利率", fed)
+        + _row("利率与汇率", rf)
         + _row("美元影响", usd)
-        + _row("大宗商品", oil)
-        + _row("中国政策", cn)
+        + _row("中国宏观", cn)
         + _row("关键风险", note)
     )
     if not rows:
@@ -286,22 +288,44 @@ def _bottleneck_card(analysis: dict) -> str:
         if not isinstance(alert, dict):
             continue
         layer    = alert.get("layer", "")
-        signal   = alert.get("signal", "")
+        # 兼容新字段名（event）和旧字段名（signal）
+        signal   = _coerce_str(alert.get("event") or alert.get("signal", ""))
         path     = alert.get("transmission_path", "")
-        urgency  = alert.get("urgency", "")
-        urgency_color = {"高": "#dc2626", "中": "#d97706", "低": "#16a34a"}.get(urgency, "#6b7280")
+        # 兼容新字段名（signal_strength）和旧字段名（urgency）
+        strength = alert.get("signal_strength") or alert.get("urgency", "")
+        affected = alert.get("affected_targets") or []
+        source   = alert.get("source_ref", "")
+
+        strength_color = {
+            "high": "#dc2626", "medium": "#d97706", "low": "#16a34a",
+            "高":   "#dc2626", "中":     "#d97706", "低": "#16a34a",
+        }.get(strength, "#6b7280")
+        strength_label = {
+            "high": "高信号", "medium": "中信号", "low": "低信号",
+        }.get(strength, strength or "?")
+
         path_html = (
             f'<p style="font-size:12px;color:#6b7280;margin-top:6px;">↳ 传导路径：{path}</p>'
         ) if path else ""
+        affected_html = (
+            f'<p style="font-size:12px;color:#374151;margin-top:4px;">影响标的：'
+            + "、".join(str(a) for a in affected[:6]) + "</p>"
+        ) if affected else ""
+        source_html = (
+            f'<p style="font-size:11px;color:#9ca3af;margin-top:4px;">来源：{source}</p>'
+        ) if source else ""
+
         cards += f"""
-<div style="border-left:4px solid {urgency_color};background:#fef9f9;
+<div style="border-left:4px solid {strength_color};background:#fef9f9;
      border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:10px;">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
     {_layer_badge(layer)}
-    {_badge(f"紧急度：{urgency}", f"{urgency_color}22", urgency_color)}
+    {_badge(strength_label, f"{strength_color}22", strength_color)}
   </div>
   <p style="font-size:13px;color:#374151;line-height:1.6;">{signal}</p>
   {path_html}
+  {affected_html}
+  {source_html}
 </div>"""
     if not cards:
         return ""
@@ -444,27 +468,39 @@ def _premarket_outlook_card(analysis: dict) -> str:
         return ""
     summary    = outlook.get("summary", "")
     bull       = outlook.get("scenario_bull", "")
+    bull_prob  = outlook.get("scenario_bull_prob", "")
     bear       = outlook.get("scenario_bear", "")
+    bear_prob  = outlook.get("scenario_bear_prob", "")
+    base_case  = outlook.get("base_case", "")
     focus      = outlook.get("matrix_focus", "")
     key_watch  = outlook.get("key_watch_points") or []
     uncertain  = outlook.get("uncertainties") or []
 
     scenarios_html = ""
-    if bull:
-        scenarios_html += f"""
-<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
-  <div style="flex:1;min-width:200px;background:#f0fdf4;border-radius:8px;padding:12px 14px;border-left:4px solid #16a34a;">
-    <div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:4px;">📈 乐观情景</div>
-    <p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">{bull}</p>
-  </div>"""
-    if bear:
-        scenarios_html += f"""
-  <div style="flex:1;min-width:200px;background:#fef2f2;border-radius:8px;padding:12px 14px;border-left:4px solid #dc2626;">
-    <div style="font-size:11px;font-weight:700;color:#991b1b;margin-bottom:4px;">📉 悲观情景</div>
-    <p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">{bear}</p>
-  </div>"""
     if bull or bear:
-        scenarios_html += "</div>"
+        if bull:
+            prob_label = f" <span style='font-size:11px;background:#f0fdf4;color:#166534;border-radius:8px;padding:1px 7px;'>{bull_prob}</span>" if bull_prob else ""
+            scenarios_html += (
+                f'<div style="flex:1;min-width:200px;background:#f0fdf4;border-radius:8px;padding:12px 14px;border-left:4px solid #16a34a;">'
+                f'<div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:4px;">📈 乐观情景{prob_label}</div>'
+                f'<p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">{bull}</p>'
+                f'</div>'
+            )
+        if bear:
+            prob_label = f" <span style='font-size:11px;background:#fef2f2;color:#991b1b;border-radius:8px;padding:1px 7px;'>{bear_prob}</span>" if bear_prob else ""
+            scenarios_html += (
+                f'<div style="flex:1;min-width:200px;background:#fef2f2;border-radius:8px;padding:12px 14px;border-left:4px solid #dc2626;">'
+                f'<div style="font-size:11px;font-weight:700;color:#991b1b;margin-bottom:4px;">📉 悲观情景{prob_label}</div>'
+                f'<p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">{bear}</p>'
+                f'</div>'
+            )
+        scenarios_html = f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">{scenarios_html}</div>'
+
+    base_html = (
+        f'<div style="background:#f0f9ff;border-radius:8px;padding:10px 14px;margin-bottom:14px;">'
+        f'<span style="font-size:11px;font-weight:700;color:#0369a1;">📌 基准情景：</span>'
+        f'<span style="font-size:13px;color:#374151;"> {base_case}</span></div>'
+    ) if base_case else ""
 
     focus_html = (
         f'<div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:14px;">'
@@ -491,6 +527,7 @@ def _premarket_outlook_card(analysis: dict) -> str:
   <div class="card-title">🎯 A股开盘前情景判断</div>
   {"<p style='font-size:13px;color:#374151;line-height:1.8;margin-bottom:14px;'>" + summary + "</p>" if summary else ""}
   {scenarios_html}
+  {base_html}
   {focus_html}
   {key_watch_html}
   {uncertain_html}
@@ -621,6 +658,23 @@ def _watchlist_card(item: dict, idx: int) -> str:
             f'<td style="color:#dc2626;padding:4px 0;">{bn_exp}</td></tr>'
         )
 
+    open_strategy = item.get("open_strategy", "")
+    open_html = (
+        f'<tr><td style="color:#6b7280;vertical-align:top;padding:4px 0;">开盘策略</td>'
+        f'<td style="color:#0369a1;font-weight:500;padding:4px 0;">{open_strategy}</td></tr>'
+    ) if open_strategy else ""
+
+    # quan percentile badge
+    qpct = item.get("quan_percentile")
+    quan_badge = ""
+    if qpct is not None:
+        try:
+            qv = float(qpct)
+            qcolor = "#16a34a" if qv >= 70 else ("#d97706" if qv >= 40 else "#dc2626")
+            quan_badge = f' {_badge(f"量化{qv:.0f}%", f"{qcolor}22", qcolor)}'
+        except Exception:
+            pass
+
     return f"""
 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;
      padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.05);">
@@ -629,7 +683,7 @@ def _watchlist_card(item: dict, idx: int) -> str:
           color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;
           justify-content:center;flex-shrink:0;">{idx}</span>
     <strong style="font-size:16px;color:#111827;">{item.get("name","")}</strong>
-    {header_extra}
+    {header_extra}{quan_badge}
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.7;">
     <tr>
@@ -653,12 +707,399 @@ def _watchlist_card(item: dict, idx: int) -> str:
       </td>
       <td style="color:#374151;padding:4px 0;">{item.get("bear_case","")}</td>
     </tr>
+    {open_html}
     <tr>
       <td style="color:#6b7280;vertical-align:top;padding:4px 0;">跟进问题</td>
       <td style="color:#374151;padding:4px 0;">{item.get("follow_up","")}</td>
     </tr>
   </table>
 </div>"""
+
+
+# ── New section cards (P1) ───────────────────────────────────────────────────
+
+def _signal_overview_card(analysis: dict) -> str:
+    so = analysis.get("signal_overview")
+    if not so or not isinstance(so, dict):
+        return ""
+    rating    = _coerce_str(so.get("overall_rating", ""))
+    basis     = _coerce_str(so.get("rating_basis", ""))
+    opp       = _coerce_str(so.get("top_opportunity", ""))
+    risk      = _coerce_str(so.get("top_risk", ""))
+    rating_colors = {
+        "强势": ("#16a34a", "#f0fdf4"),
+        "偏强": ("#059669", "#ecfdf5"),
+        "中性": ("#2563eb", "#eff6ff"),
+        "偏弱": ("#d97706", "#fffbeb"),
+        "弱势": ("#dc2626", "#fef2f2"),
+    }
+    fg, bg = rating_colors.get(rating, ("#6b7280", "#f3f4f6"))
+    rating_html = (
+        f'<span style="display:inline-block;padding:4px 16px;border-radius:20px;'
+        f'font-weight:800;font-size:16px;background:{bg};color:{fg};margin-bottom:10px;">'
+        f'{rating}</span>'
+    ) if rating else ""
+
+    opp_html = (
+        f'<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">'
+        f'<div style="flex:1;min-width:180px;background:#f0fdf4;border-radius:8px;padding:10px 14px;">'
+        f'<div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:4px;">💡 今日最佳机会方向</div>'
+        f'<p style="font-size:13px;color:#374151;margin:0;">{opp}</p></div>'
+        f'<div style="flex:1;min-width:180px;background:#fef2f2;border-radius:8px;padding:10px 14px;">'
+        f'<div style="font-size:11px;font-weight:700;color:#991b1b;margin-bottom:4px;">⚠️ 今日最需警惕风险</div>'
+        f'<p style="font-size:13px;color:#374151;margin:0;">{risk}</p></div>'
+        f'</div>'
+    ) if (opp or risk) else ""
+
+    return f"""
+<div class="card" style="border-top:3px solid {fg};">
+  <div class="card-title">📊 综合信号评级</div>
+  {rating_html}
+  {"<p style='font-size:13px;color:#374151;line-height:1.7;'>" + basis + "</p>" if basis else ""}
+  {opp_html}
+</div>"""
+
+
+def _risk_radar_card(analysis: dict) -> str:
+    rr = analysis.get("risk_radar")
+    if not rr or not isinstance(rr, dict):
+        return ""
+    level = _coerce_str(rr.get("overall_level", "中"))
+    level_colors = {"高": ("#dc2626", "#fef2f2"), "中": ("#d97706", "#fffbeb"), "低": ("#16a34a", "#f0fdf4")}
+    fg, bg = level_colors.get(level, ("#6b7280", "#f3f4f6"))
+    items = [
+        ("情绪风险", rr.get("sentiment_risk", "")),
+        ("流动性风险", rr.get("liquidity_risk", "")),
+        ("政策/监管风险", rr.get("policy_risk", "")),
+        ("AI链特有风险", rr.get("chain_risk", "")),
+    ]
+    rows = ""
+    for label, val in items:
+        v = _coerce_str(val)
+        if v:
+            rows += (
+                f"<tr><td style='padding:7px 12px;color:#6b7280;font-size:12px;white-space:nowrap;width:110px;'>{label}</td>"
+                f"<td style='padding:7px 12px;color:#374151;font-size:13px;line-height:1.6;'>{v}</td></tr>"
+            )
+    if not rows:
+        return ""
+    return (
+        f"<div class='card'>"
+        f"<div class='card-title'>🚨 风险雷达 "
+        f"<span style='margin-left:8px;padding:2px 10px;border-radius:10px;font-size:12px;"
+        f"font-weight:700;background:{bg};color:{fg};'>{level}风险</span></div>"
+        f"<table style='width:100%;border-collapse:collapse;'>{rows}</table>"
+        f"</div>"
+    )
+
+
+def _fund_flow_insights_card(analysis: dict) -> str:
+    ffi = analysis.get("fund_flow_insights")
+    if not ffi or not isinstance(ffi, dict):
+        return ""
+
+    opp = _coerce_str(ffi.get("new_opportunities", ""))
+    stocks = ffi.get("top_individual_stocks") or []
+    sectors = ffi.get("top_sectors") or []
+
+    stock_rows = ""
+    for s in stocks[:5]:
+        if not isinstance(s, dict):
+            continue
+        code = s.get("stock_code", "")
+        name = s.get("stock_name", "")
+        net  = s.get("net_inflow")
+        chg  = s.get("change_pct")
+        comment = _coerce_str(s.get("comment", ""))
+        chg_color = "#16a34a" if (chg or 0) >= 0 else "#dc2626"
+        chg_str   = f"{chg:+.2f}%" if chg is not None else ""
+        net_str   = f"+{net:.2f}亿" if net is not None else ""
+        stock_rows += (
+            f"<tr>"
+            f"<td style='padding:7px 12px;font-weight:500;color:#374151;'>{name}</td>"
+            f"<td style='padding:7px 12px;color:#6b7280;font-size:12px;'>{code}</td>"
+            f"<td style='padding:7px 12px;text-align:right;color:#16a34a;font-weight:600;'>{net_str}</td>"
+            f"<td style='padding:7px 12px;text-align:right;color:{chg_color};font-weight:600;'>{chg_str}</td>"
+            f"<td style='padding:7px 12px;font-size:12px;color:#6b7280;'>{comment}</td>"
+            f"</tr>"
+        )
+
+    sector_rows = ""
+    for s in sectors[:5]:
+        if not isinstance(s, dict):
+            continue
+        name = s.get("name", "")
+        ff   = s.get("fund_flow_yi") or s.get("fund_flow")
+        chg  = s.get("change_pct")
+        note = _coerce_str(s.get("opportunity_note", ""))
+        chg_color = "#16a34a" if (chg or 0) >= 0 else "#dc2626"
+        chg_str = f"{chg:+.2f}%" if chg is not None else ""
+        ff_str  = f"{ff:+.2f}亿" if ff is not None else ""
+        sector_rows += (
+            f"<tr>"
+            f"<td style='padding:7px 12px;font-weight:500;color:#374151;'>{name}</td>"
+            f"<td style='padding:7px 12px;text-align:right;color:#16a34a;font-weight:600;'>{ff_str}</td>"
+            f"<td style='padding:7px 12px;text-align:right;color:{chg_color};font-weight:600;'>{chg_str}</td>"
+            f"<td style='padding:7px 12px;font-size:12px;color:#6b7280;'>{note}</td>"
+            f"</tr>"
+        )
+
+    opp_html = (
+        f'<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:14px;">'
+        f'<span style="font-size:11px;font-weight:700;color:#166534;">💡 新机会识别：</span>'
+        f'<span style="font-size:13px;color:#374151;"> {opp}</span></div>'
+    ) if opp else ""
+
+    if not stock_rows and not sector_rows:
+        return ""
+
+    stocks_table = (
+        "<div style='font-weight:600;font-size:12px;color:#374151;margin:10px 0 6px;'>📈 个股主力净流入TOP5</div>"
+        "<table style='width:100%;border-collapse:collapse;font-size:13px;'>"
+        "<thead><tr style='background:#f9fafb;'>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>股票</th>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>代码</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>净流入</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>涨跌</th>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>点评</th>"
+        f"</tr></thead><tbody>{stock_rows}</tbody></table>"
+    ) if stock_rows else ""
+
+    sectors_table = (
+        "<div style='font-weight:600;font-size:12px;color:#374151;margin:16px 0 6px;'>🏭 板块主力净流入TOP5</div>"
+        "<table style='width:100%;border-collapse:collapse;font-size:13px;'>"
+        "<thead><tr style='background:#f9fafb;'>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>板块</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>净流入</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>涨跌</th>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>机会点评</th>"
+        f"</tr></thead><tbody>{sector_rows}</tbody></table>"
+    ) if sector_rows else ""
+
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>💰 资金流向新机会</div>"
+        f"{opp_html}{stocks_table}{sectors_table}"
+        "</div>"
+    )
+
+
+def _chain_tracking_card(analysis: dict) -> str:
+    ct = analysis.get("chain_tracking")
+    if not ct or not isinstance(ct, list):
+        return ""
+    cards = ""
+    dir_config = {
+        "strengthening": ("#16a34a", "#f0fdf4", "↑ 增强"),
+        "stable":        ("#2563eb", "#eff6ff", "→ 稳定"),
+        "weakening":     ("#dc2626", "#fef2f2", "↓ 减弱"),
+    }
+    conf_colors = {"high": "#16a34a", "medium": "#d97706", "low": "#dc2626"}
+    for item in ct:
+        if not isinstance(item, dict):
+            continue
+        theme   = item.get("theme", "")
+        dirn    = item.get("direction", "stable")
+        vs_yday = _coerce_str(item.get("vs_yesterday", ""))
+        conf    = item.get("confidence", "medium")
+        summary = _coerce_str(item.get("summary", ""))
+        cats    = item.get("catalysts") or []
+        risks   = item.get("risks") or []
+
+        fg, bg, dir_label = dir_config.get(dirn, ("#6b7280", "#f3f4f6", "? 未知"))
+        conf_color = conf_colors.get(conf, "#6b7280")
+
+        cats_html = _ul(cats) if cats else ""
+        risks_html = _ul(risks) if risks else ""
+
+        cards += f"""
+<div style="border:1px solid {fg}44;border-left:4px solid {fg};border-radius:8px;
+     padding:14px 16px;margin-bottom:12px;background:{bg};">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+    <strong style="font-size:14px;color:#111827;">{theme}</strong>
+    {_badge(dir_label, bg, fg)}
+    {_badge(f"信心：{conf}", f"{conf_color}22", conf_color)}
+  </div>
+  {"<p style='font-size:12px;color:#6b7280;margin-bottom:6px;'>对比昨日：" + vs_yday + "</p>" if vs_yday and vs_yday != "首次追踪" else ""}
+  {"<p style='font-size:13px;color:#374151;line-height:1.7;margin-bottom:8px;'>" + summary + "</p>" if summary else ""}
+  {"<div style='display:flex;gap:12px;flex-wrap:wrap;'>" + ("<div style='flex:1;min-width:150px;'><div style='font-size:11px;font-weight:700;color:#166534;margin-bottom:4px;'>催化因素</div>" + cats_html + "</div>" if cats else "") + ("<div style='flex:1;min-width:150px;'><div style='font-size:11px;font-weight:700;color:#991b1b;margin-bottom:4px;'>风险因素</div>" + risks_html + "</div>" if risks else "") + "</div>" if cats or risks else ""}
+</div>"""
+
+    if not cards:
+        return ""
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>🔗 AI产业链方向追踪</div>"
+        f"{cards}</div>"
+    )
+
+
+def _bull_alerts_card(analysis: dict) -> str:
+    ba = analysis.get("bull_alerts")
+    if not ba or not isinstance(ba, list):
+        return ""
+    verdict_config = {
+        "confirmed": ("#16a34a", "#f0fdf4", "✓ 确认信号"),
+        "possible":  ("#d97706", "#fffbeb", "? 待观察"),
+        "rejected":  ("#dc2626", "#fef2f2", "✗ 暂不支持"),
+    }
+    cards = ""
+    for item in ba:
+        if not isinstance(item, dict):
+            continue
+        code    = item.get("stock_code", "")
+        name    = item.get("stock_name", "")
+        market  = item.get("market", "")
+        verdict = item.get("llm_verdict", "possible")
+        basis   = _coerce_str(item.get("verdict_basis", ""))
+        catalyst= _coerce_str(item.get("key_catalyst", ""))
+        risk_w  = _coerce_str(item.get("risk_warning", ""))
+        algo    = item.get("algo_score")
+        qpct    = item.get("quan_percentile")
+        net_in  = item.get("net_inflow")
+
+        fg, bg, v_label = verdict_config.get(verdict, ("#6b7280", "#f3f4f6", "?"))
+        stats_badges = ""
+        if algo is not None:
+            stats_badges += f" {_badge(f'算法分 {algo}', '#f3f4f6', '#374151')}"
+        if qpct is not None:
+            try:
+                qv = float(qpct)
+                qc = "#16a34a" if qv >= 70 else ("#d97706" if qv >= 50 else "#6b7280")
+                stats_badges += f" {_badge(f'量化{qv:.0f}%', f'{qc}22', qc)}"
+            except Exception:
+                pass
+        if net_in is not None:
+            try:
+                stats_badges += f" {_badge(f'净流入+{float(net_in):.2f}亿', '#f0fdf4', '#16a34a')}"
+            except Exception:
+                pass
+
+        cards += f"""
+<div style="border:1px solid {fg}44;border-left:4px solid {fg};border-radius:8px;
+     padding:14px 16px;margin-bottom:10px;background:{bg};">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+    <strong style="font-size:14px;color:#111827;">{name}</strong>
+    <span style="font-size:12px;color:#6b7280;">{code}</span>
+    {_market_badge(market)}
+    {_badge(v_label, bg, fg)}
+    {stats_badges}
+  </div>
+  {"<p style='font-size:13px;color:#374151;line-height:1.7;margin-bottom:6px;'>" + basis + "</p>" if basis else ""}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;">
+    {"<div style='color:#166534;'><span style='font-weight:700;'>催化剂：</span>" + catalyst + "</div>" if catalyst else ""}
+    {"<div style='color:#991b1b;'><span style='font-weight:700;'>风险：</span>" + risk_w + "</div>" if risk_w else ""}
+  </div>
+</div>"""
+
+    if not cards:
+        return ""
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>🚀 智能牛股预警</div>"
+        f"{cards}</div>"
+    )
+
+
+def _open_schedule_card(analysis: dict) -> str:
+    os_ = analysis.get("open_schedule")
+    if not os_ or not isinstance(os_, dict):
+        return ""
+    f15  = _coerce_str(os_.get("first_15min", ""))
+    f30  = _coerce_str(os_.get("first_30min", ""))
+    mid  = _coerce_str(os_.get("mid_session", ""))
+    trigs= os_.get("risk_triggers") or []
+
+    items = [
+        ("🔔 开盘前15分钟", f15, "#dbeafe", "#1e40af"),
+        ("⚡ 开盘30分钟内", f30, "#fffbeb", "#92400e"),
+        ("🕙 盘中关键窗口", mid, "#f0fdf4", "#166534"),
+    ]
+    sections = ""
+    for label, text, bg, fg in items:
+        if not text:
+            continue
+        sections += (
+            f'<div style="background:{bg};border-radius:8px;padding:12px 14px;margin-bottom:8px;">'
+            f'<div style="font-size:11px;font-weight:700;color:{fg};margin-bottom:4px;">{label}</div>'
+            f'<p style="font-size:13px;color:#374151;line-height:1.7;margin:0;">{text}</p>'
+            f'</div>'
+        )
+
+    trig_html = (
+        f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;">'
+        f'<div style="font-size:11px;font-weight:700;color:#991b1b;margin-bottom:6px;">🛑 风险触发条件</div>'
+        f'{_ul(trigs)}</div>'
+    ) if trigs else ""
+
+    if not sections and not trig_html:
+        return ""
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>📅 开盘节奏计划</div>"
+        f"{sections}{trig_html}"
+        "</div>"
+    )
+
+
+def _watchlist_quan_card(enriched: dict) -> str:
+    """显示关注股票量化评分表格（直接用富集原始数据，不依赖 LLM 输出）。"""
+    wq = enriched.get("watchlist_quan") or []
+    if not wq:
+        return ""
+    rows = ""
+    for s in wq:
+        if not isinstance(s, dict):
+            continue
+        code  = s.get("stock_code", "")
+        name  = s.get("stock_name", "") or code
+        qpct  = s.get("quan_percentile")
+        price = s.get("price")
+        chg   = s.get("change_pct")
+        notes = (s.get("notes") or "")[:30]
+
+        qpct_html = ""
+        if qpct is not None:
+            try:
+                qv = float(qpct)
+                qc = "#16a34a" if qv >= 70 else ("#d97706" if qv >= 40 else "#dc2626")
+                qpct_html = f'<span style="font-weight:700;color:{qc};">{qv:.0f}%</span>'
+            except Exception:
+                qpct_html = str(qpct)
+        else:
+            qpct_html = '<span style="color:#9ca3af;">-</span>'
+
+        chg_color = "#16a34a" if (chg or 0) >= 0 else "#dc2626"
+        chg_str   = f"{chg:+.2f}%" if chg is not None else "-"
+        price_str = f"{price}" if price is not None else "-"
+
+        rows += (
+            f"<tr>"
+            f"<td style='padding:7px 12px;font-weight:500;color:#374151;'>{name}</td>"
+            f"<td style='padding:7px 12px;color:#6b7280;font-size:12px;'>{code}</td>"
+            f"<td style='padding:7px 12px;text-align:right;'>{qpct_html}</td>"
+            f"<td style='padding:7px 12px;text-align:right;color:#374151;'>{price_str}</td>"
+            f"<td style='padding:7px 12px;text-align:right;color:{chg_color};font-weight:600;'>{chg_str}</td>"
+            f"<td style='padding:7px 12px;font-size:11px;color:#9ca3af;'>{notes}</td>"
+            f"</tr>"
+        )
+
+    if not rows:
+        return ""
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>📐 关注股票量化评分<span style='margin-left:auto;font-size:12px;color:#6b7280;font-weight:400;'>因子百分位（越高越强）</span></div>"
+        "<table style='width:100%;border-collapse:collapse;font-size:13px;'>"
+        "<thead><tr style='background:#f9fafb;'>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>股票</th>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>代码</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>量化百分位</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>最新价</th>"
+        "<th style='padding:7px 12px;text-align:right;color:#6b7280;'>涨跌%</th>"
+        "<th style='padding:7px 12px;text-align:left;color:#6b7280;'>备注</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+        "</div>"
+    )
 
 
 # ── Speech text builder ───────────────────────────────────────────────────────
@@ -671,6 +1112,20 @@ def _build_speech_text(analysis: dict) -> str:
     if summary:
         parts.append(f"核心研判：{summary}")
 
+    # 综合信号评级
+    so = analysis.get("signal_overview", {})
+    if isinstance(so, dict):
+        rating = _coerce_str(so.get("overall_rating", ""))
+        basis  = _coerce_str(so.get("rating_basis", ""))
+        opp    = _coerce_str(so.get("top_opportunity", ""))
+        risk   = _coerce_str(so.get("top_risk", ""))
+        if rating:
+            parts.append(f"综合信号评级：{rating}。{basis}")
+        if opp:
+            parts.append(f"今日最佳机会方向：{opp}。")
+        if risk:
+            parts.append(f"今日最需警惕风险：{risk}。")
+
     ms = analysis.get("market_sentiment", {})
     if isinstance(ms, dict):
         tone  = _coerce_str(ms.get("tone", ""))
@@ -678,37 +1133,67 @@ def _build_speech_text(analysis: dict) -> str:
         if tone:
             parts.append(f"市场情绪基调：{tone}。{basis}")
 
+    # AI链追踪
+    ct = analysis.get("chain_tracking") or []
+    if ct:
+        parts.append(f"AI产业链方向追踪，共{len(ct)}个主题。")
+        for item in ct:
+            if not isinstance(item, dict):
+                continue
+            theme   = item.get("theme", "")
+            dirn    = item.get("direction", "stable")
+            summary_ct = _coerce_str(item.get("summary", ""))
+            dir_map = {"strengthening": "增强", "stable": "稳定", "weakening": "减弱"}
+            parts.append(f"主题{theme}，方向{dir_map.get(dirn, dirn)}。{summary_ct}")
+
+    # 牛股预警
+    ba = analysis.get("bull_alerts") or []
+    confirmed = [x for x in ba if isinstance(x, dict) and x.get("llm_verdict") == "confirmed"]
+    if confirmed:
+        parts.append(f"牛股预警：以下{len(confirmed)}只股票出现强信号。")
+        for item in confirmed:
+            name    = item.get("stock_name", "")
+            catalyst= _coerce_str(item.get("key_catalyst", ""))
+            parts.append(f"{name}：{catalyst}。")
+
     watchlist = analysis.get("watchlist", [])
     if watchlist:
-        parts.append(f"以下是观察清单，共{len(watchlist)}个标的。")
+        parts.append(f"观察清单，共{len(watchlist)}个标的。")
         for i, item in enumerate(watchlist):
             if not isinstance(item, dict):
                 continue
             name  = item.get("name", "")
-            layer = f"，{item.get('industry_layer', '')}" if item.get("industry_layer") else ""
-            parts.append(f"第{i + 1}个标的：{name}{layer}。")
+            parts.append(f"第{i + 1}个标的：{name}。")
             if item.get("trigger_event"):
                 parts.append(f"触发事件：{item['trigger_event']}。")
-            if item.get("overnight_performance"):
-                parts.append(f"隔夜表现：{item['overnight_performance']}。")
             if item.get("bull_case"):
-                parts.append(f"看多理由：{item['bull_case']}。")
+                parts.append(f"看多：{item['bull_case']}。")
             if item.get("bear_case"):
-                parts.append(f"看空理由：{item['bear_case']}。")
-            if item.get("follow_up"):
-                parts.append(f"跟进问题：{item['follow_up']}。")
+                parts.append(f"看空：{item['bear_case']}。")
+            if item.get("open_strategy"):
+                parts.append(f"开盘策略：{item['open_strategy']}。")
+
+    # 开盘节奏
+    os_ = analysis.get("open_schedule", {})
+    if isinstance(os_, dict):
+        f15 = _coerce_str(os_.get("first_15min", ""))
+        f30 = _coerce_str(os_.get("first_30min", ""))
+        if f15:
+            parts.append(f"开盘前15分钟：{f15}")
+        if f30:
+            parts.append(f"开盘30分钟内：{f30}")
 
     outlook = analysis.get("premarket_outlook", {})
     if isinstance(outlook, dict):
         s = _coerce_str(outlook.get("summary", ""))
         if s:
             parts.append(f"A股开盘前情景判断：{s}")
+        base = _coerce_str(outlook.get("base_case", ""))
+        if base:
+            parts.append(f"基准情景：{base}")
         kw = outlook.get("key_watch_points") or []
         if kw:
             parts.append(f"重点关注：{'；'.join(str(p) for p in kw)}。")
-        un = outlook.get("uncertainties") or []
-        if un:
-            parts.append(f"主要不确定性：{'；'.join(str(u) for u in un)}。")
 
     return "\n".join(parts)
 
@@ -741,6 +1226,7 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
     rates             = us_market.get("rates", {})
     stats             = cleaned_data.get("stats", {})
     fetch_errors      = cleaned_data.get("fetch_errors", [])
+    enriched          = cleaned_data.get("_enriched", {})
 
     error_banner = ""
     if error:
@@ -878,6 +1364,8 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
 
 {_report_summary_card(analysis)}
 
+{_signal_overview_card(analysis)}
+
 {_news_briefing(news_items)}
 
 <!-- 隔夜美股 -->
@@ -888,19 +1376,9 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   </div>
   {rates_html}
   <div style="font-weight:600;font-size:13px;color:#374151;margin:12px 0 8px;">
-    🤖 AI核心个股
-  </div>
-  {_market_table(ai_stocks, 'AI个股数据未获取')}
-  <div style="font-weight:600;font-size:13px;color:#374151;margin:12px 0 8px;">
     📈 股指期货
   </div>
   {_market_table(futures, '期货数据未获取')}
-</div>
-
-<!-- A股主要指数 -->
-<div class="card">
-  <div class="card-title">🇨🇳 A股主要指数（前一交易日）</div>
-  {_market_table({k: v for k, v in cn_market.items() if not k.startswith('_')}, 'A股指数数据未获取')}
 </div>
 
 {_macro_card(macro_indicators)}
@@ -909,13 +1387,17 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
 
 {_macro_signals_card(analysis)}
 
+{_risk_radar_card(analysis)}
+
 {_bottleneck_card(analysis)}
 
 {_layer_signals_card(analysis)}
 
 {_market_sentiment_card(analysis)}
 
-{_ticker_commentary_card(analysis)}
+{_chain_tracking_card(analysis)}
+
+{_bull_alerts_card(analysis)}
 
 <!-- 观察清单 -->
 <div class="card">
@@ -926,6 +1408,8 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   </div>
   {watchlist_html}
 </div>
+
+{_open_schedule_card(analysis)}
 
 {_premarket_outlook_card(analysis)}
 

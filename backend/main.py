@@ -27,7 +27,7 @@ from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
     DataSource, PromptTemplate, PremarketReport, ScheduledTask, WatchedTicker,
-    AnalysisFramework, SystemSetting, StockCapex,
+    AnalysisFramework, SystemSetting, StockCapex, PremarketChainSignal,
 )
 from sqlalchemy import text
 from sqlalchemy.orm import Session

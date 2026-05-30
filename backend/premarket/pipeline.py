@@ -6,6 +6,33 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _persist_chain_signals(db, report_id: int, signal_date: str, analysis: dict):
+    """将 LLM 输出的 chain_tracking 字段写入 PremarketChainSignal 表。"""
+    if not isinstance(analysis, dict):
+        return
+    chain_tracking = analysis.get("chain_tracking") or []
+    if not chain_tracking:
+        return
+
+    from models import PremarketChainSignal
+    for item in chain_tracking:
+        if not isinstance(item, dict) or not item.get("theme"):
+            continue
+        row = PremarketChainSignal(
+            signal_date=signal_date,
+            theme=str(item.get("theme", ""))[:100],
+            direction=str(item.get("direction", "stable"))[:20],
+            confidence=str(item.get("confidence", "medium"))[:20],
+            summary=str(item.get("summary", ""))[:500],
+            catalysts=json.dumps(item.get("catalysts") or [], ensure_ascii=False),
+            risks=json.dumps(item.get("risks") or [], ensure_ascii=False),
+            report_id=report_id,
+        )
+        db.add(row)
+    db.commit()
+    logger.info(f"Persisted {len(chain_tracking)} chain signals for {signal_date}")
+
+
 def run_pipeline(db, record_id: int = None) -> dict:
     """
     完整执行一次盘前分析流水线。
@@ -40,6 +67,7 @@ def run_pipeline(db, record_id: int = None) -> dict:
     try:
         # 1. 获取启用的数据源和行情标的
         from models import WatchedTicker
+        from premarket.enricher import enrich
         sources = db.query(DataSource).filter(DataSource.enabled == 1).all()
         sources_list = [
             {"name": s.name, "url": s.url,
@@ -58,6 +86,14 @@ def run_pipeline(db, record_id: int = None) -> dict:
 
         # 3. 清洗
         cleaned = clean(raw_data)
+
+        # 3.5. 富集（量化评分、资金流向、板块热力、风险摘要、链信号）
+        try:
+            enriched = enrich(db)
+            cleaned["_enriched"] = enriched
+        except Exception as _e:
+            logger.warning(f"Enricher failed (non-fatal): {_e}")
+            cleaned["_enriched"] = {}
 
         # 4. 分析（优先按名称匹配模板；record_id 用于流式输出缓冲）
         analysis = analyze(cleaned, db, template_name="AI产业链盘前分析", record_id=record.id)
@@ -83,6 +119,12 @@ def run_pipeline(db, record_id: int = None) -> dict:
 
         # 6. 生成 HTML
         report_path = generate(analysis, cleaned, today)
+
+        # 6.5. 持久化 AI 链追踪信号（供下次报告连续性追踪）
+        try:
+            _persist_chain_signals(db, record.id, today, analysis)
+        except Exception as _e:
+            logger.warning(f"Persist chain signals failed (non-fatal): {_e}")
 
         # 7. 更新记录
         record.status = "completed"

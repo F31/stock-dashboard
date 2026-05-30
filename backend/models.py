@@ -156,6 +156,21 @@ class MacroCache(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class PremarketChainSignal(Base):
+    """持久化 AI 产业链每日追踪信号，供下次报告生成时注入"昨日信号状态"。"""
+    __tablename__ = "premarket_chain_signals"
+    id = Column(Integer, primary_key=True, index=True)
+    signal_date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    theme = Column(String(100), nullable=False)                   # 主题/方向名称
+    direction = Column(String(20), default="stable")              # strengthening|stable|weakening
+    confidence = Column(String(20), default="medium")             # high|medium|low
+    summary = Column(Text, default="")                            # 简短摘要
+    catalysts = Column(Text, default="[]")                        # JSON array of catalyst strings
+    risks = Column(Text, default="[]")                            # JSON array of risk strings
+    report_id = Column(Integer, nullable=True, index=True)        # 关联 premarket_reports.id
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class OperationLog(Base):
     __tablename__ = "operation_logs"
     id = Column(Integer, primary_key=True, index=True)
