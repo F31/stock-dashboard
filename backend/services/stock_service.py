@@ -806,31 +806,59 @@ _EM_HEADERS = {
 }
 
 
-async def _fetch_em_fundamentals(code: str) -> dict:
-    """Fetch profit growth rate (SJLTZ) + ROE (WEIGHTAVG_ROE) from East Money."""
+async def _batch_fetch_em_fundamentals(codes: List[str]) -> Dict[str, dict]:
+    """Single EM API call for multiple codes using IN filter.
+
+    Returns {code: {"profit_growth_rate": float, "roe": float}}.
+    Uses ps=len(codes)*4 so even if codes share the same report date we still
+    get the latest row for every code after deduplication.
+    """
+    if not codes:
+        return {}
     try:
+        if len(codes) == 1:
+            filter_expr = f'(SECURITY_CODE="{codes[0]}")'
+        else:
+            # EM API requires IN syntax for multiple codes; OR syntax returns 9501 error
+            in_list = ",".join(f'"{c}"' for c in codes)
+            filter_expr = f'(SECURITY_CODE in ({in_list}))'
+        ps = min(len(codes) * 4, 400)
         params = {
             "type": "RPT_LICO_FN_CPD",
             "sty": "SECURITY_CODE,REPORTDATE,SJLTZ,WEIGHTAVG_ROE",
-            "filter": f'(SECURITY_CODE="{code}")',
-            "sr": "-1", "st": "REPORTDATE", "p": "1", "ps": "1",
+            "filter": filter_expr,
+            "sr": "-1", "st": "REPORTDATE",
+            "p": "1", "ps": str(ps),
         }
-        async with httpx.AsyncClient(timeout=8) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(EASTMONEY_FINANCIAL_URL, params=params, headers=_EM_HEADERS)
             resp.raise_for_status()
             data = resp.json()
             rows = (data.get("result") or {}).get("data") or []
-            if rows:
-                row = rows[0]
-                result = {}
-                if row.get("SJLTZ") is not None:
-                    result["profit_growth_rate"] = round(float(row["SJLTZ"]), 2)
-                if row.get("WEIGHTAVG_ROE") is not None:
-                    result["roe"] = round(float(row["WEIGHTAVG_ROE"]), 2)
-                return result
+        seen: set = set()
+        result: Dict[str, dict] = {}
+        for row in rows:
+            code = row.get("SECURITY_CODE", "")
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            r: dict = {}
+            if row.get("SJLTZ") is not None:
+                r["profit_growth_rate"] = round(float(row["SJLTZ"]), 2)
+            if row.get("WEIGHTAVG_ROE") is not None:
+                r["roe"] = round(float(row["WEIGHTAVG_ROE"]), 2)
+            result[code] = r
+        logger.debug(f"EM batch fundamentals: {len(codes)} requested, {len(result)} returned")
+        return result
     except Exception as e:
-        logger.debug(f"EM fundamentals error for {code}: {e}")
+        logger.debug(f"EM batch fundamentals error: {e}")
     return {}
+
+
+async def _fetch_em_fundamentals(code: str) -> dict:
+    """Fetch profit growth rate (SJLTZ) + ROE (WEIGHTAVG_ROE) from East Money (single stock)."""
+    result = await _batch_fetch_em_fundamentals([code])
+    return result.get(code, {})
 
 
 def _fetch_akshare_fundamentals(code: str) -> dict:
@@ -901,6 +929,50 @@ async def fetch_financial_snapshot(code: str, market: str) -> dict:
     ttl = CACHE_TTL_GROWTH if snapshot else 3600
     _set_cache(cache_key, snapshot, ttl)
     return snapshot
+
+
+async def batch_fetch_financial_snapshots(
+    stock_pairs: List[tuple],  # List of (stock_code, market)
+) -> List[dict]:
+    """Batch-fetch financial snapshots for multiple stocks.
+
+    Reduces East Money requests from N → 1 by using the OR filter.
+    akshare (THS) calls are still per-stock but run in a thread pool.
+    Returns a list of dicts in the same order as stock_pairs.
+    """
+    a_share_indices = [(i, code) for i, (code, mkt) in enumerate(stock_pairs) if mkt == "A"]
+
+    # Split into cached vs uncached
+    uncached: List[tuple] = []  # (index, code)
+    result_map: Dict[int, dict] = {}
+
+    for i, code in a_share_indices:
+        cached = _get_cached(f"finsnapshot:{code}")
+        if cached is not None:
+            result_map[i] = cached
+        else:
+            uncached.append((i, code))
+
+    if uncached:
+        uncached_codes = [code for _, code in uncached]
+
+        # Single batch EM call
+        loop = asyncio.get_event_loop()
+        em_batch, *ak_results = await asyncio.gather(
+            _batch_fetch_em_fundamentals(uncached_codes),
+            *[loop.run_in_executor(None, _fetch_akshare_fundamentals, code)
+              for code in uncached_codes],
+        )
+
+        for j, (i, code) in enumerate(uncached):
+            em_data = em_batch.get(code, {})
+            ak_data = ak_results[j] if j < len(ak_results) else {}
+            snapshot = {**em_data, **ak_data}
+            ttl = CACHE_TTL_GROWTH if snapshot else 3600
+            _set_cache(f"finsnapshot:{code}", snapshot, ttl)
+            result_map[i] = snapshot
+
+    return [result_map.get(i, {}) for i in range(len(stock_pairs))]
 
 
 async def fetch_profit_growth_rate(code: str, market: str) -> Optional[float]:
@@ -1070,7 +1142,7 @@ async def fetch_stocks_batch(stocks: List[Dict[str, str]]) -> List[dict]:
 
 
 async def fetch_stock_news(stock_code: str, market: str) -> list:
-    """Fetch news via akshare. Only works for A-shares."""
+    """Fetch news via akshare stock_news_em. Only works for A-shares."""
     if market != "A":
         return []
 
@@ -1083,28 +1155,21 @@ async def fetch_stock_news(stock_code: str, market: str) -> list:
         import akshare as ak
         news_list = []
 
-        # Try the most reliable function first; stop at first success
         async with _akshare_sem:
-            for fn_name in ["stock_info_sina_news"]:
-                fn = getattr(ak, fn_name, None)
-                if fn is None:
-                    continue
-                try:
-                    df = await asyncio.wait_for(
-                        asyncio.to_thread(fn, symbol=stock_code), timeout=8
-                    )
-                    if df is not None and not df.empty:
-                        for _, r in df.head(5).iterrows():
-                            news_list.append({
-                                "title": r.get("title", r.get("新闻标题", "")),
-                                "source": r.get("source", r.get("来源", "新浪财经")),
-                                "url": r.get("url", r.get("新闻链接", "")),
-                                "time": str(r.get("time", r.get("发布时间", ""))),
-                            })
-                        if news_list:
-                            break
-                except Exception:
-                    continue
+            try:
+                df = await asyncio.wait_for(
+                    asyncio.to_thread(ak.stock_news_em, symbol=stock_code), timeout=12
+                )
+                if df is not None and not df.empty:
+                    for _, r in df.head(10).iterrows():
+                        news_list.append({
+                            "title":  str(r.get("新闻标题", "")),
+                            "source": str(r.get("文章来源", "东方财富")),
+                            "url":    str(r.get("新闻链接", "")),
+                            "time":   str(r.get("发布时间", "")),
+                        })
+            except Exception as e:
+                logger.warning(f"stock_news_em failed for {stock_code}: {e}")
 
         _set_cache(cache_key, news_list, CACHE_TTL_NEWS)
         return news_list

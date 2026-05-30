@@ -119,17 +119,6 @@
       </div>
     </div>
 
-    <!-- News Area -->
-    <div class="news-area" v-if="!isSector && stock.data?.news && stock.data.news.length">
-      <div class="sec-ttl">📰 最新资讯</div>
-      <div class="ni" v-for="(item, i) in stock.data.news.slice(0, 4)" :key="i">
-        <div class="ni-t">
-          <a :href="item.url" target="_blank" rel="noopener">{{ item.title }}</a>
-        </div>
-        <div class="ni-m">{{ item.source }} · {{ item.time }}</div>
-      </div>
-    </div>
-
   </div>
 </template>
 
@@ -418,11 +407,6 @@ function fmtCapex(v) {
 .cf-lo   { color: #f59e0b; }
 
 
-.news-area { padding: 8px 12px; }
-.sec-ttl { font-size: 11px; font-weight: 700; color: #6b7280; letter-spacing: .5px; text-transform: uppercase; }
-
-.ni { padding: 6px 0; border-bottom: 1px solid #e5e7eb; }
-.ni:last-child { border-bottom: none; }
 .ni-t a {
   font-size: 13px; line-height: 1.45; color: #111827;
   text-decoration: none;
@@ -452,7 +436,6 @@ function fmtCapex(v) {
   .met { padding: 5px 2px; min-width: 25%; }
   .met-l { font-size: 9px; }
   .met-v { font-size: 12px; }
-  .news-area { padding: 6px 10px; display: none; }
   .prev-close { font-size: 11px; }
 }
 

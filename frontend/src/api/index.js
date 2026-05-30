@@ -75,6 +75,10 @@ export function getStockDetail(id) {
   return api.get(`/stocks/${id}`)
 }
 
+export function fetchStockPreview(code, market = 'A') {
+  return api.get(`/stocks/preview/${encodeURIComponent(code)}`, { params: { market } })
+}
+
 /**
  * Batch-fetch realtime data for many stocks in ONE request.
  * @param {Array<{code:string, market:string}>} stocks
@@ -148,6 +152,18 @@ export function refreshIndustrialProfitHistory() {
 export function fetchFundFlowTop20() {
   return api.get('/macro/fund-flow/top20')
 }
+
+// ── 风险预警 ──
+// stock_zh_a_spot 串行70页请求，最长可达35s；给60s宽限避免误触发超时
+export const fetchRiskSentiment          = () => api.get('/risk/sentiment', { timeout: 60000 })
+export const fetchRiskNorthFund          = () => api.get('/risk/north-fund')
+export const fetchRiskMargin             = () => api.get('/risk/margin')
+export const fetchRiskBlockTrades        = () => api.get('/risk/block-trades')
+export const fetchRiskLhb                = () => api.get('/risk/lhb')
+export const fetchRiskMacro              = () => api.get('/risk/macro')
+export const fetchRiskRestricted         = () => api.get('/risk/restricted')
+export const fetchRiskRestrictedHistory  = () => api.get('/risk/restricted/history', { timeout: 60000 })
+export const fetchRiskRadar              = () => api.get('/risk/radar')
 
 // ── Analysis Reports ──
 
@@ -301,6 +317,10 @@ export function fetchPoolStats() { return api.get('/pipeline/pool-stats') }
 // qlib subprocess cold-start can take 40 s; override the 30 s global timeout
 export function fetchQuanStockLevels(stockCode) {
   return api.get(`/quan/scores/${stockCode}/levels`, { timeout: 90000 })
+}
+
+export function refreshQuanStockInfo() {
+  return api.post('/quan/refresh-stock-info', {}, { timeout: 120000 })
 }
 
 // ── Sector ──

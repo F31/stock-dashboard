@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风险雷达说明</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --c-bg:      #f8fafc;
+    --c-card:    #ffffff;
+    --c-border:  #e5e7eb;
+    --c-text:    #111827;
+    --c-sub:     #6b7280;
+    --c-muted:   #9ca3af;
+    --c-red:     #dc2626;
+    --c-amber:   #d97706;
+    --c-gray:    #6b7280;
+    --c-green:   #16a34a;
+    --radius:    10px;
+  }
+  html { font-size: 14px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+                 'Microsoft YaHei', sans-serif;
+    background: var(--c-bg);
+    color: var(--c-text);
+    line-height: 1.6;
+    padding: 24px 16px 48px;
+  }
+
+  /* ── Page header ── */
+  .page-hdr {
+    max-width: 820px; margin: 0 auto 28px;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  .page-icon {
+    width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0;
+    background: linear-gradient(135deg, #dc2626, #b45309);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+  .page-title { font-size: 1.45em; font-weight: 800; color: #111827; }
+  .page-sub   { font-size: 0.82em; color: var(--c-sub); margin-top: 3px; }
+  .page-tag   {
+    display: inline-block; margin-top: 6px;
+    font-size: 0.68em; font-weight: 700; border-radius: 6px;
+    padding: 2px 8px; background: #fff1f2; color: #be123c;
+    border: 1px solid #fecdd3;
+  }
+
+  /* ── Card ── */
+  .card {
+    max-width: 820px; margin: 0 auto 18px;
+    background: var(--c-card);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .card-hdr {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--c-border);
+  }
+  .card-hdr-icon {
+    width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+  }
+  .card-hdr-title { font-size: 0.95em; font-weight: 800; }
+  .card-hdr-weight {
+    margin-left: auto; font-size: 0.72em; font-weight: 700;
+    border-radius: 20px; padding: 3px 10px;
+  }
+  .card-body { padding: 18px 20px; }
+
+  /* ── Dim colors ── */
+  .dim-sentiment  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .dim-leverage   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .dim-macro      { background: #fce7f3; color: #9d174d; border: 1px solid #f9a8d4; }
+  .dim-technical  { background: #f3e8ff; color: #6d28d9; border: 1px solid #c4b5fd; }
+  .dim-yield      { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+  .dim-vix        { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+
+  .icon-sentiment  { background: #fef3c7; }
+  .icon-leverage   { background: #fee2e2; }
+  .icon-macro      { background: #fce7f3; }
+  .icon-technical  { background: #f3e8ff; }
+  .icon-yield      { background: #dbeafe; }
+  .icon-vix        { background: #dcfce7; }
+
+  /* ── Risk level bar ── */
+  .risk-bar-wrap {
+    display: flex; height: 14px; border-radius: 7px; overflow: hidden;
+    margin-bottom: 8px; gap: 2px;
+  }
+  .risk-seg {
+    height: 100%; display: flex; align-items: center; justify-content: center;
+    font-size: 0.55em; font-weight: 800; color: #fff;
+  }
+  .seg-safe    { background: #16a34a; flex: 35; }
+  .seg-normal  { background: #6b7280; flex: 20; }
+  .seg-warning { background: #d97706; flex: 20; }
+  .seg-danger  { background: #dc2626; flex: 25; }
+  .risk-legend {
+    display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.72em; margin-top: 4px;
+  }
+  .risk-dot {
+    display: flex; align-items: center; gap: 5px; color: var(--c-sub);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  /* ── Sub-factor table ── */
+  .sub-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+  .sub-table th {
+    text-align: left; font-weight: 700; color: var(--c-sub);
+    padding: 6px 10px; border-bottom: 1px solid var(--c-border);
+    background: #f9fafb;
+  }
+  .sub-table td {
+    padding: 8px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: top;
+  }
+  .sub-table tr:last-child td { border-bottom: none; }
+  .sub-table tr:hover td { background: #f9fafb; }
+  .metric-name { font-weight: 700; font-family: monospace; color: #1f2937; }
+  .metric-note { color: var(--c-muted); font-size: 0.82em; margin-top: 2px; }
+  .weight-pct  { font-weight: 800; font-size: 1em; }
+
+  /* ── Threshold table ── */
+  .thresh-table { width: 100%; border-collapse: collapse; font-size: 0.82em; margin-top: 10px; }
+  .thresh-table th {
+    text-align: center; font-weight: 700; color: var(--c-sub);
+    padding: 5px 8px; border-bottom: 1px solid var(--c-border);
+    background: #f9fafb;
+  }
+  .thresh-table th:first-child { text-align: left; }
+  .thresh-table td {
+    padding: 6px 8px; border-bottom: 1px solid #f3f4f6;
+    text-align: center;
+  }
+  .thresh-table td:first-child { text-align: left; font-weight: 600; }
+  .thresh-table tr:last-child td { border-bottom: none; }
+  .score-danger  { color: #dc2626; font-weight: 700; }
+  .score-warning { color: #d97706; font-weight: 700; }
+  .score-neutral { color: #6b7280; }
+  .score-safe    { color: #16a34a; font-weight: 700; }
+
+  /* ── Desc text ── */
+  .desc { font-size: 0.85em; color: var(--c-sub); margin-bottom: 12px; line-height: 1.7; }
+  .formula-box {
+    background: #f9fafb; border: 1px solid var(--c-border);
+    border-radius: 8px; padding: 10px 16px;
+    font-family: monospace; font-size: 0.85em; color: #374151;
+    margin: 10px 0;
+  }
+  .note-box {
+    background: #fffbeb; border: 1px solid #fde68a;
+    border-radius: 8px; padding: 10px 14px;
+    font-size: 0.82em; color: #92400e; margin-top: 10px;
+  }
+  .note-box strong { color: #78350f; }
+
+  /* ── Composite card ── */
+  .composite-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px;
+  }
+  .composite-cell {
+    border-radius: 8px; padding: 10px 12px; text-align: center;
+  }
+  .composite-cell .level-score { font-size: 1.3em; font-weight: 800; }
+  .composite-cell .level-label { font-size: 0.75em; margin-top: 3px; font-weight: 600; }
+  .cell-safe    { background: #f0fdf4; border: 1px solid #86efac; color: #15803d; }
+  .cell-normal  { background: #f9fafb; border: 1px solid #d1d5db; color: #4b5563; }
+  .cell-warning { background: #fffbeb; border: 1px solid #fcd34d; color: #b45309; }
+  .cell-danger  { background: #fff1f2; border: 1px solid #fca5a5; color: #b91c1c; }
+
+  @media (max-width: 540px) {
+    .composite-grid { grid-template-columns: repeat(2, 1fr); }
+    .page-hdr { flex-direction: column; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Page header ── -->
+<div class="page-hdr">
+  <div class="page-icon">📡</div>
+  <div>
+    <div class="page-title">风险雷达说明</div>
+    <div class="page-sub">六维度市场风险评分系统 · 0 = 极低风险，100 = 极高风险</div>
+    <span class="page-tag">实时评估 · 每日更新</span>
+  </div>
+</div>
+
+<!-- ── 综合评级 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon" style="background:#fff1f2;">🎯</div>
+    <span class="card-hdr-title">综合评级</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      综合分 = 六个维度得分的<strong>简单平均值</strong>，范围 0–100。
+      分值越高，代表市场整体风险越大，建议降低仓位或加强对冲。
+    </p>
+    <div class="risk-bar-wrap">
+      <div class="risk-seg seg-safe">低风险</div>
+      <div class="risk-seg seg-normal">中性</div>
+      <div class="risk-seg seg-warning">中高</div>
+      <div class="risk-seg seg-danger">高风险</div>
+    </div>
+    <div class="risk-legend">
+      <div class="risk-dot"><span class="dot" style="background:#16a34a"></span>0–34 低风险</div>
+      <div class="risk-dot"><span class="dot" style="background:#6b7280"></span>35–54 中性</div>
+      <div class="risk-dot"><span class="dot" style="background:#d97706"></span>55–74 中高风险</div>
+      <div class="risk-dot"><span class="dot" style="background:#dc2626"></span>75–100 高风险</div>
+    </div>
+    <div class="composite-grid">
+      <div class="composite-cell cell-safe">
+        <div class="level-score">0–34</div>
+        <div class="level-label">低风险<br>可积极持仓</div>
+      </div>
+      <div class="composite-cell cell-normal">
+        <div class="level-score">35–54</div>
+        <div class="level-label">中性<br>正常配置</div>
+      </div>
+      <div class="composite-cell cell-warning">
+        <div class="level-score">55–74</div>
+        <div class="level-label">中高风险<br>适当减仓</div>
+      </div>
+      <div class="composite-cell cell-danger">
+        <div class="level-score">75–100</div>
+        <div class="level-label">高风险<br>谨慎防御</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 维度 1：情绪温度 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-sentiment">🌡️</div>
+    <span class="card-hdr-title">维度 1 · 情绪温度</span>
+    <span class="card-hdr-weight dim-sentiment">反向情绪</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      衡量全市场多空情绪。<strong>上涨比越高（全市场普涨）= 乐观泡沫风险越大 = 分值越高</strong>。
+      炸板率高则说明情绪正在快速降温，会下调风险分值（市场已在泄压）。
+    </p>
+    <p class="desc">数据来源：新浪全市场 A 股实时行情（stock_zh_a_spot）；备用：涨跌停池代理指标。</p>
+    <table class="thresh-table">
+      <thead>
+        <tr><th>全市场上涨比</th><th>基础风险分</th><th>信号含义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>≥ 75%</td><td class="score-danger">95</td><td>市场极度亢奋，回调风险极高</td></tr>
+        <tr><td>58%–75%</td><td class="score-warning">65</td><td>情绪偏热，注意高位风险</td></tr>
+        <tr><td>42%–58%</td><td class="score-neutral">40</td><td>多空均衡，中性</td></tr>
+        <tr><td>25%–42%</td><td class="score-safe">20</td><td>市场偏弱，风险较低</td></tr>
+        <tr><td>&lt; 25%</td><td class="score-safe">5</td><td>恐慌性下跌，反向低风险</td></tr>
+      </tbody>
+    </table>
+    <div class="note-box">
+      <strong>炸板率修正：</strong>炸板率 ≥ 50% 时情绪快速降温，最多下调 15 分。
+      最终分 = max(0, 基础分 − 炸板率 × 0.3)
+    </div>
+  </div>
+</div>
+
+<!-- ── 维度 2：杠杆水位 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-leverage">💰</div>
+    <span class="card-hdr-title">维度 2 · 杠杆水位</span>
+    <span class="card-hdr-weight dim-leverage">融资余额</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      衡量市场整体杠杆风险，基于沪深两市合计融资余额的三年历史分位数。
+      融资余额越高（历史分位越大）= 杠杆越重 = 系统性风险越高。
+      动量项捕捉近5日快速加杠杆的信号。
+    </p>
+    <div class="formula-box">
+      得分 = 历史分位(融资余额) × 70% + 5日变化动量分位 × 30%
+    </div>
+    <table class="thresh-table">
+      <thead>
+        <tr><th>历史分位区间</th><th>风险含义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="score-danger">≥ 80 分位</td><td>杠杆处于历史高位，爆仓风险显著</td></tr>
+        <tr><td class="score-warning">60–80 分位</td><td>杠杆偏高，市场脆弱性上升</td></tr>
+        <tr><td class="score-neutral">40–60 分位</td><td>杠杆适中，市场正常</td></tr>
+        <tr><td class="score-safe">&lt; 40 分位</td><td>杠杆较低，系统性风险小</td></tr>
+      </tbody>
+    </table>
+    <div class="note-box">
+      <strong>数据来源：</strong>akshare stock_margin_sz / stock_margin_sh，近3年日频融资余额。
+    </div>
+  </div>
+</div>
+
+<!-- ── 维度 3：宏观金融 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-macro">🌐</div>
+    <span class="card-hdr-title">维度 3 · 宏观金融压力</span>
+    <span class="card-hdr-weight dim-macro">美债 + 黄金</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      捕捉全球宏观金融压力，主要跟踪美债收益率（无风险利率锚）和黄金（避险情绪）。
+      美债利率高 = 全球流动性收紧，A 股估值受压；黄金急涨 = 市场恐慌避险情绪升温。
+    </p>
+    <div class="formula-box">
+      得分 = 美债10Y分 × 60% + 黄金5日涨幅分 × 40%
+    </div>
+    <table class="thresh-table">
+      <thead>
+        <tr><th>指标</th><th>阈值</th><th>得分</th></tr>
+      </thead>
+      <tbody>
+        <tr><td rowspan="5" style="vertical-align:middle;font-weight:700">美债10Y</td>
+            <td>≥ 5.0%</td><td class="score-danger">90</td></tr>
+        <tr><td>4.5%–5.0%</td><td class="score-warning">70</td></tr>
+        <tr><td>4.0%–4.5%</td><td class="score-neutral">50</td></tr>
+        <tr><td>3.5%–4.0%</td><td class="score-safe">30</td></tr>
+        <tr><td>&lt; 3.5%</td><td class="score-safe">15</td></tr>
+        <tr><td rowspan="5" style="vertical-align:middle;font-weight:700">黄金5日涨幅</td>
+            <td>≥ 5%</td><td class="score-danger">90</td></tr>
+        <tr><td>3%–5%</td><td class="score-warning">70</td></tr>
+        <tr><td>1%–3%</td><td class="score-neutral">55</td></tr>
+        <tr><td>-1%–1%</td><td class="score-neutral">40</td></tr>
+        <tr><td>&lt; -1%</td><td class="score-safe">20</td></tr>
+      </tbody>
+    </table>
+    <div class="note-box">
+      <strong>数据来源：</strong>akshare bond_zh_us_rate（美债）/ fund_etf_hist_em（黄金ETF）。
+    </div>
+  </div>
+</div>
+
+<!-- ── 维度 4：技术超买 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-technical">📈</div>
+    <span class="card-hdr-title">维度 4 · 技术超买</span>
+    <span class="card-hdr-weight dim-technical">沪深300</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      基于沪深300指数的技术面评估。偏离年线越多代表市场越亢奋（均值回归风险高）；
+      RSI14 过高说明短期超买。
+    </p>
+    <div class="formula-box">
+      得分 = 偏离MA250历史分位 × 60% + RSI14分 × 40%
+    </div>
+    <table class="thresh-table">
+      <thead>
+        <tr><th>RSI14</th><th>得分</th><th>含义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>≥ 80</td><td class="score-danger">90</td><td>严重超买，回调压力极大</td></tr>
+        <tr><td>70–80</td><td class="score-warning">72</td><td>超买，需谨慎</td></tr>
+        <tr><td>60–70</td><td class="score-neutral">55</td><td>偏强，轻度风险</td></tr>
+        <tr><td>40–60</td><td class="score-neutral">38</td><td>正常区间</td></tr>
+        <tr><td>30–40</td><td class="score-safe">22</td><td>偏弱，低风险</td></tr>
+        <tr><td>&lt; 30</td><td class="score-safe">10</td><td>超卖，反向低风险</td></tr>
+      </tbody>
+    </table>
+    <div class="note-box">
+      <strong>偏离MA250：</strong>当前价与250日均线的偏差率，对比历史分布求分位数。
+      偏离越大（股价涨太远）= 风险分越高。
+    </div>
+  </div>
+</div>
+
+<!-- ── 维度 5：曲线斜率 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-yield">📐</div>
+    <span class="card-hdr-title">维度 5 · 收益率曲线斜率</span>
+    <span class="card-hdr-weight dim-yield">CN10Y − CN1Y</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      中国国债收益率曲线斜率（10年 - 1年利差）反映经济前景预期。
+      <strong>倒挂（利差为负）</strong>历史上是经济衰退的领先信号，风险极高；
+      <strong>曲线陡峭</strong>说明市场对未来经济有信心，风险低。
+    </p>
+    <div class="formula-box">
+      得分 = (1 − 历史分位 / 100) × 100 &nbsp;← 倒置：分位高（曲线陡）= 低风险
+    </div>
+    <table class="thresh-table">
+      <thead>
+        <tr><th>利差状态</th><th>历史分位</th><th>风险含义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>倒挂（&lt; 0）</td><td class="score-danger">低分位 → 高得分</td><td>衰退先兆，高风险</td></tr>
+        <tr><td>平坦（0–30bp）</td><td class="score-warning">中等</td><td>经济放缓信号</td></tr>
+        <tr><td>正常（30–80bp）</td><td class="score-neutral">中等</td><td>经济正常扩张</td></tr>
+        <tr><td>陡峭（&gt; 80bp）</td><td class="score-safe">高分位 → 低得分</td><td>经济预期乐观，低风险</td></tr>
+      </tbody>
+    </table>
+    <div class="note-box">
+      <strong>注：</strong>CCDC（中债登）无2年期独立数据，以1年期利差替代，利差方向一致，不影响信号有效性。
+    </div>
+  </div>
+</div>
+
+<!-- ── 维度 6：期权波动率 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon icon-vix">⚡</div>
+    <span class="card-hdr-title">维度 6 · 期权隐含波动率</span>
+    <span class="card-hdr-weight dim-vix">QVIX</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">
+      QVIX 是 50ETF 期权隐含波动率指数，类似 A 股的"恐慌指数"（VIX）。
+      QVIX 越高代表市场对未来不确定性定价越高，下跌风险越受关注。
+      分值直接取 QVIX 值在历史分布中的百分位数。
+    </p>
+    <div class="formula-box">
+      得分 = QVIX 历史百分位（含实时分钟级数据修正）
+    </div>
+    <table class="thresh-table">
+      <thead>
+        <tr><th>QVIX历史分位</th><th>典型含义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="score-danger">≥ 75 分位</td><td>市场恐慌，波动率极高，对应高风险环境</td></tr>
+        <tr><td class="score-warning">55–75 分位</td><td>波动率偏高，市场情绪趋于紧张</td></tr>
+        <tr><td class="score-neutral">35–55 分位</td><td>波动率适中，市场情绪中性</td></tr>
+        <tr><td class="score-safe">&lt; 35 分位</td><td>市场平静，隐含风险较低</td></tr>
+      </tbody>
+    </table>
+    <div class="note-box">
+      <strong>实时修正：</strong>优先使用当日分钟级 QVIX 最新值；若分钟数据不可用则回退到日频历史数据末值。
+    </div>
+  </div>
+</div>
+
+<!-- ── 使用建议 ── -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-hdr-icon" style="background:#f0f9ff;">💡</div>
+    <span class="card-hdr-title">使用建议</span>
+  </div>
+  <div class="card-body">
+    <p class="desc">风险雷达是辅助决策工具，建议结合以下原则使用：</p>
+    <table class="sub-table">
+      <thead>
+        <tr><th>综合分区间</th><th>建议操作</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="score-safe">0–34 低风险</span></td>
+          <td>市场风险整体可控，可积极持仓、逢低布局。情绪、杠杆、技术均处低位时信号最强。</td>
+        </tr>
+        <tr>
+          <td><span class="score-neutral">35–54 中性</span></td>
+          <td>保持正常配置，关注各维度中分值最高的单项做针对性防范。</td>
+        </tr>
+        <tr>
+          <td><span class="score-warning">55–74 中高风险</span></td>
+          <td>适当降低进攻性仓位，收缩高估值标的。若情绪温度和技术超买同时偏高，警惕短期回调。</td>
+        </tr>
+        <tr>
+          <td><span class="score-danger">75–100 高风险</span></td>
+          <td>多维度同时告警，市场处于泡沫或系统性压力区间，建议保持低仓或防御性配置。</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note-box" style="margin-top:12px;">
+      <strong>注意：</strong>雷达评分反映当前市场环境的统计特征，不构成买卖建议。
+      非交易时段显示上一个交易日收盘数据，属正常现象。
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

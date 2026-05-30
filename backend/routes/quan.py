@@ -1,5 +1,6 @@
 """Quantitative analysis score endpoints."""
 import asyncio
+import datetime as _dt
 import json
 import logging
 import os
@@ -31,10 +32,55 @@ except Exception:
 # ── Per-code live price cache ──────────────────────────────────────────────
 # Keyed by stock_code → {"price": float, "change_pct": float, "ts": float}
 # Each code has its own timestamp so a partial update never evicts valid data.
+import threading as _threading
 _price_cache: dict[str, dict] = {}
-_PRICE_TTL   = 300   # seconds — 5 min
+_price_fetch_lock = _threading.Lock()   # prevents thundering herd on cold cache
+_PRICE_TTL_TRADING = 120   # seconds — during market hours (9:00–15:30 weekdays)
 _BATCH_SIZE  = 100
 _TQ_HEADERS  = {"Referer": "https://gu.qq.com", "User-Agent": "Mozilla/5.0"}
+
+# Per-code detail cache for _fetch_tencent_detail (price/PE/PB/mktcap)
+_detail_cache: dict[str, dict] = {}
+
+
+def _is_trading_time() -> bool:
+    """A股交易时段：周一至周五 09:00–15:30"""
+    now = _dt.datetime.now()
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return _dt.time(9, 0) <= t <= _dt.time(15, 30)
+
+
+def _is_stale(ts: float, trading_ttl: int) -> bool:
+    """Return True only if the entry needs refreshing.
+
+    During trading hours: expire after trading_ttl seconds.
+    Outside trading hours: never expire — prices are frozen at close.
+    """
+    if not _is_trading_time():
+        return False
+    return time.time() - ts > trading_ttl
+
+
+# ── Endpoint-level response cache ─────────────────────────────────────────
+# Avoids re-running SQL + Tencent on rapid tab-switches / re-renders.
+# Keyed by a string cache key → {"data": any, "ts": float}
+_resp_cache: dict[str, dict] = {}
+_RESP_TTL_TRADING = 60   # 1 min during market hours; off-hours entries never expire
+
+
+def _resp_get(key: str):
+    entry = _resp_cache.get(key)
+    if not entry:
+        return None
+    if _is_stale(entry["ts"], _RESP_TTL_TRADING):
+        return None
+    return entry["data"]
+
+
+def _resp_set(key: str, data) -> None:
+    _resp_cache[key] = {"data": data, "ts": time.time()}
 
 
 def _fetch_tencent(codes: list[str]) -> dict[str, dict]:
@@ -80,26 +126,29 @@ def _fetch_tencent(codes: list[str]) -> dict[str, dict]:
 def _batch_prices(codes: list[str]) -> dict[str, dict]:
     """Return per-code price dict, refreshing only stale / missing entries.
 
-    The cache is per-code: a watchlist request for 10 codes never blocks a
-    subsequent 300-code request from fetching the remaining 290.
+    Thread-safe: only one thread fires Tencent requests at a time; others wait
+    and hit the freshly-populated cache after the lock is released.
     """
-    now   = time.time()
     stale = [c for c in codes
-             if c not in _price_cache or now - _price_cache[c]["ts"] > _PRICE_TTL]
+             if c not in _price_cache or _is_stale(_price_cache[c]["ts"], _PRICE_TTL_TRADING)]
 
     if stale:
-        fresh = _fetch_tencent(stale)
-        for code, data in fresh.items():
-            _price_cache[code] = {**data, "ts": now}
-        # Stamp codes with no market data so we don't retry them this cycle
-        for code in stale:
-            if code not in _price_cache:
-                _price_cache[code] = {"price": None, "change_pct": None, "ts": now}
-
-        logger.info(
-            "Price cache: requested=%d  stale=%d  fetched=%d  total_cached=%d",
-            len(codes), len(stale), len(fresh), len(_price_cache),
-        )
+        with _price_fetch_lock:
+            # Re-check under lock — another thread may have just fetched
+            stale = [c for c in codes
+                     if c not in _price_cache or _is_stale(_price_cache[c]["ts"], _PRICE_TTL_TRADING)]
+            if stale:
+                fresh = _fetch_tencent(stale)
+                ts = time.time()
+                for code, data in fresh.items():
+                    _price_cache[code] = {**data, "ts": ts}
+                for code in stale:
+                    if code not in _price_cache:
+                        _price_cache[code] = {"price": None, "change_pct": None, "ts": ts}
+                logger.info(
+                    "Price cache: requested=%d  stale=%d  fetched=%d  total_cached=%d",
+                    len(codes), len(stale), len(fresh), len(_price_cache),
+                )
 
     return {c: _price_cache[c] for c in codes if c in _price_cache}
 
@@ -393,7 +442,14 @@ def _run_qlib_levels(code: str) -> dict | None:
 
 
 def _fetch_tencent_detail(code: str) -> dict:
-    """Fetch extended real-time quote: price, PE, PB, market cap."""
+    """Fetch extended real-time quote: price, PE, PB, market cap.
+
+    Result is cached; off-hours entries never expire (prices frozen at close).
+    """
+    cached = _detail_cache.get(code)
+    if cached and not _is_stale(cached["ts"], _PRICE_TTL_TRADING):
+        return cached["data"]
+
     prefix = "sh" if code.startswith("6") else "sz"
     try:
         r = requests.get(
@@ -403,17 +459,19 @@ def _fetch_tencent_detail(code: str) -> dict:
         r.encoding = "gbk"
         parts = r.text.strip().split("~")
         if len(parts) < 50:
-            return {}
+            return cached["data"] if cached else {}
         price      = float(parts[3])  if parts[3]  else None
         prev_close = float(parts[4])  if parts[4]  else None
         pe         = float(parts[39]) if parts[39] else None
         pb         = float(parts[46]) if parts[46] else None
         mktcap     = float(parts[45]) if parts[45] else None   # 亿元
         chg = round((price - prev_close) / prev_close * 100, 2) if price and prev_close else None
-        return {"price": price, "change_pct": chg, "pe": pe, "pb": pb, "mktcap": mktcap}
+        data = {"price": price, "change_pct": chg, "pe": pe, "pb": pb, "mktcap": mktcap}
+        _detail_cache[code] = {"data": data, "ts": time.time()}
+        return data
     except Exception as e:
         logger.warning("Tencent detail error for %s: %s", code, e)
-        return {}
+        return cached["data"] if cached else {}
 
 
 def _get_sector_valuation(stock_code: str, pe: float | None, pb: float | None) -> dict:
@@ -781,15 +839,17 @@ def _fetch_scores(conn, trade_date, model, min_percentile, top_n, codes_filter) 
                COALESCE(q.opportunity_tag, '')          AS opportunity_tag,
                COALESCE(q.sector_warning, '')           AS sector_warning,
                COALESCE(q.subsector, '')                AS subsector,
-               COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
-               COALESCE(i.industry, '')                 AS industry,
+               COALESCE(NULLIF(i.stock_name,''), w.stock_name, '') AS stock_name,
+               COALESCE(NULLIF(i.industry,''), '')               AS industry,
                p.pe                                          AS pe,
                (CASE WHEN p.pe > 0 AND e.profit_yoy IS NOT NULL AND e.profit_yoy > 0
                      THEN ROUND(p.pe / e.profit_yoy, 2)
                      ELSE NULL END)                     AS peg
         FROM quan_daily_scores q
         LEFT JOIN (
-            SELECT stock_code, MAX(stock_name) AS stock_name, MAX(industry) AS industry
+            SELECT stock_code,
+                   NULLIF(MAX(stock_name),'') AS stock_name,
+                   NULLIF(MAX(industry),'')   AS industry
             FROM quan_stock_info GROUP BY stock_code
         ) i ON i.stock_code = q.stock_code
         LEFT JOIN (
@@ -847,6 +907,10 @@ async def get_quan_scores(
     if not _table_exists():
         return {"trade_date": None, "model": model, "scores": [], "message": "No quan data yet"}
 
+    cache_key = f"scores:{model}:{trade_date}:{min_percentile}:{top_n}:{stock_codes}"
+    if cached := _resp_get(cache_key):
+        return cached
+
     with _get_conn() as conn:
         td = _resolve_date(conn, trade_date, model)
         if td is None:
@@ -857,10 +921,12 @@ async def get_quan_scores(
 
     if scores:
         all_codes = [s["stock_code"] for s in scores]
-        prices = _batch_prices(all_codes)
+        prices = await asyncio.to_thread(_batch_prices, all_codes)
         scores = _enrich(scores, prices)
 
-    return {"trade_date": td, "model": model, "total": len(scores), "scores": scores}
+    result = {"trade_date": td, "model": model, "total": len(scores), "scores": scores}
+    _resp_set(cache_key, result)
+    return result
 
 
 @router.get("/quan/scores/{stock_code}")
@@ -882,7 +948,7 @@ async def get_stock_quan_score(
     if not rows:
         return {"stock_code": stock_code, "score": None}
 
-    scores = _enrich(rows, _batch_prices([stock_code]))
+    scores = _enrich(rows, await asyncio.to_thread(_batch_prices, [stock_code]))
     return {"stock_code": stock_code, "score": scores[0]}
 
 
@@ -950,7 +1016,7 @@ async def get_watchlist_scores(
 
     all_found = list(result.keys())
     if all_found:
-        prices = _batch_prices(all_found)
+        prices = await asyncio.to_thread(_batch_prices, all_found)
         for code, row in result.items():
             px = prices.get(code, {})
             row["price"]      = px.get("price")
@@ -1017,6 +1083,10 @@ async def get_theme_scores(
     if not _table_exists():
         return {"trade_date": None, "total": 0, "subsectors": [], "scores": []}
 
+    cache_key = f"theme:{trade_date}:{subsector}"
+    if cached := _resp_get(cache_key):
+        return cached
+
     with _get_conn() as conn:
         td = _resolve_date(conn, trade_date, "theme_3chain")
         if td is None:
@@ -1031,15 +1101,17 @@ async def get_theme_scores(
                    COALESCE(q.momentum_score, 0)   AS momentum_score,
                    COALESCE(q.sentiment_score, 50) AS sentiment_score,
                    COALESCE(q.subsector, '')        AS subsector,
-                   COALESCE(i.stock_name, w.stock_name, '') AS stock_name,
-                   COALESCE(i.industry, '')         AS industry,
+                   COALESCE(NULLIF(i.stock_name,''), w.stock_name, '') AS stock_name,
+                   COALESCE(NULLIF(i.industry,''), '')               AS industry,
                    p.pe                                  AS pe,
                    (CASE WHEN p.pe > 0 AND e.profit_yoy IS NOT NULL AND e.profit_yoy > 0
                          THEN ROUND(p.pe / e.profit_yoy, 2)
                          ELSE NULL END)             AS peg
             FROM quan_daily_scores q
             LEFT JOIN (
-                SELECT stock_code, MAX(stock_name) AS stock_name, MAX(industry) AS industry
+                SELECT stock_code,
+                       NULLIF(MAX(stock_name),'') AS stock_name,
+                       NULLIF(MAX(industry),'')   AS industry
                 FROM quan_stock_info GROUP BY stock_code
             ) i ON i.stock_code = q.stock_code
             LEFT JOIN (
@@ -1136,15 +1208,17 @@ async def get_theme_scores(
             })
 
     if scores:
-        prices = _batch_prices([s["stock_code"] for s in scores])
+        prices = await asyncio.to_thread(_batch_prices, [s["stock_code"] for s in scores])
         scores = _enrich(scores, prices)
 
-    return {
+    result = {
         "trade_date": td,
         "total":      len(scores),
         "subsectors": subsectors_out,
         "scores":     scores,
     }
+    _resp_set(cache_key, result)
+    return result
 
 
 @router.get("/quan/scores/{stock_code}/levels")
@@ -1155,12 +1229,12 @@ async def get_stock_levels(
     """Return buy/sell levels, technical indicators, and valuation for one stock.
 
     Calls qlib subprocess (result cached 1 h) + Tencent API for live price/PE.
+    Tencent detail is cached; off-hours it never expires (prices frozen at close).
     """
     now = time.time()
     cached = _levels_cache.get(stock_code)
 
-    # Live quote is always fresh; only reuse heavy tech computation from cache
-    detail = _fetch_tencent_detail(stock_code)
+    detail = await asyncio.to_thread(_fetch_tencent_detail, stock_code)
     actual_price = detail.get("price")
 
     if cached and now - cached["ts"] < _LEVELS_TTL and actual_price:
@@ -1411,6 +1485,222 @@ async def pool_stats(current_user: User = Depends(get_current_user)):
         }
     except Exception as e:
         return {"total": 0, "by_chain": [], "by_source": [], "error": str(e)}
+
+
+_EM_ULIST_URL   = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+_EM_ULIST_BATCH = 80    # ~720-char secids param — safe for most proxies
+_H10_SEM        = 10    # max concurrent H10 requests in fallback
+
+
+async def _ulist_probe(codes: list[str]) -> dict[str, dict]:
+    """Try EM push2 ulist.np for name+industry. Returns {} if the endpoint is down."""
+    import httpx
+    result: dict[str, dict] = {}
+    headers = {"Referer": "https://quote.eastmoney.com/", "User-Agent": "Mozilla/5.0"}
+    total_hits = 0
+
+    for i in range(0, len(codes), _EM_ULIST_BATCH):
+        batch = codes[i: i + _EM_ULIST_BATCH]
+        secids = ",".join(("1" if c.startswith("6") else "0") + "." + c for c in batch)
+        items: list[dict] = []
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=12) as cl:
+                    resp = await cl.get(
+                        _EM_ULIST_URL,
+                        params={"fltt": "2", "fields": "f12,f14,f100", "secids": secids},
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
+                    items = (resp.json().get("data") or {}).get("diff") or []
+                break
+            except Exception as e:
+                if attempt == 0:
+                    await asyncio.sleep(0.8)
+                else:
+                    logger.debug("ulist batch %d failed: %s", i, e)
+
+        for item in items:
+            code = str(item.get("f12", "")).strip()
+            if code:
+                result[code] = {
+                    "name":     str(item.get("f14", "") or "").strip(),
+                    "industry": str(item.get("f100", "") or "").strip(),
+                }
+        total_hits += len(items)
+        logger.info("ulist batch %d-%d: %d/%d", i, i + len(batch), len(items), len(batch))
+
+        # If first two batches both return 0, the endpoint is down — bail early
+        if i >= _EM_ULIST_BATCH and total_hits == 0:
+            logger.warning("ulist endpoint appears down, switching to fallback")
+            return {}
+
+        if i + _EM_ULIST_BATCH < len(codes):
+            await asyncio.sleep(0.15)
+
+    return result
+
+
+async def _fallback_sina_names(codes: list[str]) -> dict[str, str]:
+    """Batch-fetch stock names from Sina hq API (proven reliable). Returns {code: name}."""
+    import httpx, re as _re
+    result: dict[str, str] = {}
+    headers = {"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"}
+    for i in range(0, len(codes), 100):
+        batch = codes[i: i + 100]
+        syms = ",".join(("sh" if c.startswith("6") else "sz") + c for c in batch)
+        try:
+            async with httpx.AsyncClient(timeout=10) as cl:
+                resp = await cl.get(f"http://hq.sinajs.cn/list={syms}", headers=headers)
+                resp.raise_for_status()
+            for line in resp.text.strip().split("\n"):
+                m = _re.match(r'var hq_str_s[hz](\d+)="([^"]*)"', line)
+                if not m:
+                    continue
+                parts = m.group(2).split(",")
+                if parts and parts[0]:
+                    result[m.group(1)] = parts[0]
+        except Exception as e:
+            logger.warning("Sina name fallback error (offset %d): %s", i, e)
+    return result
+
+
+async def _fallback_h10_industry(codes: list[str]) -> dict[str, str]:
+    """Per-stock H10 CompanySurvey industry fetch, concurrency-limited to _H10_SEM.
+
+    Only called for stocks not resolved by other means. Caps total requests.
+    """
+    import httpx
+    sem = asyncio.Semaphore(_H10_SEM)
+    fields = ["INDUSTRYCSRC1", "INDUSTRYNAME", "EM2016_INDUSTRY_NAME"]
+
+    async def _one(code: str) -> tuple[str, str]:
+        prefix = "SH" if code.startswith("6") else "SZ"
+        url = (f"https://emweb.securities.eastmoney.com"
+               f"/PC_HSF10/CompanySurvey/PageAjax?code={prefix}{code}")
+        async with sem:
+            try:
+                async with httpx.AsyncClient(timeout=8) as cl:
+                    resp = await cl.get(url, headers={
+                        "Referer": "https://emweb.securities.eastmoney.com",
+                        "User-Agent": "Mozilla/5.0",
+                    })
+                    data = resp.json()
+                jbzl = data.get("jbzl") or []
+                if jbzl:
+                    row = jbzl[0]
+                    for f in fields:
+                        if row.get(f):
+                            return code, row[f]
+            except Exception as e:
+                logger.debug("H10 industry fetch failed for %s: %s", code, e)
+        return code, ""
+
+    results = await asyncio.gather(*[_one(c) for c in codes])
+    return {code: ind for code, ind in results if ind}
+
+
+@router.post("/quan/refresh-stock-info")
+async def refresh_stock_info(current_user: User = Depends(get_current_user)):
+    """Fill missing stock names + industry.
+
+    Strategy (in order):
+    1. EM push2 ulist.np  — one batch call, returns both name + industry.
+    2. If ulist is down: Sina batch for names + H10 for industry (theme_3chain only,
+       capped at _H10_SEM concurrent requests).
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS quan_stock_info (
+                stock_code  TEXT PRIMARY KEY,
+                stock_name  TEXT,
+                industry    TEXT,
+                updated_at  TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        rows = conn.execute("""
+            SELECT DISTINCT q.stock_code,
+                   q.model_name,
+                   COALESCE(NULLIF(i.stock_name,''), w.stock_name, '') AS stock_name,
+                   COALESCE(NULLIF(i.industry,''), '')                 AS industry
+            FROM quan_daily_scores q
+            LEFT JOIN quan_stock_info i ON i.stock_code = q.stock_code
+            LEFT JOIN (
+                SELECT stock_code, MAX(stock_name) AS stock_name
+                FROM watchlist WHERE stock_name IS NOT NULL AND stock_name != ''
+                GROUP BY stock_code
+            ) w ON w.stock_code = q.stock_code
+            WHERE COALESCE(NULLIF(i.stock_name,''), w.stock_name, '') = ''
+               OR COALESCE(NULLIF(i.industry,''), '') = ''
+        """).fetchall()
+
+    if not rows:
+        return {"status": "ok", "updated": 0, "message": "No missing data"}
+
+    codes_to_fetch  = list({r[0] for r in rows})
+    theme_codes_set = {r[0] for r in rows if r[1] == "theme_3chain"}
+    logger.info("refresh-stock-info: %d stocks with missing data (%d theme_3chain)",
+                len(codes_to_fetch), len(theme_codes_set))
+
+    # ── Step 1: try EM push2 ulist (bulk, minimal requests) ──────────────────
+    bulk = await _ulist_probe(codes_to_fetch)
+    ulist_ok = bool(bulk)
+
+    # ── Step 2: fallback when push2 is down ──────────────────────────────────
+    fallback_names:    dict[str, str] = {}
+    fallback_industry: dict[str, str] = {}
+    if not ulist_ok:
+        logger.info("ulist down — using Sina names + H10 industry fallback")
+        need_name     = [r[0] for r in rows if not r[2]]
+        # For industry: limit to theme_3chain to cap H10 requests
+        need_industry = [c for c in codes_to_fetch
+                         if not next((r[3] for r in rows if r[0] == c), "")
+                         and c in theme_codes_set]
+        if need_name:
+            fallback_names = await _fallback_sina_names(need_name)
+        if need_industry:
+            fallback_industry = await _fallback_h10_industry(need_industry)
+
+    # ── Build records ─────────────────────────────────────────────────────────
+    local_names = {r[0]: r[2] for r in rows if r[2]}   # already-known local names
+    records = []
+    for r in rows:
+        code = r[0]
+        local_name, local_industry = r[2], r[3]
+        em = bulk.get(code, {})
+
+        name     = local_name     or em.get("name", "")     or fallback_names.get(code, "")
+        industry = local_industry or em.get("industry", "") or fallback_industry.get(code, "")
+
+        if name or industry:
+            records.append({"stock_code": code, "stock_name": name, "industry": industry})
+
+    if records:
+        with _get_conn() as conn:
+            conn.executemany("""
+                INSERT INTO quan_stock_info (stock_code, stock_name, industry, updated_at)
+                VALUES (:stock_code, :stock_name, :industry, datetime('now'))
+                ON CONFLICT(stock_code) DO UPDATE SET
+                    stock_name = CASE WHEN excluded.stock_name != '' THEN excluded.stock_name
+                                      ELSE quan_stock_info.stock_name END,
+                    industry   = CASE WHEN excluded.industry != '' THEN excluded.industry
+                                      ELSE quan_stock_info.industry END,
+                    updated_at = datetime('now')
+            """, records)
+
+    n_names = sum(1 for r in records if r["stock_name"])
+    n_inds  = sum(1 for r in records if r["industry"])
+    mode = "ulist" if ulist_ok else "fallback(sina+h10)"
+    logger.info("refresh-stock-info done: %d updated, %d names, %d industries [%s]",
+                len(records), n_names, n_inds, mode)
+    return {
+        "status": "ok",
+        "candidates": len(codes_to_fetch),
+        "updated": len(records),
+        "names_resolved": n_names,
+        "industries_resolved": n_inds,
+        "mode": mode,
+    }
 
 
 @router.post("/quan/pe-backfill")

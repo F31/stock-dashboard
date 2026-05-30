@@ -91,14 +91,6 @@
                 <polyline :points="chartPoints" :fill="chartColor + '22'" :stroke="chartColor" stroke-width="2"/>
               </svg>
             </div>
-            <!-- News -->
-            <div v-if="data.news?.length" class="news-section">
-              <div class="sec-ttl">📰 最新资讯</div>
-              <div class="ni" v-for="(n, i) in data.news.slice(0, 6)" :key="i">
-                <a :href="n.url" target="_blank" class="ni-title">{{ n.title }}</a>
-                <span class="ni-meta">{{ n.source }} · {{ n.time }}</span>
-              </div>
-            </div>
           </div>
           <div v-else class="empty-tip">行情数据加载中...</div>
         </div>
@@ -116,6 +108,21 @@
               {{ savingNotes ? '保存中...' : '保存笔记' }}
             </button>
           </div>
+        </div>
+
+        <!-- Tab: 最新资讯 -->
+        <div v-if="activeTab === 'news'" class="tab-body">
+          <div v-if="!isSector && data.news?.length" class="news-list">
+            <a
+              v-for="(n, i) in data.news" :key="i"
+              :href="n.url" target="_blank" rel="noopener"
+              class="news-item"
+            >
+              <span class="news-item-title">{{ n.title }}</span>
+              <span class="news-item-meta">{{ n.source }} · {{ n.time }}</span>
+            </a>
+          </div>
+          <div v-else class="empty-tip">暂无最新资讯</div>
         </div>
 
         <!-- Tab: 分析报告 -->
@@ -197,11 +204,12 @@ const quanBadgeCls = computed(() => {
 const emit = defineEmits(['close', 'notes-saved'])
 
 const activeTab = ref(props.initialTab)
-const tabs = [
-  { key: 'info', label: '📊 基本信息' },
-  { key: 'notes', label: '📝 研究笔记' },
+const tabs = computed(() => [
+  { key: 'info',    label: '📊 基本信息' },
+  { key: 'news',    label: '📰 最新资讯', hide: isSector.value },
+  { key: 'notes',   label: '📝 研究笔记' },
   { key: 'reports', label: '📁 分析报告' },
-]
+].filter(t => !t.hide))
 
 // ── Derived ──
 const data = computed(() => props.stock.data)
@@ -324,6 +332,7 @@ const savingNotes = ref(false)
 watch(() => props.stock.notes, v => { editingNotes.value = v || '' })
 
 async function saveNotes() {
+  if (!props.stock.id) return  // synthetic stock from fund flow — no DB record
   savingNotes.value = true
   try {
     await updateNotes(props.stock.id, editingNotes.value)
@@ -536,13 +545,17 @@ async function removeReport(r) {
 .t5-name { color: #111827; font-weight: 600; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t5-num { text-align: right; color: #374151; font-variant-numeric: tabular-nums; }
 
-.news-section { border-top: 1px solid #e5e7eb; padding-top: 12px; }
 .sec-ttl { font-size: 11px; font-weight: 700; color: #6b7280; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; }
-.ni { padding: 7px 0; border-bottom: 1px solid #f3f4f6; }
-.ni:last-child { border-bottom: none; }
-.ni-title { font-size: 13px; color: #111827; text-decoration: none; display: block; line-height: 1.45; }
-.ni-title:hover { color: #2563eb; }
-.ni-meta { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.news-list { display: flex; flex-direction: column; gap: 2px; }
+.news-item {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 0; border-bottom: 1px solid #f3f4f6;
+  text-decoration: none; color: inherit;
+}
+.news-item:last-child { border-bottom: none; }
+.news-item:hover .news-item-title { color: #2563eb; }
+.news-item-title { font-size: 13px; color: #111827; line-height: 1.5; }
+.news-item-meta { font-size: 11px; color: #9ca3af; }
 
 /* Notes tab */
 .notes-body { display: flex; flex-direction: column; gap: 0; }

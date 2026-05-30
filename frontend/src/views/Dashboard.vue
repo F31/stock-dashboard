@@ -65,10 +65,13 @@
         <button :class="['main-tab', { active: mainTab === 'macro' }]" @click="mainTab = 'macro'">
           🌐 宏观经济数据
         </button>
+        <button :class="['main-tab', { active: mainTab === 'risk' }]" @click="mainTab = 'risk'">
+          🚨 风险预警
+        </button>
       </div>
 
       <!-- ── Panel: 板块/个股行情 ── -->
-      <div v-if="mainTab === 'market'">
+      <div v-show="mainTab === 'market'">
         <!-- A-share index row -->
         <MarketIntel mode="indices" />
 
@@ -213,7 +216,7 @@
               </div>
             </template>
           </div>
-          <FundFlowPanel @open-detail="handleOpenDetail" />
+          <FundFlowPanel @open-detail="handleFundFlowDetail" />
         </div>
         </template>
 
@@ -225,18 +228,24 @@
         </div>
       </div>
 
-      <!-- ── Panel: 量化分析 ── -->
-      <div v-if="mainTab === 'quan'" class="macro-panel">
+      <!-- ── Panel: 量化分析 ── 首次点击后渲染并保持挂载，避免重复拉取 -->
+      <div v-if="visitedTabs.quan" v-show="mainTab === 'quan'" class="macro-panel">
         <QuantAnalysisMonitor
           :watchlist-codes="watchlistAStockCodes"
           :watchlist-stocks="aStocks"
+          @add-to-watchlist="({ code, name }) => store.addStock(code, 'A', name)"
         />
       </div>
 
       <!-- ── Panel: 宏观经济数据 ── -->
-      <div v-if="mainTab === 'macro'" class="macro-panel">
+      <div v-if="visitedTabs.macro" v-show="mainTab === 'macro'" class="macro-panel">
         <MacroMonitor />
         <IndustrialProfitMonitor />
+      </div>
+
+      <!-- ── Panel: 风险预警 ── -->
+      <div v-if="visitedTabs.risk" v-show="mainTab === 'risk'" class="macro-panel">
+        <RiskWarningPanel />
       </div>
 
     </main>
@@ -347,12 +356,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
 import { useAuthStore } from '../stores/authStore.js'
 import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
-import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5 } from '../api/index.js'
+import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5, fetchStockPreview } from '../api/index.js'
 
 // ── Always on first paint ───────────────────────────────────────────────────
 import StockCard      from '../components/StockCard.vue'
@@ -371,6 +380,7 @@ const CongestionMonitor  = defineAsyncComponent(() => import('../components/Cong
 const QuantAnalysisMonitor   = defineAsyncComponent(() => import('../components/QuantAnalysisMonitor.vue'))
 const MacroMonitor           = defineAsyncComponent(() => import('../components/MacroMonitor.vue'))
 const IndustrialProfitMonitor = defineAsyncComponent(() => import('../components/IndustrialProfitMonitor.vue'))
+const RiskWarningPanel       = defineAsyncComponent(() => import('../components/RiskWarningPanel.vue'))
 
 // Premarket — triggered by header button
 const PremarketModal        = defineAsyncComponent(() => import('../components/PremarketModal.vue'))
@@ -405,7 +415,10 @@ const showDataSources = ref(false)
 const showWatchedTickers   = ref(false)
 const showFrameworkEditor  = ref(false)
 const showPromptTemplates = ref(false)
-const mainTab = ref('market')   // 'market' | 'quan' | 'macro'
+const mainTab = ref('market')   // 'market' | 'quan' | 'macro' | 'risk'
+// 记录已访问过的 Tab，确保非首页 Tab 在首次点击后才渲染（分次装载），
+// 之后保持挂载（v-show）避免切回时重复拉取数据。
+const visitedTabs = reactive({ market: true, quan: false, macro: false, risk: false })
 
 // Quan scores map: stock_code -> { percentile_score, label }
 const quanScoresMap = ref({})
@@ -701,6 +714,80 @@ function handleOpenDetail(stock, tab = 'info') {
   detailStock.value = stock
 }
 
+async function handleFundFlowDetail(item) {
+  // If already in watchlist AND data is loaded, reuse it directly
+  const inWatchlist = store.stocks.find(
+    s => s.stock_code === item.stock_code && s.market === 'A'
+  )
+  if (inWatchlist?.data) {
+    handleOpenDetail(inWatchlist)
+    return
+  }
+
+  // Open modal immediately with fund flow data, then enrich with full data
+  detailInitialTab.value = 'info'
+  detailStock.value = {
+    id:         null,
+    stock_code: item.stock_code,
+    stock_name: item.stock_name,
+    market:     'A',
+    item_type:  'stock',
+    notes:      '',
+    data: {
+      stock_name: item.stock_name,
+      price:      item.price,
+      change_pct: item.change_pct,
+    },
+  }
+
+  try {
+    const res = await fetchStockPreview(item.stock_code, 'A')
+    const d = res.data
+    // Replace detailStock.value entirely so Vue re-renders with full data
+    if (detailStock.value?.stock_code === item.stock_code) {
+      detailStock.value = {
+        id:         null,
+        stock_code: item.stock_code,
+        stock_name: d.stock_name || item.stock_name,
+        market:     'A',
+        item_type:  'stock',
+        notes:      '',
+        data: {
+          stock_name:         d.stock_name,
+          price:              d.price,
+          change:             d.change,
+          change_pct:         d.change_pct,
+          prev_close:         d.prev_close,
+          open:               d.open,
+          high:               d.high,
+          low:                d.low,
+          volume:             d.volume,
+          amount:             d.amount,
+          turnover_rate:      d.turnover_rate,
+          pe:                 d.pe,
+          pe_ttm:             d.pe_ttm ?? null,
+          market_cap:         d.market_cap,
+          float_market_cap:   d.float_market_cap,
+          amplitude:          d.amplitude,
+          news:               d.news || [],
+          chart_data:         d.chart_data || [],
+          item_type:          'stock',
+          profit_growth_rate: d.profit_growth_rate ?? null,
+          roe:                d.roe ?? null,
+          debt_ratio:         d.debt_ratio ?? null,
+          cash_profit_ratio:  d.cash_profit_ratio ?? null,
+          peg:                d.peg ?? null,
+          signal:             d.signal ?? null,
+          capex:              d.capex ?? null,
+          capex_period:       d.capex_period ?? '',
+        },
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load stock preview', e)
+  }
+}
+
 function handleNotesSaved(id, notes) {
   store.updateStockNotesLocal(id, notes)
 }
@@ -737,6 +824,9 @@ function onTouchEnd(e) {
   if (dx < 0) nextPage()
   else prevPage()
 }
+
+// 首次切换到某个主 Tab 时，标记为已访问（触发 v-if 渲染该 Tab 的组件）
+watch(mainTab, tab => { visitedTabs[tab] = true })
 
 // Reset to first page when switching tabs or filter; shrink page if needed
 watch(activeTab, () => { currentPage.value = 0; quanLabelFilter.value = ''; quanSort.value = 'default' })

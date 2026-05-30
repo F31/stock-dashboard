@@ -81,6 +81,10 @@ def save_board_name(code: str, name: str) -> None:
 
 _load_custom_names()
 
+# 防止并发请求竞态：多个 asyncio task 同时 cache miss 时只发一次 HTTP 请求
+_board_map_lock = asyncio.Lock()
+_bk_changes_lock = asyncio.Lock()
+
 
 # ── Board code patterns ──
 RE_BOARD_CODE = re.compile(r'^BK\d{4}$', re.IGNORECASE)
@@ -128,31 +132,36 @@ async def _load_board_map() -> Dict[str, Dict]:
     if cached is not None:
         return cached
 
-    result: Dict[str, Dict] = {}
-    try:
-        async with _make_client(timeout=6) as client:
-            resp = await client.get(
-                "https://quote.eastmoney.com/center/api/sidemenu_new.json",
-                headers=_HEADERS_EM,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+    async with _board_map_lock:
+        cached = _get_cached(cache_key)
+        if cached is not None:
+            return cached
 
-        type_map = {1: "region", 2: "industry", 3: "concept"}
-        for entry in data.get("bklist", []):
-            code = entry.get("code", "").upper()
-            name = entry.get("name", "")
-            btype = type_map.get(entry.get("type", 3), "concept")
-            if code and name:
-                result[code] = {"name": name, "type": btype}
+        result: Dict[str, Dict] = {}
+        try:
+            async with _make_client(timeout=6) as client:
+                resp = await client.get(
+                    "https://quote.eastmoney.com/center/api/sidemenu_new.json",
+                    headers=_HEADERS_EM,
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
-        logger.info(f"board_map: loaded {len(result)} boards from sidemenu_new.json")
-    except Exception as e:
-        logger.warning(f"sidemenu_new.json fetch failed: {e}")
+            type_map = {1: "region", 2: "industry", 3: "concept"}
+            for entry in data.get("bklist", []):
+                code = entry.get("code", "").upper()
+                name = entry.get("name", "")
+                btype = type_map.get(entry.get("type", 3), "concept")
+                if code and name:
+                    result[code] = {"name": name, "type": btype}
 
-    ttl = CACHE_TTL_NAMES if result else 60
-    _set_cache(cache_key, result, ttl)
-    return result
+            logger.info(f"board_map: loaded {len(result)} boards from sidemenu_new.json")
+        except Exception as e:
+            logger.warning(f"sidemenu_new.json fetch failed: {e}")
+
+        ttl = CACHE_TTL_NAMES if result else 60
+        _set_cache(cache_key, result, ttl)
+        return result
 
 
 # ── Source 2: push2ex getAllBKChanges (realtime change% + fund flow) ──
@@ -168,38 +177,43 @@ async def _fetch_all_bk_changes() -> Dict[str, Dict]:
     if cached is not None:
         return cached
 
-    result: Dict[str, Dict] = {}
-    try:
-        async with _make_client(timeout=8) as client:
-            resp = await client.get(
-                "https://push2ex.eastmoney.com/getAllBKChanges",
-                params={
-                    "ut": "7eea3edcaed734bea9cbfc24409ed989",
-                    "dpt": "wzchanges",
-                    "pageindex": "0",
-                    "pagesize": "5000",
-                },
-                headers=_HEADERS_EM,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+    async with _bk_changes_lock:
+        cached = _get_cached(cache_key)
+        if cached is not None:
+            return cached
 
-        for entry in data.get("data", {}).get("allbk", []):
-            code = entry.get("c", "").upper()
-            if code:
-                raw_flow = _float(entry.get("zjl"))
-                result[code] = {
-                    "name": entry.get("n", ""),
-                    "change_pct": _float(entry.get("u")),
-                    "fund_flow": raw_flow * 10000 if raw_flow is not None else None,  # zjl is 万元, convert to 元
-                }
-        logger.info(f"bk_changes: loaded {len(result)} boards from push2ex")
-    except Exception as e:
-        logger.warning(f"getAllBKChanges fetch failed: {e}")
+        result: Dict[str, Dict] = {}
+        try:
+            async with _make_client(timeout=8) as client:
+                resp = await client.get(
+                    "https://push2ex.eastmoney.com/getAllBKChanges",
+                    params={
+                        "ut": "7eea3edcaed734bea9cbfc24409ed989",
+                        "dpt": "wzchanges",
+                        "pageindex": "0",
+                        "pagesize": "5000",
+                    },
+                    headers=_HEADERS_EM,
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
-    ttl = CACHE_TTL_CHANGES if result else 10
-    _set_cache(cache_key, result, ttl)
-    return result
+            for entry in data.get("data", {}).get("allbk", []):
+                code = entry.get("c", "").upper()
+                if code:
+                    raw_flow = _float(entry.get("zjl"))
+                    result[code] = {
+                        "name": entry.get("n", ""),
+                        "change_pct": _float(entry.get("u")),
+                        "fund_flow": raw_flow * 10000 if raw_flow is not None else None,  # zjl is 万元, convert to 元
+                    }
+            logger.info(f"bk_changes: loaded {len(result)} boards from push2ex")
+        except Exception as e:
+            logger.warning(f"getAllBKChanges fetch failed: {e}")
+
+        ttl = CACHE_TTL_CHANGES if result else 10
+        _set_cache(cache_key, result, ttl)
+        return result
 
 
 # ── Source 3: push2his kline (OHLCV — rate-limited) ──

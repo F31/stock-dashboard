@@ -20,7 +20,7 @@
         :key="item.stock_code"
         class="ff-row ff-row-body"
         :class="{ 'ff-top3': i < 3 }"
-        @click="$emit('open-detail', item.stock_code)"
+        @click="$emit('open-detail', item)"
       >
         <span class="ff-rank">{{ rankIcon(i) }}</span>
         <span class="ff-name">{{ item.stock_name }}</span>

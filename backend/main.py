@@ -2,6 +2,9 @@
 import asyncio
 import logging
 import os
+
+# 禁用 AKShare 内部 tqdm 进度条（服务端无意义且刷屏日志）
+os.environ.setdefault("TQDM_DISABLE", "1")
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +22,7 @@ from routes.premarket import router as premarket_router
 from routes.watched_tickers import router as watched_tickers_router
 from routes.analysis_framework import router as analysis_framework_router
 from routes.quan import router as quan_router
+from routes.risk import router as risk_router
 from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
@@ -426,10 +430,14 @@ async def _daily_pe_backfill():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task_macro = asyncio.create_task(_daily_macro_refresh())
-    task_capex = asyncio.create_task(_daily_capex_refresh())
-    task_cleanup = asyncio.create_task(_periodic_stale_cleanup())
-    task_pe = asyncio.create_task(_daily_pe_backfill())
+    from routes.macro import _prefetch_fund_flow
+    from services.risk_service import prefetch_risk_t1
+    task_macro    = asyncio.create_task(_daily_macro_refresh())
+    task_capex    = asyncio.create_task(_daily_capex_refresh())
+    task_cleanup  = asyncio.create_task(_periodic_stale_cleanup())
+    task_pe       = asyncio.create_task(_daily_pe_backfill())
+    task_ff       = asyncio.create_task(_prefetch_fund_flow())
+    task_risk_t1  = asyncio.create_task(prefetch_risk_t1())
     # 启动盘前分析调度器
     try:
         from premarket.scheduler import start as sched_start, stop as sched_stop
@@ -439,7 +447,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.warning(f"Scheduler start error: {e}")
     yield
-    for t in (task_macro, task_capex, task_cleanup, task_pe):
+    for t in (task_macro, task_capex, task_cleanup, task_pe, task_ff, task_risk_t1):
         t.cancel()
         try:
             await t
@@ -484,6 +492,7 @@ app.include_router(premarket_router, prefix="/api")
 app.include_router(watched_tickers_router, prefix="/api")
 app.include_router(analysis_framework_router, prefix="/api")
 app.include_router(quan_router, prefix="/api")
+app.include_router(risk_router, prefix="/api")
 
 # ── Serve reports directory ──
 reports_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "reports")

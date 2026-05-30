@@ -124,6 +124,10 @@
           {{ subsectorDisplayName(selectedSubsector) }}
           <button class="ssec-clear-btn" @click="selectedSubsector = null; currentPage = 0" title="清除筛选">×</button>
         </span>
+        <button class="fill-info-btn" :disabled="fillInfoLoading" @click="fillStockInfo"
+                title="补全主题链股票缺失的名称和行业数据">
+          {{ fillInfoLoading ? '补全中…' : '⟳ 补全信息' }}
+        </button>
       </div>
 
       <!-- Stats row (clickable) -->
@@ -167,7 +171,7 @@
         <div class="tbl-head">
           <span>排名</span><span>代码 / 名称</span><span>行业</span>
           <span>行业排名</span><span>PE</span><span>PEG</span>
-          <span>股价 / 涨跌</span><span>百分位</span><span>评级</span>
+          <span>股价 / 涨跌</span><span>百分位</span><span>评级</span><span>自选</span>
         </div>
         <div v-for="row in pagedScores" :key="row.stock_code"
              class="tbl-row" :class="labelCls(row.label)" @click="openDetail(row)" style="cursor:pointer">
@@ -224,6 +228,15 @@
               {{ row.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
             </span>
           </div>
+          <div class="action-col">
+            <span v-if="props.watchlistCodes.includes(row.stock_code)" class="wl-added" title="已在自选">✓</span>
+            <button v-else class="wl-add-btn"
+                    :disabled="addingCodes.has(row.stock_code)"
+                    :class="{ 'wl-adding': addingCodes.has(row.stock_code) }"
+                    @click="handleAdd(row, $event)">
+              {{ addingCodes.has(row.stock_code) ? '…' : '+' }}
+            </button>
+          </div>
         </div>
         <div v-if="filteredActiveScores.length === 0" class="empty-tip">
           {{ searchQuery ? '无匹配结果' : '暂无数据' }}
@@ -260,7 +273,7 @@
             <div class="tbl-head modal-tbl-head">
               <span>排名</span><span>代码 / 名称</span><span>行业</span>
               <span>行业排名</span><span>PE</span><span>PEG</span>
-              <span>股价 / 涨跌</span><span>百分位</span><span>评级</span>
+              <span>股价 / 涨跌</span><span>百分位</span><span>评级</span><span>自选</span>
             </div>
             <div v-for="row in filteredModalStocks" :key="row.stock_code"
                  class="tbl-row modal-tbl-row" :class="labelCls(row.label)" @click="openDetail(row)" style="cursor:pointer">
@@ -308,6 +321,15 @@
                       :title="warnTip(row.sector_warning)">
                   {{ row.sector_warning === '板块拥挤' ? '⚠ 拥挤' : '🔥 过热' }}
                 </span>
+              </div>
+              <div class="action-col">
+                <span v-if="props.watchlistCodes.includes(row.stock_code)" class="wl-added" title="已在自选">✓</span>
+                <button v-else class="wl-add-btn"
+                        :disabled="addingCodes.has(row.stock_code)"
+                        :class="{ 'wl-adding': addingCodes.has(row.stock_code) }"
+                        @click="handleAdd(row, $event)">
+                  {{ addingCodes.has(row.stock_code) ? '…' : '+' }}
+                </button>
               </div>
             </div>
             <div v-if="filteredModalStocks.length === 0" class="empty-tip empty-tip--dark">无匹配结果</div>
@@ -594,12 +616,30 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { fetchQuanScores, fetchQuanStockLevels, fetchQuanThemeScores,
-         triggerPipeline, fetchPipelineStatus, fetchPipelineLog, fetchPoolStats } from '../api/index.js'
+         triggerPipeline, fetchPipelineStatus, fetchPipelineLog, fetchPoolStats,
+         refreshQuanStockInfo } from '../api/index.js'
 
 const props = defineProps({
   watchlistCodes:  { type: Array, default: () => [] },
   watchlistStocks: { type: Array, default: () => [] },
 })
+
+const emit = defineEmits(['add-to-watchlist'])
+
+const addingCodes = ref(new Set())
+
+async function handleAdd(row, event) {
+  event.stopPropagation()
+  if (addingCodes.value.has(row.stock_code)) return
+  addingCodes.value = new Set([...addingCodes.value, row.stock_code])
+  try {
+    emit('add-to-watchlist', { code: row.stock_code, name: row.stock_name || row.stock_code })
+  } finally {
+    setTimeout(() => {
+      addingCodes.value = new Set([...addingCodes.value].filter(c => c !== row.stock_code))
+    }, 1500)
+  }
+}
 
 const PAGE_SIZE = 30
 
@@ -610,6 +650,7 @@ const themeScores    = ref([])      // all theme_3chain scores
 const subsectorList  = ref([])      // [{key, name, chain, chain_key, n_stocks, weights}]
 const selectedSubsector = ref(null) // null = all sub-sectors
 const loading        = ref(false)
+const fillInfoLoading = ref(false)
 const searchQuery    = ref('')
 const currentPage    = ref(0)
 const activeUniverse = ref('csi300')
@@ -884,6 +925,20 @@ async function load() {
   }
 }
 
+async function fillStockInfo() {
+  fillInfoLoading.value = true
+  try {
+    const res = await refreshQuanStockInfo()
+    const d = res.data
+    alert(`补全完成：共 ${d.candidates} 只，更新 ${d.updated} 只（名称 ${d.names_resolved}，行业 ${d.industries_resolved}）[${d.mode}]`)
+    load()  // reload scores to show updated names/industries
+  } catch (e) {
+    alert('补全失败：' + (e?.response?.data?.detail || e.message))
+  } finally {
+    fillInfoLoading.value = false
+  }
+}
+
 const pipelineStatusCls = computed(() => ({
   'pipe-running': pipelineState.value.status === 'running',
   'pipe-success': pipelineState.value.status === 'success',
@@ -1083,6 +1138,14 @@ function oppTagTip(row) {
 }
 .ssec-clear-btn:hover { color: #374151; }
 
+.fill-info-btn {
+  margin-left: auto; font-size: 0.72em; padding: 3px 9px;
+  border: 1px solid #d1d5db; border-radius: 5px; background: #f9fafb;
+  color: #374151; cursor: pointer; white-space: nowrap;
+}
+.fill-info-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #9ca3af; }
+.fill-info-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .subsector-tag {
   display: inline-block; margin-top: 2px;
   font-size: 0.65em; color: #059669;
@@ -1178,14 +1241,14 @@ function oppTagTip(row) {
 /* ── Table ── */
 .tbl-head {
   display: grid;
-  grid-template-columns: 44px 160px 100px 80px 70px 75px 100px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 100px 1fr 120px 52px;
   font-size: 0.63em; color: #6b7280;
   padding: 3px 10px 5px; font-weight: 600; letter-spacing: .3px;
   border-bottom: 1px solid #e5e7eb; margin-bottom: 4px;
 }
 .tbl-row {
   display: grid;
-  grid-template-columns: 44px 160px 100px 80px 70px 75px 100px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 100px 1fr 120px 52px;
   align-items: center;
   padding: 7px 10px; border-radius: 8px;
   background: #f9fafb;
@@ -1315,14 +1378,52 @@ function oppTagTip(row) {
 
 /* Modal table */
 .modal-tbl-head {
-  grid-template-columns: 44px 160px 100px 80px 70px 75px 90px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 90px 1fr 120px 52px;
   color: #6b7280; border-bottom-color: #e5e7eb;
 }
 .modal-tbl-row {
-  grid-template-columns: 44px 160px 100px 80px 70px 75px 90px 1fr 120px;
+  grid-template-columns: 44px 160px 100px 80px 70px 75px 90px 1fr 120px 52px;
   background: #f9fafb;
 }
 .modal-tbl-row:hover { background: #f3f4f6; }
+
+.action-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wl-added {
+  font-size: 13px;
+  font-weight: 700;
+  color: #16a34a;
+  line-height: 1;
+}
+.wl-add-btn {
+  width: 26px;
+  height: 22px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.wl-add-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #2563eb;
+}
+.wl-add-btn:disabled,
+.wl-add-btn.wl-adding {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .modal-tbl-row.lbl-strong { border-left-color: #16a34a; background: #f0fdf4; }
 .modal-tbl-row.lbl-buy    { border-left-color: #65a30d; background: #f7fee7; }
 .modal-tbl-row.lbl-neutral{ border-left-color: #2563eb; background: #eff6ff; }

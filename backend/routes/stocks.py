@@ -17,6 +17,7 @@ from services.stock_service import (
     search_stock as search_stock_service,
     fetch_profit_growth_rate,
     fetch_financial_snapshot,
+    batch_fetch_financial_snapshots,
     compute_peg,
     compute_signal,
 )
@@ -86,6 +87,38 @@ def list_stocks(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "item_type": s.item_type or "stock",
         "hidden": s.hidden or 0,
     } for s in stocks]
+
+
+@router.get("/stocks/preview/{code}")
+async def preview_stock(code: str, market: str = "A", db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Full stock data for any code without requiring watchlist membership."""
+    realtime, news, snap = await asyncio.gather(
+        fetch_stock_realtime(code, market),
+        fetch_stock_news(code, market),
+        fetch_financial_snapshot(code, market),
+    )
+    pe = realtime.get("pe")
+    growth = snap.get("profit_growth_rate")
+    peg = compute_peg(pe, growth)
+    signal = compute_signal(pe, peg, growth, market)
+    capex, capex_period = get_capex_record_from_db(code, market, db)
+    return {
+        "stock_code": code,
+        "market": market,
+        "stock_name": realtime.get("stock_name", code),
+        "item_type": "stock",
+        **realtime,
+        "news": news,
+        "profit_growth_rate": growth,
+        "roe": snap.get("roe"),
+        "debt_ratio": snap.get("debt_ratio"),
+        "cash_profit_ratio": snap.get("cash_profit_ratio"),
+        "peg": peg,
+        "signal": signal,
+        "capex": capex,
+        "capex_period": capex_period,
+        "chart_data": [],
+    }
 
 
 @router.get("/stocks/{stock_id}")
@@ -340,10 +373,12 @@ async def refresh_stocks(db: Session = Depends(get_db),
     except (asyncio.TimeoutError, Exception):
         all_news = [[] for _ in stock_items]
 
-    # Fetch financial snapshots in parallel (A-shares only, 24h cached)
-    snap_tasks = [fetch_financial_snapshot(s.stock_code, s.market) for s in stock_items]
+    # Batch-fetch financial snapshots (A-shares only, 24h cached) — 1 EM request instead of N
     try:
-        all_snaps = await asyncio.wait_for(asyncio.gather(*snap_tasks), timeout=30) if snap_tasks else []
+        all_snaps = await asyncio.wait_for(
+            batch_fetch_financial_snapshots([(s.stock_code, s.market) for s in stock_items]),
+            timeout=30,
+        ) if stock_items else []
     except (asyncio.TimeoutError, Exception):
         all_snaps = [{} for _ in stock_items]
 
