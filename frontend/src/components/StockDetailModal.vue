@@ -185,7 +185,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5, fetchStockNews } from '../api/index.js'
+import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5, fetchStockNews, fetchStockFinancials } from '../api/index.js'
 
 // Module-level Map cache: survives modal open/close within the same session
 const _newsCache = new Map()   // "code:market" → { data: [], ts: number }
@@ -272,8 +272,8 @@ const metricsList = computed(() => {
 
   const g = d.profit_growth_rate
   const r = d.roe
-  const dr = d.debt_ratio
-  const cf = d.cash_profit_ratio
+  const dr = finData.value?.debt_ratio ?? d.debt_ratio
+  const cf = finData.value?.cash_profit_ratio ?? d.cash_profit_ratio
 
   return [
     // ── 行情 ──
@@ -290,8 +290,8 @@ const metricsList = computed(() => {
     { label: '净利增速', value: fmtGrowth(g), cls: g != null ? (g >= 0 ? 'val-up' : 'val-down') : '' },
     // ── 基本面 ──
     { label: 'ROE',    value: r != null ? r.toFixed(1) + '%' : '--',  cls: r != null ? (r >= 15 ? 'val-hi' : r < 8 ? 'val-lo' : '') : '' },
-    { label: '负债率', value: dr != null ? dr.toFixed(1) + '%' : '--', cls: dr != null && dr > 70 ? 'val-warn' : '' },
-    { label: '现金质量', value: cf != null ? cf.toFixed(0) + '%' : '--', cls: cf != null ? (cf >= 80 ? 'val-hi' : cf < 30 ? 'val-warn' : '') : '' },
+    { label: '负债率', value: dr != null ? dr.toFixed(1) + '%' : (finLoading.value ? '…' : '--'), cls: dr != null && dr > 70 ? 'val-warn' : '' },
+    { label: '现金质量', value: cf != null ? cf.toFixed(0) + '%' : (finLoading.value ? '…' : '--'), cls: cf != null ? (cf >= 80 ? 'val-hi' : cf < 30 ? 'val-warn' : '') : '' },
     { label: d.capex_period ? `Capex(${d.capex_period})` : 'Capex', value: fmtCapex(d.capex) },
   ]
 })
@@ -329,6 +329,25 @@ async function loadTop5() {
 
 watch(activeTab, v => { if (v === 'info' && isSector.value) loadTop5() })
 onMounted(() => { if (activeTab.value === 'info' && isSector.value) loadTop5() })
+
+// ── THS Financials: lazy-load on modal open (debt_ratio, cash_profit_ratio) ──
+const finData    = ref(null)
+const finLoading = ref(false)
+
+async function loadFinancials() {
+  if (isSector.value || finData.value !== null) return
+  finLoading.value = true
+  try {
+    const res = await fetchStockFinancials(props.stock.stock_code, props.stock.market)
+    finData.value = res.data ?? {}
+  } catch {
+    finData.value = {}
+  } finally {
+    finLoading.value = false
+  }
+}
+
+onMounted(() => { if (!isSector.value) loadFinancials() })
 
 // ── News: lazy-load on first tab visit ──
 const newsData    = ref([])

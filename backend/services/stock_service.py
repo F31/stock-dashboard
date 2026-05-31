@@ -934,19 +934,20 @@ async def fetch_financial_snapshot(code: str, market: str) -> dict:
 async def batch_fetch_financial_snapshots(
     stock_pairs: List[tuple],  # List of (stock_code, market)
 ) -> List[dict]:
-    """Batch-fetch financial snapshots for multiple stocks.
+    """Batch-fetch financial snapshots for multiple stocks (EM only, no THS).
 
-    Reduces East Money requests from N → 1 by using the OR filter.
-    akshare (THS) calls are still per-stock but run in a thread pool.
-    Returns a list of dicts in the same order as stock_pairs.
+    Returns profit_growth_rate and roe via a single EM batch call.
+    debt_ratio and cash_profit_ratio are fetched lazily by the detail modal
+    via /stocks/financials/{code} → fetch_financial_snapshot (which caches
+    the full snapshot; subsequent batch calls will serve it from cache).
     """
     a_share_indices = [(i, code) for i, (code, mkt) in enumerate(stock_pairs) if mkt == "A"]
 
-    # Split into cached vs uncached
-    uncached: List[tuple] = []  # (index, code)
+    uncached: List[tuple] = []
     result_map: Dict[int, dict] = {}
 
     for i, code in a_share_indices:
+        # Use full cached snapshot if available (populated when detail modal was opened)
         cached = _get_cached(f"finsnapshot:{code}")
         if cached is not None:
             result_map[i] = cached
@@ -955,22 +956,9 @@ async def batch_fetch_financial_snapshots(
 
     if uncached:
         uncached_codes = [code for _, code in uncached]
-
-        # Single batch EM call
-        loop = asyncio.get_event_loop()
-        em_batch, *ak_results = await asyncio.gather(
-            _batch_fetch_em_fundamentals(uncached_codes),
-            *[loop.run_in_executor(None, _fetch_akshare_fundamentals, code)
-              for code in uncached_codes],
-        )
-
-        for j, (i, code) in enumerate(uncached):
-            em_data = em_batch.get(code, {})
-            ak_data = ak_results[j] if j < len(ak_results) else {}
-            snapshot = {**em_data, **ak_data}
-            ttl = CACHE_TTL_GROWTH if snapshot else 3600
-            _set_cache(f"finsnapshot:{code}", snapshot, ttl)
-            result_map[i] = snapshot
+        em_batch = await _batch_fetch_em_fundamentals(uncached_codes)
+        for i, code in uncached:
+            result_map[i] = em_batch.get(code, {})
 
     return [result_map.get(i, {}) for i in range(len(stock_pairs))]
 

@@ -122,6 +122,18 @@ async def preview_stock(code: str, market: str = "A", db: Session = Depends(get_
     }
 
 
+@router.get("/stocks/financials/{code}")
+async def get_stock_financials(
+    code: str,
+    market: str = "A",
+    user=Depends(get_current_user),
+):
+    """Full financial snapshot (EM + THS) for one stock. Cached 24 h.
+    Called lazily when the detail modal opens — not on every watchlist refresh."""
+    snap = await fetch_financial_snapshot(code, market)
+    return snap
+
+
 @router.get("/stocks/news/{code}")
 async def get_stock_news(code: str, market: str = "A", user=Depends(get_current_user)):
     """Fetch news for a single stock. Only called when the news tab in the detail modal is opened.

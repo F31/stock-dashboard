@@ -93,24 +93,12 @@
       </div>
     </div>
 
-    <!-- Financial Fundamentals: ROE | 负债率 | 现金质量 | Capex -->
-    <div class="metrics fin-row" v-if="!isSector && (stock.data?.roe != null || stock.data?.debt_ratio != null || stock.data?.cash_profit_ratio != null || stock.data?.capex != null)">
+    <!-- Financial Fundamentals: ROE | Capex（负债率/现金质量已移至详情弹窗） -->
+    <div class="metrics fin-row" v-if="!isSector && (stock.data?.roe != null || stock.data?.capex != null)">
       <div class="met">
         <div class="met-l">ROE</div>
         <div class="met-v" :class="stock.data?.roe >= 15 ? 'roe-hi' : stock.data?.roe >= 8 ? '' : 'roe-lo'">
           {{ stock.data?.roe != null ? stock.data.roe.toFixed(1) + '%' : '--' }}
-        </div>
-      </div>
-      <div class="met">
-        <div class="met-l">负债率</div>
-        <div class="met-v" :class="stock.data?.debt_ratio > 70 ? 'debt-hi' : ''">
-          {{ stock.data?.debt_ratio != null ? stock.data.debt_ratio.toFixed(1) + '%' : '--' }}
-        </div>
-      </div>
-      <div class="met">
-        <div class="met-l">现金质量</div>
-        <div class="met-v" :class="stock.data?.cash_profit_ratio >= 80 ? 'cf-hi' : stock.data?.cash_profit_ratio < 30 ? 'cf-lo' : ''">
-          {{ stock.data?.cash_profit_ratio != null ? stock.data.cash_profit_ratio.toFixed(0) + '%' : '--' }}
         </div>
       </div>
       <div class="met">

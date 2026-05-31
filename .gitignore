@@ -6,9 +6,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyda
-frontend/dist/
 dist/
 frontend/dist/assets/
 frontend/reports/
+frontend/node_modules/
+frontend/dist/
 backend/data/*.db-shm
 backend/data/*.db-wal

@@ -116,6 +116,14 @@ export function fetchStockNews(code, market = 'A') {
   return api.get(`/stocks/news/${encodeURIComponent(code)}`, { params: { market } })
 }
 
+/**
+ * Fetch full financial snapshot (debt_ratio, cash_profit_ratio, roe, profit_growth_rate).
+ * Called lazily when the detail modal opens. Backend caches 24 h.
+ */
+export function fetchStockFinancials(code, market = 'A') {
+  return api.get(`/stocks/financials/${encodeURIComponent(code)}`, { params: { market } })
+}
+
 export function fetchMarketIntel() {
   return api.get('/market-intel')
 }
