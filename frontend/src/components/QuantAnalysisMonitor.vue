@@ -185,7 +185,7 @@
             <span v-if="activeUniverse === 'theme' && row.subsector && !selectedSubsector"
                   class="subsector-tag"
                   :class="{ 'has-multi': row.subsectors_all?.length }"
-                  :data-tip="row.subsectors_all ? subsectorTooltip(row) : ''">
+                  :data-tip="row.subsectors_all?.length ? subsectorTooltip(row) : null">
               {{ subsectorDisplayName(row.subsector) }}
             </span>
           </div>

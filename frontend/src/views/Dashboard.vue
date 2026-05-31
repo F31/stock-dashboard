@@ -171,6 +171,7 @@
                       <span class="st5-name">名称</span>
                       <span class="st5-chg">涨跌幅</span>
                       <span class="st5-price">现价</span>
+                      <span class="st5-wl">自选</span>
                     </div>
                     <div v-for="s in top5Stocks" :key="s.code" class="st5-row st5-row-body" @click="$emit('open-detail', s.code)">
                       <span class="st5-rank">{{ s.rank }}</span>
@@ -178,6 +179,15 @@
                       <span class="st5-name">{{ s.name }}</span>
                       <span :class="['st5-chg', s.change_pct >= 0 ? 'up' : 'dn']">{{ s.change_pct != null ? (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%' : '—' }}</span>
                       <span class="st5-price">{{ s.price != null ? s.price.toFixed(2) : '—' }}</span>
+                      <span class="st5-wl" @click.stop>
+                        <span v-if="watchlistAStockCodes.includes(s.code)" class="st5-wl-added" title="已在自选">✓</span>
+                        <button v-else class="st5-wl-btn"
+                                :disabled="top5AddingCodes.has(s.code)"
+                                :class="{ 'st5-wl-adding': top5AddingCodes.has(s.code) }"
+                                @click="addTop5ToWatchlist(s)">
+                          {{ top5AddingCodes.has(s.code) ? '…' : '+' }}
+                        </button>
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -435,6 +445,19 @@ const top5Stocks = ref([])
 const top5Loading = ref(false)
 const top5Pos = ref(0)
 const top5SortMode = ref('change')     // 'change' | 'market_cap'
+const top5AddingCodes = ref(new Set())
+
+async function addTop5ToWatchlist(s) {
+  if (top5AddingCodes.value.has(s.code)) return
+  top5AddingCodes.value = new Set([...top5AddingCodes.value, s.code])
+  try {
+    await store.addStock(s.code, 'A', s.name)
+  } finally {
+    setTimeout(() => {
+      top5AddingCodes.value = new Set([...top5AddingCodes.value].filter(c => c !== s.code))
+    }, 1500)
+  }
+}
 
 // 前端缓存：key = `${code}:${sortMode}`，TTL 1 min，避免重复点击重复请求
 const _top10Cache = new Map()
@@ -1293,8 +1316,8 @@ onUnmounted(() => {
 }
 .sector-top5-card {
   position: absolute;
-  width: 380px;
-  max-width: 90%;
+  width: 460px;
+  max-width: 96%;
   max-height: 70vh;
   overflow-y: auto;
   background: #fff;
@@ -1371,7 +1394,7 @@ onUnmounted(() => {
 .st5-list { display: flex; flex-direction: column; gap: 2px; }
 .st5-row {
   display: grid;
-  grid-template-columns: 28px 76px 1fr 72px 72px;
+  grid-template-columns: 28px 68px minmax(90px, 1fr) 72px 68px 40px;
   align-items: center;
   padding: 5px 6px;
   border-radius: 6px;
@@ -1395,6 +1418,42 @@ onUnmounted(() => {
 .st5-chg.up { color: #dc2626; }
 .st5-chg.dn { color: #16a34a; }
 .st5-price { text-align: right; font-family: monospace; color: #374151; font-weight: 600; }
+.st5-wl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.st5-wl-added {
+  font-size: 13px;
+  font-weight: 700;
+  color: #16a34a;
+  line-height: 1;
+}
+.st5-wl-btn {
+  width: 24px;
+  height: 20px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.st5-wl-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #2563eb;
+}
+.st5-wl-btn:disabled,
+.st5-wl-btn.st5-wl-adding {
+  opacity: 0.5;
+  cursor: default;
+}
 
 /* ── Sector view mode toggle active state ── */
 .tab-active {
