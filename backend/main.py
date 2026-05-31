@@ -23,6 +23,7 @@ from routes.watched_tickers import router as watched_tickers_router
 from routes.analysis_framework import router as analysis_framework_router
 from routes.quan import router as quan_router
 from routes.risk import router as risk_router
+from routes.hot import router as hot_router
 from database import engine, Base, get_db
 from models import (  # noqa: F401 — ensures tables are registered
     User, LLMConfig, StockReport,
@@ -493,6 +494,7 @@ app.include_router(watched_tickers_router, prefix="/api")
 app.include_router(analysis_framework_router, prefix="/api")
 app.include_router(quan_router, prefix="/api")
 app.include_router(risk_router, prefix="/api")
+app.include_router(hot_router, prefix="/api")
 
 # ── Serve reports directory ──
 reports_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "reports")

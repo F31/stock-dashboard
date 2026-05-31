@@ -261,6 +261,9 @@
         <RiskWarningPanel />
       </div>
 
+      <!-- ── 热股榜 (常驻底部) ── -->
+      <HotStockBoard @open-stock="handleHotStockOpen" />
+
     </main>
 
     <!-- Empty state -->
@@ -394,6 +397,7 @@ const QuantAnalysisMonitor   = defineAsyncComponent(() => import('../components/
 const MacroMonitor           = defineAsyncComponent(() => import('../components/MacroMonitor.vue'))
 const IndustrialProfitMonitor = defineAsyncComponent(() => import('../components/IndustrialProfitMonitor.vue'))
 const RiskWarningPanel       = defineAsyncComponent(() => import('../components/RiskWarningPanel.vue'))
+const HotStockBoard          = defineAsyncComponent(() => import('../components/HotStockBoard.vue'))
 
 // Premarket — triggered by header button
 const PremarketModal        = defineAsyncComponent(() => import('../components/PremarketModal.vue'))
@@ -825,6 +829,45 @@ async function handleFundFlowDetail(item) {
     }
   } catch (e) {
     console.error('Failed to load stock preview', e)
+  }
+}
+
+async function handleHotStockOpen({ code, name, market = 'A' }) {
+  // Reuse watchlist item directly if already loaded
+  const inWatchlist = store.stocks.find(s => s.stock_code === code && s.market === market)
+  if (inWatchlist?.data) {
+    handleOpenDetail(inWatchlist)
+    return
+  }
+  // Open modal immediately with minimal data, then enrich
+  detailInitialTab.value = 'info'
+  detailStock.value = {
+    id: null, stock_code: code, stock_name: name,
+    market, item_type: 'stock', notes: '',
+    data: { stock_name: name },
+  }
+  try {
+    const res = await fetchStockPreview(code, market)
+    const d = res.data
+    if (detailStock.value?.stock_code === code) {
+      detailStock.value = {
+        id: null, stock_code: code, stock_name: d.stock_name || name,
+        market, item_type: 'stock', notes: '',
+        data: {
+          stock_name: d.stock_name, price: d.price, change: d.change,
+          change_pct: d.change_pct, prev_close: d.prev_close, open: d.open,
+          high: d.high, low: d.low, volume: d.volume, amount: d.amount,
+          turnover_rate: d.turnover_rate, pe: d.pe, pe_ttm: d.pe_ttm ?? null,
+          market_cap: d.market_cap, float_market_cap: d.float_market_cap,
+          amplitude: d.amplitude, news: d.news || [], chart_data: d.chart_data || [],
+          item_type: 'stock', profit_growth_rate: d.profit_growth_rate ?? null,
+          roe: d.roe ?? null, debt_ratio: d.debt_ratio ?? null,
+          peg: d.peg ?? null, signal: d.signal ?? null,
+        },
+      }
+    }
+  } catch (e) {
+    console.error('Failed to enrich hot stock preview', e)
   }
 }
 
