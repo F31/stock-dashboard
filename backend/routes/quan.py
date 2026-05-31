@@ -756,6 +756,17 @@ def _load_subsector_meta() -> dict[str, dict]:
 
 
 _SUBSECTOR_META: dict[str, dict] = _load_subsector_meta()
+_SUBSECTOR_META_TS: float = 0.0   # last load timestamp
+
+
+def _get_subsector_meta() -> dict[str, dict]:
+    """Return subsector meta, reloading from DB if config changed (TTL=60s)."""
+    import time as _time
+    global _SUBSECTOR_META, _SUBSECTOR_META_TS
+    if _time.monotonic() - _SUBSECTOR_META_TS > 60:
+        _SUBSECTOR_META = _load_subsector_meta()
+        _SUBSECTOR_META_TS = _time.monotonic()
+    return _SUBSECTOR_META
 
 _THEME_HISTORY_DB = "/root/projects/stock_quan/data/training_results/training_history.db"
 
@@ -1179,23 +1190,25 @@ async def get_theme_scores(
     weights_map = _load_theme_weights()
 
     # Build ordered subsector summary (tech → space → bio)
+    # Show ALL configured subsectors (n_stocks=0 for empty ones) so dropdown is always complete.
+    ss_meta = _get_subsector_meta()
     chain_order = ["tech", "space", "bio"]
     seen: set[str] = set()
     subsectors_out = []
     for chain_key in chain_order:
-        for key, meta in _SUBSECTOR_META.items():
-            if meta["chain_key"] == chain_key and key not in seen and key in ss_counts:
+        for key, meta in ss_meta.items():
+            if meta["chain_key"] == chain_key and key not in seen:
                 seen.add(key)
                 subsectors_out.append({
                     "key":       key,
                     "name":      meta["name"],
                     "chain":     meta["chain"],
                     "chain_key": meta["chain_key"],
-                    "n_stocks":  ss_counts[key],
+                    "n_stocks":  ss_counts.get(key, 0),
                     "weights":   weights_map.get(key, {}),
                     "valuation_peers": meta.get("valuation_peers"),
                 })
-    # Any unknown subsectors last
+    # Any unknown subsectors (in data but not in config) last
     for key, cnt in ss_counts.items():
         if key not in seen:
             subsectors_out.append({
