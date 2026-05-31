@@ -441,14 +441,50 @@ def _run_qlib_levels(code: str) -> dict | None:
         return None
 
 
+def _fetch_em_spot_price(code: str) -> dict:
+    """EastMoney real-time spot price fallback for stocks not covered by Tencent (e.g. BSE 920xxx)."""
+    secid = ("1." if code.startswith("6") else "0.") + code
+    try:
+        r = requests.get(
+            "https://push2.eastmoney.com/api/qt/stock/get",
+            params={"secid": secid, "fields": "f43,f170,f116,f9,f23"},
+            headers=_EM_KLINE_HEADERS,
+            timeout=8,
+        )
+        d = (r.json().get("data") or {})
+        price  = d.get("f43")
+        chg    = d.get("f170")
+        mktcap = d.get("f116")
+        pe     = d.get("f9")
+        pb     = d.get("f23")
+        # EM returns integers ×100 for price/chg, ×100 for pe/pb, mktcap in 亿元 ×10000
+        price  = round(price / 100, 2)   if price  and price  != "-"  else None
+        chg    = round(chg   / 100, 2)   if chg    and chg    != "-"  else None
+        pe     = round(pe    / 100, 2)   if pe     and pe     != "-"  else None
+        pb     = round(pb    / 100, 2)   if pb     and pb     != "-"  else None
+        mktcap = round(mktcap / 10000, 2) if mktcap and mktcap != "-" else None
+        return {"price": price, "change_pct": chg, "pe": pe, "pb": pb, "mktcap": mktcap}
+    except Exception as e:
+        logger.warning("EM spot fallback error for %s: %s", code, e)
+        return {}
+
+
 def _fetch_tencent_detail(code: str) -> dict:
     """Fetch extended real-time quote: price, PE, PB, market cap.
 
     Result is cached; off-hours entries never expire (prices frozen at close).
+    Falls back to EastMoney for BSE stocks (920xxx) not covered by Tencent.
     """
     cached = _detail_cache.get(code)
     if cached and not _is_stale(cached["ts"], _PRICE_TTL_TRADING):
         return cached["data"]
+
+    # BSE stocks (920xxx, 830xxx, etc.) are not covered by Tencent's gtimg API
+    if code.startswith("92") or code.startswith("83") or code.startswith("87"):
+        data = _fetch_em_spot_price(code)
+        if data.get("price"):
+            _detail_cache[code] = {"data": data, "ts": time.time()}
+        return data
 
     prefix = "sh" if code.startswith("6") else "sz"
     try:
@@ -1498,6 +1534,104 @@ async def pool_stats(current_user: User = Depends(get_current_user)):
         }
     except Exception as e:
         return {"total": 0, "by_chain": [], "by_source": [], "error": str(e)}
+
+
+_precompute_state: dict = {
+    "status": "idle",   # idle | running | done | error
+    "started": None,
+    "ended":   None,
+    "total":   0,
+    "done":    0,
+    "failed":  0,
+    "date":    None,
+}
+_precompute_lock = _threading.Lock()
+
+
+def _run_precompute_tech_bg(trade_date: str) -> None:
+    """Background thread: batch-precompute tech levels for all pool stocks via EM kline."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    try:
+        with _get_conn() as conn:
+            codes = [r[0] for r in conn.execute(
+                "SELECT stock_code FROM quan_stock_info"
+            ).fetchall()]
+            existing = {r[0] for r in conn.execute(
+                "SELECT stock_code FROM quan_tech_levels WHERE trade_date=?", (trade_date,)
+            ).fetchall()}
+    except Exception as e:
+        with _precompute_lock:
+            _precompute_state.update({"status": "error", "ended": _datetime.now().isoformat()})
+        logger.error("precompute-tech: DB read failed: %s", e)
+        return
+
+    pending = [c for c in codes if c not in existing]
+    total = len(pending)
+    logger.info("precompute-tech: %d stocks pending for %s", total, trade_date)
+
+    with _precompute_lock:
+        _precompute_state.update({"total": total, "done": 0, "failed": 0})
+
+    done = 0
+    failed = 0
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_compute_levels_em, c): c for c in pending}
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result:
+                    done += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+            with _precompute_lock:
+                _precompute_state["done"]   = done
+                _precompute_state["failed"] = failed
+
+    with _precompute_lock:
+        _precompute_state.update({
+            "status": "done",
+            "ended":  _datetime.now().isoformat(),
+        })
+    logger.info("precompute-tech: done=%d failed=%d for %s", done, failed, trade_date)
+
+
+@router.post("/pipeline/precompute-tech")
+async def trigger_precompute_tech(
+    trade_date: Optional[str] = Body(None, embed=True),
+    current_user: User = Depends(get_current_user),
+):
+    """Batch-precompute technical indicators for all pool stocks via EastMoney K-line.
+
+    Runs in a background thread with 10 parallel workers (~3 min for 3000 stocks).
+    Returns immediately; poll GET /pipeline/precompute-tech for progress.
+    """
+    with _precompute_lock:
+        if _precompute_state["status"] == "running":
+            return {"ok": False, "message": "Already running", "state": dict(_precompute_state)}
+
+    td = trade_date or _datetime.now().strftime("%Y-%m-%d")
+    with _precompute_lock:
+        _precompute_state.update({
+            "status": "running",
+            "started": _datetime.now().isoformat(),
+            "ended":   None,
+            "date":    td,
+        })
+
+    t = _threading.Thread(target=_run_precompute_tech_bg, args=(td,), daemon=True)
+    t.start()
+    logger.info("precompute-tech triggered by %s for %s", current_user.username, td)
+    return {"ok": True, "message": f"Precompute started for {td}", "state": dict(_precompute_state)}
+
+
+@router.get("/pipeline/precompute-tech")
+async def precompute_tech_status(current_user: User = Depends(get_current_user)):
+    """Return the current batch-precompute progress."""
+    with _precompute_lock:
+        return dict(_precompute_state)
 
 
 _EM_ULIST_URL   = "https://push2.eastmoney.com/api/qt/ulist.np/get"

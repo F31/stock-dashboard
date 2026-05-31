@@ -338,6 +338,10 @@ export function triggerPipeline(trade_date = null, expand = false) {
 export function fetchPipelineStatus() { return api.get('/pipeline/status') }
 export function fetchPipelineLog(lines = 100) { return api.get('/pipeline/log', { params: { lines } }) }
 export function fetchPoolStats() { return api.get('/pipeline/pool-stats') }
+export function triggerPrecomputeTech(trade_date = null) {
+  return api.post('/pipeline/precompute-tech', { trade_date })
+}
+export function fetchPrecomputeTechStatus() { return api.get('/pipeline/precompute-tech') }
 // qlib subprocess cold-start can take 40 s; override the 30 s global timeout
 export function fetchQuanStockLevels(stockCode) {
   return api.get(`/quan/scores/${stockCode}/levels`, { timeout: 90000 })

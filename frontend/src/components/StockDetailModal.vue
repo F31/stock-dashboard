@@ -189,7 +189,7 @@ import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fe
 
 // Module-level Map cache: survives modal open/close within the same session
 const _newsCache = new Map()   // "code:market" → { data: [], ts: number }
-const _NEWS_TTL  = 3600_000   // 1 hour — matches backend CACHE_TTL_NEWS
+const _NEWS_TTL  = 900_000    // 15 min — matches backend CACHE_TTL_NEWS
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -355,19 +355,20 @@ const newsLoading = ref(false)
 const newsLoaded  = ref(false)
 
 async function loadNews() {
-  if (isSector.value || newsLoaded.value) return
+  if (isSector.value) return
   const key = `${props.stock.stock_code}:${props.stock.market}`
   const hit = _newsCache.get(key)
-  if (hit && Date.now() - hit.ts < _NEWS_TTL) {
+  if (hit && Date.now() - hit.ts < _NEWS_TTL && hit.data.length > 0) {
     newsData.value = hit.data
     newsLoaded.value = true
     return
   }
+  if (newsLoading.value) return
   newsLoading.value = true
   try {
     const res = await fetchStockNews(props.stock.stock_code, props.stock.market)
     const list = Array.isArray(res.data) ? res.data : []
-    _newsCache.set(key, { data: list, ts: Date.now() })
+    if (list.length > 0) _newsCache.set(key, { data: list, ts: Date.now() })
     newsData.value = list
     newsLoaded.value = true
   } catch {

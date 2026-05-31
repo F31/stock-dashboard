@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _cache: Dict[str, tuple] = {}
 CACHE_TTL = 35           # seconds — realtime quotes (>30s interval so next auto-refresh hits cache)
 CACHE_TTL_CHART = 3600   # 1 hour — K-line data (changes once per trading day)
-CACHE_TTL_NEWS = 3600    # 1 h — news headlines (lazy-loaded only on modal open)
+CACHE_TTL_NEWS = 900     # 15 min — news headlines (refresh more often so articles stay current)
 CACHE_TTL_FINANCE = 3600 # 1 hour — PE, market cap, turnover rate
 
 # ── Thread pool throttle ──
@@ -1129,41 +1129,65 @@ async def fetch_stocks_batch(stocks: List[Dict[str, str]]) -> List[dict]:
     return results
 
 
+_EM_NEWS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://www.eastmoney.com/",
+}
+
 async def fetch_stock_news(stock_code: str, market: str) -> list:
-    """Fetch news via akshare stock_news_em. Only works for A-shares."""
+    """Fetch news directly from EastMoney's news list API. Only works for A-shares."""
     if market != "A":
         return []
 
     cache_key = f"news:{market}:{stock_code}"
     cached = _get_cached(cache_key)
-    if cached:
+    if cached is not None and len(cached) > 0:
         return cached
 
+    # EastMoney market prefix: 1 = SH (6xxxxx), 0 = SZ (0/3xxxxx)
+    em_prefix = "1" if stock_code.startswith("6") else "0"
+    mtype = f"{em_prefix}.{stock_code}"
+
+    news_list = []
     try:
-        import akshare as ak
-        news_list = []
-
-        async with _akshare_sem:
-            try:
-                df = await asyncio.wait_for(
-                    asyncio.to_thread(ak.stock_news_em, symbol=stock_code), timeout=12
-                )
-                if df is not None and not df.empty:
-                    for _, r in df.head(10).iterrows():
-                        news_list.append({
-                            "title":  str(r.get("新闻标题", "")),
-                            "source": str(r.get("文章来源", "东方财富")),
-                            "url":    str(r.get("新闻链接", "")),
-                            "time":   str(r.get("发布时间", "")),
-                        })
-            except Exception as e:
-                logger.warning(f"stock_news_em failed for {stock_code}: {e}")
-
-        _set_cache(cache_key, news_list, CACHE_TTL_NEWS)
-        return news_list
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            r = await client.get(
+                "https://np-listapi.eastmoney.com/comm/web/getListInfo",
+                params={
+                    "client": "web",
+                    "type": "1",
+                    "mTypeAndCode": mtype,
+                    "pageSize": "20",
+                    "startTime": "",
+                    "endTime": "",
+                    "callback": "jQuery",
+                    "_": str(int(time.time() * 1000)),
+                },
+                headers=_EM_NEWS_HEADERS,
+            )
+        # Response is JSONP: jQuery({...})
+        text = r.text.strip()
+        if text.startswith("jQuery(") and text.endswith(")"):
+            import json
+            data = json.loads(text[7:-1])
+            items = (data.get("data") or {}).get("list") or []
+            for item in items[:20]:
+                title = str(item.get("Art_Title") or "").strip()
+                if not title:
+                    continue
+                news_list.append({
+                    "title":  title,
+                    "source": "东方财富",
+                    "url":    str(item.get("Art_OriginUrl") or item.get("Art_Url") or ""),
+                    "time":   str(item.get("Art_ShowTime") or ""),
+                })
     except Exception as e:
-        logger.warning(f"fetch_stock_news: {e}")
-        return []
+        logger.warning(f"EM news fetch failed for {stock_code}: {e}")
+
+    # Only cache non-empty results; empty will be retried on next request
+    if news_list:
+        _set_cache(cache_key, news_list, CACHE_TTL_NEWS)
+    return news_list
 
 
 

@@ -84,6 +84,30 @@
               </div>
               <pre class="pipe-log">{{ pipelineLog || '(暂无日志)' }}</pre>
             </div>
+
+            <!-- Precompute tech levels -->
+            <div class="pipe-section">
+              <div class="pipe-sec-title">
+                预计算技术指标
+                <span :class="['pipe-status-badge', 'pipe-st-' + precomputeState.status]">
+                  {{ precomputeState.status }}
+                </span>
+                <button class="pipe-refresh-btn" @click="refreshPrecomputeStatus">↻</button>
+              </div>
+              <div class="pipe-desc">同步后在云端批量计算全量股票技术指标，消除"技术指标计算失败"提示</div>
+              <div class="pipe-controls">
+                <button class="pipe-run-btn"
+                        :disabled="precomputeState.status === 'running'"
+                        @click="runPrecomputeTech">
+                  {{ precomputeState.status === 'running' ? `计算中 ${precomputeState.done}/${precomputeState.total}…` : '▶ 预计算' }}
+                </button>
+              </div>
+              <div v-if="precomputeState.started" class="pipe-meta">
+                开始: {{ precomputeState.started?.slice(0,19) }}
+                <span v-if="precomputeState.ended"> 结束: {{ precomputeState.ended?.slice(0,19) }}</span>
+                <span v-if="precomputeState.total"> · 完成: {{ precomputeState.done }}/{{ precomputeState.total }}，失败: {{ precomputeState.failed }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -617,6 +641,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { fetchQuanScores, fetchQuanStockLevels, fetchQuanThemeScores,
          triggerPipeline, fetchPipelineStatus, fetchPipelineLog, fetchPoolStats,
+         triggerPrecomputeTech, fetchPrecomputeTechStatus,
          refreshQuanStockInfo } from '../api/index.js'
 
 const props = defineProps({
@@ -665,6 +690,9 @@ const pipelineDate    = ref(new Date().toISOString().slice(0, 10))
 const pipelineState   = ref({ status: 'idle', pid: null, started: null, ended: null, date: null, tail: '' })
 const pipelineLog     = ref('')
 const poolStats       = ref({ total: 0, by_chain: [], by_source: [] })
+
+// Precompute tech levels
+const precomputeState = ref({ status: 'idle', started: null, ended: null, total: 0, done: 0, failed: 0 })
 
 const watchMap = computed(() => {
   const m = {}
@@ -984,10 +1012,34 @@ async function loadPoolStats() {
   } catch {}
 }
 
+async function runPrecomputeTech() {
+  try {
+    const res = await triggerPrecomputeTech(pipelineDate.value)
+    precomputeState.value = res.data.state || precomputeState.value
+    const poll = setInterval(async () => {
+      try {
+        const s = await fetchPrecomputeTechStatus()
+        precomputeState.value = s.data
+        if (s.data.status !== 'running') clearInterval(poll)
+      } catch { clearInterval(poll) }
+    }, 4000)
+  } catch (e) {
+    console.error('Precompute trigger failed', e)
+  }
+}
+
+async function refreshPrecomputeStatus() {
+  try {
+    const res = await fetchPrecomputeTechStatus()
+    precomputeState.value = res.data
+  } catch {}
+}
+
 onMounted(() => {
   load()
   refreshPipelineStatus()
   loadPoolStats()
+  refreshPrecomputeStatus()
 })
 
 function oppTagTip(row) {
@@ -1068,6 +1120,7 @@ function oppTagTip(row) {
 .pipe-stat  { font-size: 0.75em; color: #6b7280; }
 .pipe-stat strong { color: #111827; }
 .pipe-empty { font-size: 0.72em; color: #9ca3af; }
+.pipe-desc  { font-size: 0.70em; color: #6b7280; margin-bottom: 8px; }
 .pipe-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pipe-date-input {
   border: 1px solid #d1d5db; border-radius: 7px;
