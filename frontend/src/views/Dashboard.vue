@@ -955,12 +955,12 @@ function scheduleNextRefresh() {
       if (!isMarketOpen()) stopRefreshTimer()
     }, 30000)
   } else {
-    // 非交易时段: 等到下次开盘再启动
+    // 非交易时段: 不拉数据，精确等到下次开盘再启动 interval
     const ms = msUntilNextOpen()
     refreshTimer = setTimeout(() => {
-      refresh()
-      scheduleNextRefresh()
-    }, Math.min(ms, 3600000))  // 最多少 1 小时检查一次
+      refreshTimer = null
+      scheduleNextRefresh()  // 此时 isMarketOpen() 应为 true，进入 30 秒轮询
+    }, ms > 0 ? ms : 3600000)  // msUntilNextOpen 异常时兜底 1 小时
   }
 }
 
