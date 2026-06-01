@@ -239,6 +239,9 @@
           <span class="page-info">{{ currentPage + 1 }} / {{ totalPages }}</span>
           <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="nextPage">下一页 ›</button>
         </div>
+
+        <!-- ── 热股榜 (仅"板块/个股行情" Tab 内显示) ── -->
+        <HotStockBoard @open-stock="handleHotStockOpen" />
       </div>
 
       <!-- ── Panel: 量化分析 ── 首次点击后渲染并保持挂载，避免重复拉取 -->
@@ -261,8 +264,6 @@
         <RiskWarningPanel />
       </div>
 
-      <!-- ── 热股榜 (常驻底部) ── -->
-      <HotStockBoard @open-stock="handleHotStockOpen" />
 
     </main>
 

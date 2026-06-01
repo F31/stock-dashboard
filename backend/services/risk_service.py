@@ -606,11 +606,12 @@ async def fetch_block_trades():
 
 def _lhb_sync():
     """主：ak.stock_lhb_detail_em（东财详情）
-    备：ak.stock_lhb_hyyyb_em（东财行业营业部排名，不同维度）
+    备：ak.stock_lhb_stock_detail_em 按个股汇总
+    lookback=7天确保覆盖周末/节假日，始终能拿到最近交易日数据。
     """
     import akshare as ak
     today = date.today().strftime("%Y%m%d")
-    start = (date.today() - timedelta(days=2)).strftime("%Y%m%d")
+    start = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
 
     df = None
     try:
