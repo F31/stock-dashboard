@@ -364,8 +364,9 @@ const ttsVoices = [
   { label: '云杨 (男声)', value: 'zh-CN-YunyangNeural'  },
   { label: '云希 (男声)', value: 'zh-CN-YunxiNeural'    },
 ]
-// 移动端默认 edge-tts：SpeechSynthesis 在 iOS 上手势限制严格且有 15s 停止 bug
-const selectedVoice = ref(_isMobile ? 'zh-CN-XiaoxiaoNeural' : '__browser__')
+// 全平台默认浏览器语音：无需后端、零网络请求；edge_tts 作为可选高品质选项
+// iOS 15s 停止 bug 已由 _startIosKeepalive() 规避
+const selectedVoice = ref('__browser__')
 
 async function toggleTTS() {
   // ① 在用户手势最开始就同步解锁 AudioContext（必须在任何 await 之前）
@@ -430,14 +431,16 @@ async function toggleTTS() {
       window.speechSynthesis.onvoiceschanged = () => {} // 确保触发加载
     }
     const voice = _getChineseVoice() // 可能 null，lang='zh-CN' 足以提示浏览器选语音
-    if (_isMobile && !voice) {
-      // iOS 没找到中文声音，回退到 edge-tts（更可靠）
-      selectedVoice.value = 'zh-CN-XiaoxiaoNeural'
-      _fallbackEdgeTTS(text)
-      return
-    }
     if (!voice) {
-      ttsError.value = '未找到中文语音，请切换到「小晓」声音'
+      // 声音列表还未加载完，等加载后重试
+      if (window.speechSynthesis.getVoices().length === 0) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          window.speechSynthesis.onvoiceschanged = null
+          toggleTTS()
+        }
+        return
+      }
+      ttsError.value = '未找到中文语音，请切换到「小晓 (Azure)」声音或检查系统语言设置'
       return
     }
 
@@ -604,8 +607,18 @@ async function _fetchChunk(idx) {
     if (_session !== mySid) return
     delete _fetching[idx]
     if (ttsState.value === 'loading' && idx === _playIdx) {
-      ttsState.value = 'idle'
-      ttsError.value = `第 ${idx + 1} 段合成失败，请检查网络后重试`
+      // Azure TTS 不可用时自动降级到浏览器语音
+      if (selectedVoice.value !== '__browser__' && _isSpeechReady()) {
+        ttsError.value = 'Azure 语音不可用，已自动切换为浏览器语音'
+        selectedVoice.value = '__browser__'
+        ttsState.value = 'idle'
+        _revokeAll()
+        // 延迟重启，让用户看到提示
+        setTimeout(() => toggleTTS(), 800)
+      } else {
+        ttsState.value = 'idle'
+        ttsError.value = `第 ${idx + 1} 段合成失败，请检查网络后重试`
+      }
     }
   }
 }

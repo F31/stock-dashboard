@@ -365,11 +365,11 @@ export function fetchSectorHeatmap() {
   return api.get('/sector/heatmap')
 }
 
-export function fetchXueqiuHot(type = 10) {
-  return api.get('/hot/xueqiu', { params: { type } })
+export function fetchXueqiuHot(type = 10, force = false) {
+  return api.get('/hot/xueqiu', { params: { type, ...(force ? { force: true } : {}) } })
 }
 
-export function fetchEMHot() {
-  return api.get('/hot/eastmoney')
+export function fetchEMHot(force = false) {
+  return api.get('/hot/eastmoney', { params: force ? { force: true } : {} })
 }
 

@@ -203,14 +203,14 @@ async def fetch_xueqiu_hot(type_: int = 10) -> dict:
             for i, it in enumerate(items[:20]):
                 sym: str = str(it.get("symbol") or "")
                 code, market = _strip_prefix(sym)
-                pct = it.get("percent")
+                pct = _safe_float(it.get("percent"))
                 hot = it.get("value")
                 result.append({
                     "rank":        i + 1,
                     "code":        code,
                     "market":      market,
                     "name":        str(it.get("name") or ""),
-                    "percent":     round(float(pct), 2) if pct is not None else None,
+                    "percent":     round(pct, 2) if pct is not None else None,
                     "hot":         int(hot) if hot is not None else None,
                     "rank_change": int(it.get("rank_change") or 0),
                 })
@@ -239,7 +239,6 @@ _EM_HEADERS = {"User-Agent": _UA, "Referer": "https://guba.eastmoney.com/rank/"}
 _EM_TRANSPORT = httpx.AsyncHTTPTransport(proxy=None)   # bypass local dev proxy
 
 _EM_RANK_URL  = "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
-_EM_PRICE_URL = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
 _EM_RANK_BODY = {
     "appId": "appId01",
     "globalId": "786e4c21-70dc-435a-93bb-38",
@@ -247,6 +246,57 @@ _EM_RANK_BODY = {
     "pageNo": 1,
     "pageSize": 20,
 }
+
+# ── Tencent price lookup (used for EastMoney hot stock prices) ────────────────
+# push2delay returns f2='-' in non-trading hours.
+# Tencent qt.gtimg.cn always returns the last traded price (closing price
+# when market is closed), so we use it as the price source for hot stocks.
+_TX_HEADERS = {
+    "User-Agent": _UA,
+    "Referer": "https://gu.qq.com",
+}
+import re as _re
+
+async def _fetch_prices_tx(codes: list[str]) -> dict[str, dict]:
+    """Batch-fetch prices from Tencent qt.gtimg.cn.
+
+    Returns {code: {price, change_pct, name}}.
+    Works in trading AND non-trading hours (returns last close when market is closed).
+    """
+    if not codes:
+        return {}
+    syms = ",".join(("sh" if c.startswith("6") else "sz") + c for c in codes)
+    try:
+        async with httpx.AsyncClient(
+            timeout=10, transport=_EM_TRANSPORT
+        ) as c:
+            r = await c.get(f"https://qt.gtimg.cn/q={syms}", headers=_TX_HEADERS)
+        text = r.content.decode("gbk", errors="replace")
+        result: dict[str, dict] = {}
+        for line in text.strip().split("\n"):
+            parts = line.split("~")
+            if len(parts) < 5:
+                continue
+            m = _re.search(r"v_[a-z]{2}(\d{6})", line)
+            if not m:
+                continue
+            code = m.group(1)
+            try:
+                price      = float(parts[3])
+                prev_close = float(parts[4])
+                if price <= 0 or prev_close <= 0:
+                    continue
+                result[code] = {
+                    "price":      round(price, 2),
+                    "change_pct": round((price - prev_close) / prev_close * 100, 2),
+                    "name":       parts[1],
+                }
+            except (ValueError, IndexError):
+                continue
+        return result
+    except Exception as exc:
+        logger.warning("Tencent batch price fetch failed: %s", exc)
+        return {}
 
 
 def _sc_to_secid(sc: str) -> str:
@@ -263,6 +313,20 @@ def _rank_delta_icon(rc) -> str:
     return "↑" if v > 0 else ("↓" if v < 0 else "—")
 
 
+def _safe_float(v) -> float | None:
+    """Convert to float safely; return None for '-', '', None, or non-numeric strings.
+
+    Non-trading hours: EastMoney returns '-' for price/change fields — this is
+    expected and must NOT be treated as a failure.
+    """
+    if v is None or v == "-" or v == "":
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
 async def fetch_em_hot() -> dict:
     """Return {'items': [...], 'stale': bool}."""
     cache_key = "em:hot"
@@ -277,6 +341,7 @@ async def fetch_em_hot() -> dict:
         return _result(stale or [], stale=stale is not None)
 
     try:
+        # Step 1 — rank list from EastMoney
         async with httpx.AsyncClient(
             timeout=15, follow_redirects=True, transport=_EM_TRANSPORT
         ) as c:
@@ -293,41 +358,32 @@ async def fetch_em_hot() -> dict:
                 _on_failure(cache_key)
                 return _result(_get_stale(cache_key) or [], stale=True)
 
-            secids = [_sc_to_secid(it["sc"]) for it in rank_items if it.get("sc")]
-
-            r2 = await c.get(
-                _EM_PRICE_URL,
-                params={
-                    "ut": "f057cbcbce2a86e2866ab8877db1d059",
-                    "fltt": "2", "invt": "2",
-                    "fields": "f14,f3,f12,f2",
-                    "secids": ",".join(secids),
-                },
-                headers=_EM_HEADERS,
-            )
-            price_rows: list = (r2.json().get("data") or {}).get("diff") or []
-            price_map = {str(row.get("f12")): row for row in price_rows}
+        # Step 2 — prices from Tencent (works in both trading and non-trading hours)
+        codes = [it["sc"][2:] for it in rank_items if it.get("sc") and len(it["sc"]) > 2]
+        price_map = await _fetch_prices_tx(codes)
 
         result = []
         for rank_row in rank_items:
             sc: str = rank_row.get("sc") or ""
             code = sc[2:] if len(sc) > 2 else sc
             pr = price_map.get(code, {})
-            pct = pr.get("f3")
             result.append({
                 "rank":       int(rank_row.get("rk") or 0),
                 "code":       code,
                 "market":     "A",
-                "name":       str(pr.get("f14") or ""),
-                "percent":    round(float(pct), 2) if pct is not None else None,
+                "name":       pr.get("name") or "",
+                "percent":    pr.get("change_pct"),    # None if Tencent fetch failed
+                "price":      pr.get("price"),
                 "rank_delta": _rank_delta_icon(rank_row.get("rc", 0)),
             })
         result.sort(key=lambda x: x["rank"])
 
         if result:
+            # Rank list valid even if prices are None (non-trading hours) — not a failure
             _on_success(cache_key, result)
             return _result(result)
 
+        # rank_items was non-empty but result ended up empty — unexpected
         _on_failure(cache_key)
         return _result(_get_stale(cache_key) or [], stale=True)
 

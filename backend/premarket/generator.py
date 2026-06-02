@@ -1437,9 +1437,10 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   <div id="tts-progress"></div>
   <div id="tts-controls">
     <select id="tts-voice">
-      <option value="zh-CN-XiaoxiaoNeural">小晓 (女声)</option>
-      <option value="zh-CN-YunyangNeural">云杨 (男声)</option>
-      <option value="zh-CN-YunxiNeural">云希 (男声)</option>
+      <option value="__browser__">浏览器语音 (推荐)</option>
+      <option value="zh-CN-XiaoxiaoNeural">小晓 (Azure女声)</option>
+      <option value="zh-CN-YunyangNeural">云杨 (Azure男声)</option>
+      <option value="zh-CN-YunxiNeural">云希 (Azure男声)</option>
     </select>
     <button class="tts-btn" id="tts-play" onclick="toggleTTS()">🔊 朗读</button>
     <button class="tts-btn" id="tts-stop" onclick="stopTTS()" title="停止朗读">⏹</button>
@@ -1458,14 +1459,123 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   var LOOKAHEAD = 2;
   var _isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-  var _audio    = null;   // HTMLAudioElement（桌面）
-  var _audioCtx = null;   // AudioContext（全平台解锁 + 移动播放）
-  var _curSrc   = null;   // BufferSourceNode（移动当前正在播放的片段）
+  var _audio    = null;
+  var _audioCtx = null;
+  var _curSrc   = null;
   var _state    = 'idle';
   var _chunks   = [], _playIdx = 0;
-  var _buffers  = {{}};   // idx → AudioBuffer（移动）或 blob URL（桌面）
+  var _buffers  = {{}};
   var _fetching = {{}};
   var _session  = 0;
+
+  // ── 浏览器语音引擎 (SpeechSynthesis) ──────────────────────────────────────
+  var _utterances = [];  // SpeechSynthesisUtterance[]
+  var _uIdx = 0;
+  var _iosKeepalive = null;
+
+  function _isBrowserVoice() {{
+    var sel = document.getElementById('tts-voice');
+    return sel && sel.value === '__browser__';
+  }}
+
+  function _getZhVoice() {{
+    if (!window.speechSynthesis) return null;
+    var voices = window.speechSynthesis.getVoices();
+    return voices.find(function(v) {{
+      return v.lang === 'zh-CN' || v.lang === 'zh_CN' || v.lang.startsWith('zh');
+    }}) || null;
+  }}
+
+  function _splitUtterances(text) {{
+    // Split at sentence-ending punctuation, keep chunks ≤ 150 chars for iOS compatibility
+    var parts = text.split(/(?=[。！？\n])/);
+    var result = [], cur = '';
+    parts.forEach(function(p) {{
+      if ((cur + p).length > 150 && cur) {{ result.push(cur.trim()); cur = ''; }}
+      cur += p;
+    }});
+    if (cur.trim()) result.push(cur.trim());
+    return result.filter(function(s) {{ return s.length > 0; }});
+  }}
+
+  function _startIosKeepalive() {{
+    if (!_isMobile) return;
+    _iosKeepalive = setInterval(function() {{
+      if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {{
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      }}
+    }}, 10000);
+  }}
+  function _stopIosKeepalive() {{
+    if (_iosKeepalive) {{ clearInterval(_iosKeepalive); _iosKeepalive = null; }}
+  }}
+
+  function _speakNext() {{
+    if (_uIdx >= _utterances.length) {{ _setState('idle'); _stopIosKeepalive(); return; }}
+    var mySid = _session;
+    var u = _utterances[_uIdx];
+    u.onstart = function() {{
+      if (_session !== mySid) return;
+      _setState('playing');
+      var progEl = document.getElementById('tts-progress');
+      if (progEl) progEl.textContent = '第 '+(_uIdx+1)+' / '+_utterances.length+' 段';
+    }};
+    u.onend = function() {{
+      if (_session !== mySid) return;
+      _uIdx++;
+      _speakNext();
+    }};
+    u.onerror = function(e) {{
+      if (_session !== mySid) return;
+      // ignore 'interrupted' — happens when stop() is called
+      if (e.error === 'interrupted' || e.error === 'canceled') return;
+      _setState('idle'); _stopIosKeepalive();
+      _showErr('浏览器语音朗读失败: ' + e.error);
+    }};
+    window.speechSynthesis.speak(u);
+  }}
+
+  function _startBrowserTTS(text) {{
+    if (!window.speechSynthesis) {{
+      _showErr('当前浏览器不支持语音朗读');
+      return;
+    }}
+    var voice = _getZhVoice();
+    if (!voice && window.speechSynthesis.getVoices().length === 0) {{
+      // Voices not loaded yet — wait then retry
+      window.speechSynthesis.onvoiceschanged = function() {{
+        window.speechSynthesis.onvoiceschanged = null;
+        _startBrowserTTS(text);
+      }};
+      return;
+    }}
+    _session++;
+    window.speechSynthesis.cancel();
+    _stopIosKeepalive();
+    var sentences = _splitUtterances(text);
+    if (!sentences.length) return;
+    _utterances = sentences.map(function(s) {{
+      var u = new SpeechSynthesisUtterance(s);
+      u.lang = 'zh-CN';
+      u.rate = 0.9;
+      if (voice) u.voice = voice;
+      return u;
+    }});
+    _uIdx = 0;
+    _setState('loading');
+    var progEl = document.getElementById('tts-progress');
+    if (progEl) {{ progEl.style.display = sentences.length > 1 ? 'block' : 'none'; }}
+    _speakNext();
+    _startIosKeepalive();
+  }}
+
+  function _stopBrowserTTS() {{
+    _session++;
+    window.speechSynthesis.cancel();
+    _stopIosKeepalive();
+    _utterances = []; _uIdx = 0;
+  }}
 
   // ── 音频解锁 ──────────────────────────────────────────────────────────────
   function _ensureAudioUnlocked() {{
@@ -1582,9 +1692,16 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
       if (_session !== mySid) return;
       delete _fetching[idx];
       if (_state === 'loading' && idx === _playIdx) {{
-        _setState('idle');
-        _showErr('第 '+(idx+1)+' 段合成失败，请检查网络后重试');
-        console.error('TTS chunk '+idx, e);
+        console.warn('Azure TTS chunk '+idx+' failed:', e, '— falling back to browser voice');
+        // 自动降级：切换到浏览器语音并重新开始
+        var sel = document.getElementById('tts-voice');
+        if (sel) sel.value = '__browser__';
+        _revokeAll(); _setState('idle');
+        _showErr('Azure 语音不可用，已自动切换为浏览器语音');
+        setTimeout(function() {{
+          var text = _getText();
+          if (text) _startBrowserTTS(text);
+        }}, 800);
       }}
     }});
   }}
@@ -1645,6 +1762,7 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   }}
 
   function _start() {{
+    // edge-tts 路径：分块 + 后端合成
     var text = _getText();
     if (!text) {{ _showErr('未找到可朗读的内容'); return; }}
     _chunks = _buildChunks(text);
@@ -1659,35 +1777,54 @@ def generate(analysis: dict, cleaned_data: dict, report_date: str) -> str:
   window.toggleTTS = function() {{
     if (_state === 'loading') return;
     _ensureAudioUnlocked();  // 必须在用户手势中同步调用
+
+    var useBrowser = _isBrowserVoice();
+
     if (_state === 'idle') {{
-      if (_isMobile) {{
-        _start();
+      var text = _getText();
+      if (!text) {{ _showErr('未找到可朗读的内容'); return; }}
+      if (useBrowser) {{
+        _startBrowserTTS(text);
       }} else {{
-        if (!_audio) {{ _audio = new Audio(); _audio.preload = 'auto'; }}
-        _audio.src = _SILENT; _audio.loop = true; _audio.volume = 0.01;
-        var p = _audio.play(); if (p) p.catch(function(){{}});
-        _start();
+        // edge-tts 路径（需要后端 Azure TTS）
+        if (_isMobile) {{
+          _start();
+        }} else {{
+          if (!_audio) {{ _audio = new Audio(); _audio.preload = 'auto'; }}
+          _audio.src = _SILENT; _audio.loop = true; _audio.volume = 0.01;
+          var p = _audio.play(); if (p) p.catch(function(){{}});
+          _start();
+        }}
       }}
     }} else if (_state === 'playing') {{
-      if (_isMobile && _audioCtx) {{
+      if (useBrowser) {{
+        window.speechSynthesis.pause();
+        _stopIosKeepalive();
+        _setState('paused');
+      }} else if (_isMobile && _audioCtx) {{
         _audioCtx.suspend().catch(function(){{}});
+        _setState('paused');
       }} else if (_audio) {{
         _audio.pause();
+        _setState('paused');
       }}
-      _setState('paused');
     }} else if (_state === 'paused') {{
-      if (_isMobile && _audioCtx) {{
+      if (useBrowser) {{
+        window.speechSynthesis.resume();
+        _startIosKeepalive();
+        _setState('playing');
+      }} else if (_isMobile && _audioCtx) {{
         _audioCtx.resume().then(function(){{ _setState('playing'); }})
-          .catch(function(e){{ _showErr('恢复失败，请重试'); }});
+          .catch(function(){{ _showErr('恢复失败，请重试'); }});
       }} else if (_audio) {{
         _audio.play().then(function(){{ _setState('playing'); }})
-          .catch(function(e){{ _showErr('恢复失败，请重试'); }});
+          .catch(function(){{ _showErr('恢复失败，请重试'); }});
       }}
     }}
   }};
 
   window.stopTTS = function() {{
-    _session++;
+    _stopBrowserTTS();
     if (_isMobile && _curSrc) {{
       try {{ _curSrc.stop(); }} catch(e) {{}} _curSrc = null;
     }}

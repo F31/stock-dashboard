@@ -139,11 +139,12 @@ async function loadIfNeeded(force = false) {
   try {
     let list = [], stale = false
     if (activeSource.value === 'xueqiu') {
-      const res = await fetchXueqiuHot(activeXqType.value)
+      // force=true 时透传给后端，清除退避状态
+      const res = await fetchXueqiuHot(activeXqType.value, force)
       list  = Array.isArray(res.data?.data) ? res.data.data : []
       stale = !!res.data?.stale
     } else {
-      const res = await fetchEMHot()
+      const res = await fetchEMHot(force)
       list  = Array.isArray(res.data?.data) ? res.data.data : []
       stale = !!res.data?.stale
     }
