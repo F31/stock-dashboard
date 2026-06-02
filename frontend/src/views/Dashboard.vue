@@ -973,12 +973,21 @@ function scheduleNextRefresh() {
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('auth:logout', stopRefreshTimer)
-  await store.loadWatchlist()
-  // Phase 1: show prices fast (~1-2s), no news/financials yet
-  await store.refreshPriceOnly()
+
+  // Single request: watchlist metadata + cached prices (if SWR cache is warm)
+  const hasPrices = await store.loadWatchlist()
   lastUpdate.value = fmtTime()
-  // Phase 2: enrich with news + financials in background (silent update)
-  store.refreshStocks().then(() => { lastUpdate.value = fmtTime() })
+
+  if (hasPrices) {
+    // Cache warm — cards already show prices; enrich with financials in background
+    store.refreshStocks().then(() => { lastUpdate.value = fmtTime() })
+  } else {
+    // Cache cold (backend restart / first-ever load):
+    // show cards immediately (with --- placeholders), then fill prices fast
+    store.refreshPriceOnly().then(() => { lastUpdate.value = fmtTime() })
+    store.refreshStocks().then(() => { lastUpdate.value = fmtTime() })
+  }
+
   loadQuanScores()
   scheduleNextRefresh()
   document.addEventListener('click', closeSysMenu)

@@ -21,12 +21,14 @@ from services.stock_service import (
     batch_fetch_financial_snapshots,
     compute_peg,
     compute_signal,
+    get_cached_realtime,
 )
 from services.sector_service import (
     is_board_code,
     fetch_sector_realtime,
     search_board,
     lookup_board_name,
+    get_cached_sector,
 )
 from services.capex_service import get_capex_record_from_db, refresh_all_capex
 from database import get_db
@@ -75,19 +77,36 @@ class BatchStockData(BaseModel):
 
 
 @router.get("/stocks/list")
-def list_stocks(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_stocks(
+    with_prices: bool = Query(False, description="Attach cached realtime prices to each item"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     stocks = (
         db.query(WatchlistItem)
         .filter(WatchlistItem.user_id == user.id)
         .order_by(WatchlistItem.sort_order)
         .all()
     )
-    return [{
-        "id": s.id, "stock_code": s.stock_code, "market": s.market,
-        "stock_name": s.stock_name, "notes": s.notes, "sort_order": s.sort_order,
-        "item_type": s.item_type or "stock",
-        "hidden": s.hidden or 0,
-    } for s in stocks]
+    result = []
+    for s in stocks:
+        item = {
+            "id": s.id, "stock_code": s.stock_code, "market": s.market,
+            "stock_name": s.stock_name, "notes": s.notes, "sort_order": s.sort_order,
+            "item_type": s.item_type or "stock",
+            "hidden": s.hidden or 0,
+        }
+        if with_prices:
+            is_sector = (s.item_type or "stock") == "sector"
+            cached = (
+                get_cached_sector(s.stock_code)
+                if is_sector
+                else get_cached_realtime(s.market, s.stock_code)
+            )
+            if cached:
+                item["data"] = cached   # includes price, change_pct, pe, etc.
+        result.append(item)
+    return result
 
 
 @router.get("/stocks/preview/{code}")

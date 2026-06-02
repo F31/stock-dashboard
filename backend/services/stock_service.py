@@ -1480,3 +1480,8 @@ async def search_stock(keyword: str) -> list:
             logger.debug(f"Sina HK fallback error: {e}")
 
     return results
+
+
+def get_cached_realtime(market: str, code: str) -> dict | None:
+    """Return cached realtime price data for a stock, None if not cached / expired."""
+    return _get_cached(f"realtime:{market}:{code}")

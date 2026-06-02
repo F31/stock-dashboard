@@ -622,3 +622,8 @@ async def fetch_heatmap_data() -> list:
     # Sort by |fund_flow| descending — most active boards first
     entries.sort(key=lambda x: abs(x["fund_flow"]) if x["fund_flow"] is not None else 0, reverse=True)
     return entries[:100]
+
+
+def get_cached_sector(code: str) -> dict | None:
+    """Return cached sector realtime data, None if not cached / expired."""
+    return _get_cached(f"sector:{code}")

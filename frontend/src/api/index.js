@@ -41,8 +41,8 @@ export function register(username, password) {
 
 // ── Watchlist ──
 
-export function listStocks() {
-  return api.get('/stocks/list')
+export function listStocks(params = {}) {
+  return api.get('/stocks/list', { params })
 }
 
 export function addStock(code, market, name) {

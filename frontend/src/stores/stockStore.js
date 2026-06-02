@@ -38,15 +38,39 @@ export const useStockStore = defineStore('stocks', {
         data: state.realtime[`${s.market}:${s.stock_code}`] || null,
       }))
     },
+
+    /** True when at least one stock has cached price data (SWR cache was warm). */
+    hasCachedPrices: (state) => Object.keys(state.realtime).length > 0,
   },
 
   actions: {
+    /**
+     * Load watchlist from DB, including cached realtime prices when available.
+     * Returns true if price data was included (cache warm), false if cold.
+     */
     async loadWatchlist() {
       try {
-        const res = await listStocks()
-        this.stocks = res.data
+        const res = await listStocks({ with_prices: true })
+        const items = res.data
+        // Separate base metadata from optional cached price data
+        this.stocks = items.map(({ data: _d, ...rest }) => rest)
+        // Populate realtime from cached data — may be partial if cache is cold
+        let priceCount = 0
+        for (const item of items) {
+          if (item.data) {
+            const key = `${item.market}:${item.stock_code}`
+            if (this.realtime[key]) {
+              Object.assign(this.realtime[key], item.data)
+            } else {
+              this.realtime[key] = item.data
+            }
+            priceCount++
+          }
+        }
+        return priceCount > 0  // true = warm cache, false = cold
       } catch (e) {
         this.error = 'Failed to load watchlist'
+        return false
       }
     },
 
