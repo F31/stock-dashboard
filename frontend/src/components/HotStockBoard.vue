@@ -21,7 +21,10 @@
 
       <div class="hb-header-r">
         <span class="hb-top-label">Top20</span>
-        <span class="hb-update" v-if="currentSlot.ts">{{ fmtTs(currentSlot.ts) }} 更新</span>
+        <span class="hb-update" v-if="currentSlot.ts">
+          {{ fmtTs(currentSlot.ts) }} 更新
+          <span v-if="currentSlot.stale" class="hb-stale" title="数据源暂时不可用，显示上次成功获取的数据">⚠ 可能已过期</span>
+        </span>
         <button
           class="hb-refresh"
           :class="{ spinning: currentSlot.loading }"
@@ -102,9 +105,9 @@ const CACHE_TTL = 5 * 60 * 1000  // 5 min frontend cache
 const activeSource = ref('xueqiu')
 const activeXqType = ref(10)
 
-// Each slot: { data, ts, loading, error }
+// Each slot: { data, ts, loading, error, stale }
 function makeSlot() {
-  return reactive({ data: [], ts: 0, loading: false, error: false })
+  return reactive({ data: [], ts: 0, loading: false, error: false, stale: false })
 }
 
 const slots = {
@@ -132,20 +135,28 @@ async function loadIfNeeded(force = false) {
 
   slot.loading = true
   slot.error   = false
+  slot.stale   = false
   try {
-    let list = []
+    let list = [], stale = false
     if (activeSource.value === 'xueqiu') {
       const res = await fetchXueqiuHot(activeXqType.value)
-      list = Array.isArray(res.data?.data) ? res.data.data : []
+      list  = Array.isArray(res.data?.data) ? res.data.data : []
+      stale = !!res.data?.stale
     } else {
       const res = await fetchEMHot()
-      list = Array.isArray(res.data?.data) ? res.data.data : []
+      list  = Array.isArray(res.data?.data) ? res.data.data : []
+      stale = !!res.data?.stale
     }
-    slot.data = list
-    slot.ts   = Date.now()
-    if (!list.length) slot.error = true
+    if (list.length) {
+      slot.data  = list
+      slot.ts    = Date.now()
+      slot.stale = stale
+    } else {
+      // truly empty: keep previous data if any, mark error only when nothing to show
+      if (!slot.data.length) slot.error = true
+    }
   } catch {
-    slot.error = true
+    if (!slot.data.length) slot.error = true
   } finally {
     slot.loading = false
   }
@@ -279,6 +290,7 @@ function fmtTs(ts) {
   color: #6b7280;
 }
 .hb-update { white-space: nowrap; }
+.hb-stale  { color: #f59e0b; font-size: 0.9em; margin-left: 4px; }
 .hb-refresh {
   width: 24px;
   height: 24px;

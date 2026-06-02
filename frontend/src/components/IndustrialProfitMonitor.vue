@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import {
   Chart,
   LineController, LineElement,
@@ -108,6 +108,11 @@ const tabs = [
   { key: 'charts', label: '📈 工业经济图表' },
 ]
 const activeTab = ref('profit')
+
+const isDark = () => document.documentElement.classList.contains('dark')
+const gridColor  = () => isDark() ? '#334155' : '#f3f4f6'
+const labelColor = () => isDark() ? '#94a3b8' : '#9ca3af'
+const textColor  = () => isDark() ? '#94a3b8' : '#374151'
 
 // ── Profit history tab ──
 const profitHistory = ref(null)
@@ -189,14 +194,14 @@ function buildProfitChartOptions() {
           maxTicksLimit: mobile ? 8 : 16,
           maxRotation: 45,
         },
-        grid: { color: '#f3f4f6' },
+        grid: { color: gridColor() },
       },
       y: {
         ticks: {
           font: { size: mobile ? 9 : 10 },
           callback: v => v + '%',
         },
-        grid: { color: '#f3f4f6' },
+        grid: { color: gridColor() },
       },
     },
   }
@@ -323,10 +328,10 @@ function buildBarLineData(indicator) {
   return { labels, datasets }
 }
 
-const _xScale = {
+const _xScale = () => ({
   ticks: { font: { size: 10 }, maxTicksLimit: 18, maxRotation: 45 },
-  grid: { color: '#f3f4f6' },
-}
+  grid: { color: gridColor() },
+})
 
 function renderIndicatorChart(canvas, indicator, existingChart) {
   if (!canvas || !indicator?.series?.length) return existingChart
@@ -348,16 +353,16 @@ function renderIndicatorChart(canvas, indicator, existingChart) {
         interaction: { mode: 'index', intersect: false },
         plugins: commonPlugins,
         scales: {
-          x: _xScale,
+          x: _xScale(),
           y: {
             type: 'linear', position: 'left',
-            ticks: { font: { size: 10 } }, grid: { color: '#f3f4f6' },
-            title: { display: true, text: '亿元', font: { size: 10 }, color: '#9ca3af' },
+            ticks: { font: { size: 10 } }, grid: { color: gridColor() },
+            title: { display: true, text: '亿元', font: { size: 10 }, color: labelColor() },
           },
           y1: {
             type: 'linear', position: 'right',
             ticks: { font: { size: 10 } }, grid: { drawOnChartArea: false },
-            title: { display: true, text: '%', font: { size: 10 }, color: '#9ca3af' },
+            title: { display: true, text: '%', font: { size: 10 }, color: labelColor() },
           },
         },
       },
@@ -373,8 +378,8 @@ function renderIndicatorChart(canvas, indicator, existingChart) {
       interaction: { mode: 'index', intersect: false },
       plugins: commonPlugins,
       scales: {
-        x: _xScale,
-        y: { ticks: { font: { size: 10 } }, grid: { color: '#f3f4f6' } },
+        x: _xScale(),
+        y: { ticks: { font: { size: 10 } }, grid: { color: gridColor() } },
       },
     },
   })
@@ -428,12 +433,28 @@ function switchTab(key) {
   }
 }
 
-onMounted(loadProfit)
+function reRenderAllCharts() {
+  nextTick(() => {
+    renderProfitCharts()
+    if (chartsData.value) {
+      ivaChart = renderIndicatorChart(ivaCanvas.value, chartsData.value.industrial_value_added, ivaChart)
+      expChart = renderIndicatorChart(expCanvas.value, chartsData.value.industrial_export, expChart)
+    }
+  })
+}
+
+let _darkObserver = null
+onMounted(() => {
+  loadProfit()
+  _darkObserver = new MutationObserver(() => reRenderAllCharts())
+  _darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+})
 onUnmounted(() => {
   totalChart?.destroy()
   elecChart?.destroy()
   ivaChart?.destroy()
   expChart?.destroy()
+  _darkObserver?.disconnect()
 })
 </script>
 

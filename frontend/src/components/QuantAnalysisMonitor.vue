@@ -94,7 +94,10 @@
                 </span>
                 <button class="pipe-refresh-btn" @click="refreshPrecomputeStatus">↻</button>
               </div>
-              <div class="pipe-desc">同步后在云端批量计算全量股票技术指标，消除"技术指标计算失败"提示</div>
+              <div class="pipe-desc">
+                <strong>推荐：</strong>在本地执行训练流水线（已含预计算 + 同步），无需点此按钮。<br>
+                此处为<strong>应急备用</strong>：对云端缺失的股票，通过腾讯 K 线接口（单只按需计算）补充技术指标。
+              </div>
               <div class="pipe-controls">
                 <button class="pipe-run-btn"
                         :disabled="precomputeState.status === 'running'"

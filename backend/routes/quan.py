@@ -99,6 +99,7 @@ def _fetch_tencent(codes: list[str]) -> dict[str, dict]:
                 f"https://qt.gtimg.cn/q={syms}",
                 headers=_TQ_HEADERS,
                 timeout=8,
+                proxies={"http": None, "https": None},
             )
             r.encoding = "gbk"
             for line in r.text.strip().split("\n"):
@@ -245,59 +246,72 @@ def _load_precomputed_levels(code: str) -> dict | None:
         return None
 
 
-_EM_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-_EM_KLINE_HEADERS = {
-    "Referer":    "https://finance.eastmoney.com/",
+# ── Tencent historical K-line (on-demand cloud fallback) ─────────────────────
+# Primary source: quan_tech_levels (precomputed locally via baostock, synced here)
+# Fallback:       web.ifzq.gtimg.cn  — Tencent's historical K-line API
+#   • Different IP pool from EastMoney → no cross-contamination of bans
+#   • qfq (前复权) daily bars, 3 years of history
+#   • Response fields: [date, open, close, high, low, volume]
+#   • Used only for on-demand per-stock requests (stock detail modal)
+#   • Batch precompute runs locally via baostock, never here
+
+_TX_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+_TX_KLINE_HEADERS = {
+    "Referer":    "https://gu.qq.com/",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
 }
 
 
-def _fetch_em_klines(code: str) -> "pd.DataFrame | None":
-    """Fetch 3 years of front-adjusted daily OHLCV from EastMoney directly.
+def _fetch_tx_klines(code: str) -> "pd.DataFrame | None":
+    """Fetch front-adjusted daily OHLCV from Tencent's historical K-line API.
 
-    Uses the same datacenter API as AKShare internally — no AKShare dependency.
-    Kline fields: date, open, close, high, low, volume, amount, amp, chg_pct, chg, turnover
+    Fields per bar: [date, open, close, high, low, volume(手)]
     """
     import pandas as pd
+    from datetime import date as _date
 
-    secid = ("1." if code.startswith("6") else "0.") + code
-    params = {
-        "fields1": "f1,f2,f3,f4,f5,f6",
-        "fields2": "f51,f52,f53,f54,f55,f56",
-        "ut":      "7eea3edcaed734bea9cbfc24409ed989",
-        "klt":     "101",   # daily
-        "fqt":     "1",     # front-adjusted (前复权)
-        "secid":   secid,
-        "beg":     "20230101",
-        "end":     "20500101",
-    }
+    prefix = "sh" if code.startswith("6") else "sz"
+    sym    = f"{prefix}{code}"
+    start  = f"{_date.today().year - 3}-01-01"
+    end    = _date.today().strftime("%Y-%m-%d")
+    # count=1500 covers ~6 years of trading days to be safe
+    param  = f"{sym},day,{start},{end},1500,qfq"
+
     try:
-        r = requests.get(_EM_KLINE_URL, params=params,
-                         headers=_EM_KLINE_HEADERS, timeout=15)
+        r = requests.get(_TX_KLINE_URL,
+                         params={"param": param},
+                         headers=_TX_KLINE_HEADERS,
+                         timeout=15,
+                         proxies={"http": None, "https": None})
+        if r.status_code in (403, 429, 503):
+            logger.warning("TX kline HTTP %d for %s (rate-limited)", r.status_code, code)
+            return None
         j = r.json()
     except Exception as e:
-        logger.warning("EM kline fetch failed for %s: %s", code, e)
+        logger.warning("TX kline fetch failed for %s: %s", code, e)
         return None
 
-    klines = (j.get("data") or {}).get("klines")
-    if not klines:
-        logger.warning("EM kline: empty result for %s (secid=%s)", code, secid)
+    stock_data = (j.get("data") or {}).get(sym) or {}
+    # Key is "qfqday" for front-adjusted data, fallback to "day"
+    bars = stock_data.get("qfqday") or stock_data.get("day") or []
+    if not bars:
+        logger.warning("TX kline: empty result for %s", code)
         return None
 
     rows = []
-    for line in klines:
-        parts = line.split(",")
-        if len(parts) < 6:
+    for bar in bars:
+        # bar = [date, open, close, high, low, volume, ...]
+        if len(bar) < 5:
             continue
         try:
             rows.append({
-                "date":  parts[0],
-                "open":  float(parts[1]),
-                "close": float(parts[2]),
-                "high":  float(parts[3]),
-                "low":   float(parts[4]),
+                "date":  bar[0],
+                "open":  float(bar[1]),
+                "close": float(bar[2]),
+                "high":  float(bar[3]),
+                "low":   float(bar[4]),
             })
-        except (ValueError, IndexError):
+        except (ValueError, TypeError, IndexError):
             continue
 
     if not rows:
@@ -375,12 +389,16 @@ def _compute_levels_from_ohlc(
 
 
 def _compute_levels_em(code: str) -> "dict | None":
-    """Compute technical indicators via EastMoney K-line API (no qlib/akshare needed).
+    """Compute technical indicators on-demand via Tencent K-line API.
 
-    Works on cloud deployments. Fetches 3 years of front-adjusted daily OHLCV
-    via direct HTTP, computes indicators, caches in quan_tech_levels.
+    Only called when:
+      1. quan_tech_levels has no row for this stock (precompute not yet synced), AND
+      2. qlib subprocess is not available (cloud deployment).
+
+    Primary path: baostock precompute runs locally → sync_to_cloud → read from DB.
+    This is the Tier-2 fallback for stocks missing from DB.
     """
-    df = _fetch_em_klines(code)
+    df = _fetch_tx_klines(code)
     if df is None:
         return None
     trade_date = df["date"].iloc[-1].strftime("%Y-%m-%d")
@@ -450,6 +468,7 @@ def _fetch_em_spot_price(code: str) -> dict:
             params={"secid": secid, "fields": "f43,f170,f116,f9,f23"},
             headers=_EM_KLINE_HEADERS,
             timeout=8,
+            proxies={"http": None, "https": None},
         )
         d = (r.json().get("data") or {})
         price  = d.get("f43")
@@ -491,6 +510,7 @@ def _fetch_tencent_detail(code: str) -> dict:
         r = requests.get(
             f"https://qt.gtimg.cn/q={prefix}{code}",
             headers=_TQ_HEADERS, timeout=8,
+            proxies={"http": None, "https": None},
         )
         r.encoding = "gbk"
         parts = r.text.strip().split("~")
@@ -1549,8 +1569,65 @@ _precompute_lock = _threading.Lock()
 
 
 def _run_precompute_tech_bg(trade_date: str) -> None:
-    """Background thread: batch-precompute tech levels for all pool stocks via EM kline."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    """Background thread: serial precompute with rate-limiting to avoid EM IP bans.
+
+    EastMoney push2his has no batch K-line endpoint — each stock is one request.
+    Hammering it with 10 concurrent workers triggers IP bans within seconds.
+
+    Strategy:
+    - 3 workers max (safe sustained rate ≈ 1-2 req/s per worker)
+    - 0.35s inter-request delay per worker (≈ 2-3 req/s total)
+    - Retry up to 3 times on HTTP errors (429/503/connection reset)
+    - Exponential backoff: 2s → 10s → 30s between retries
+    - On ban detection (many consecutive failures): pause all workers 60s
+    """
+    import random
+    import time as _time
+
+    _MAX_WORKERS      = 3
+    _INTER_REQ_DELAY  = 0.35   # seconds between requests per worker (jitter added)
+    _RETRY_DELAYS     = [2, 10, 30]
+    _BAN_THRESHOLD    = 15     # consecutive failures → suspect IP ban
+    _BAN_PAUSE        = 60     # seconds to pause all workers on ban
+
+    # Shared counter for consecutive failures across all workers
+    _consec_fail = [0]
+    _consec_lock = _threading.Lock()
+
+    def _fetch_with_retry(code: str) -> object:
+        """Attempt _compute_levels_em up to 3 times with backoff."""
+        for attempt in range(3):
+            # Global ban check: all workers pause when too many failures pile up
+            with _consec_lock:
+                if _consec_fail[0] >= _BAN_THRESHOLD:
+                    logger.warning(
+                        "precompute-tech: %d consecutive failures — pausing %ds (IP ban suspected)",
+                        _consec_fail[0], _BAN_PAUSE,
+                    )
+                    _consec_fail[0] = 0   # reset after pause
+
+            if attempt > 0:
+                wait = _RETRY_DELAYS[min(attempt - 1, len(_RETRY_DELAYS) - 1)]
+                logger.debug("precompute-tech: retry %d for %s in %ds", attempt, code, wait)
+                _time.sleep(wait)
+
+            result = _compute_levels_em(code)
+
+            if result:
+                with _consec_lock:
+                    _consec_fail[0] = 0   # success resets counter
+                return result
+
+            # _compute_levels_em returns None on any failure; treat as retriable
+            with _consec_lock:
+                _consec_fail[0] += 1
+
+        return None
+
+    def _worker(code: str) -> object:
+        # Jittered delay before each request to desynchronise workers
+        _time.sleep(_INTER_REQ_DELAY + random.uniform(0, 0.15))
+        return _fetch_with_retry(code)
 
     try:
         with _get_conn() as conn:
@@ -1568,15 +1645,19 @@ def _run_precompute_tech_bg(trade_date: str) -> None:
 
     pending = [c for c in codes if c not in existing]
     total = len(pending)
-    logger.info("precompute-tech: %d stocks pending for %s", total, trade_date)
+    logger.info(
+        "precompute-tech: %d pending / %d skipped(cached) for %s",
+        total, len(codes) - total, trade_date,
+    )
 
     with _precompute_lock:
         _precompute_state.update({"total": total, "done": 0, "failed": 0})
 
     done = 0
     failed = 0
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_compute_levels_em, c): c for c in pending}
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {executor.submit(_worker, c): c for c in pending}
         for future in as_completed(futures):
             try:
                 result = future.result()

@@ -68,6 +68,11 @@
         <button :class="['main-tab', { active: mainTab === 'risk' }]" @click="mainTab = 'risk'">
           🚨 风险预警
         </button>
+        <button
+          class="dark-toggle"
+          :title="isDark ? '切换到浅色模式' : '切换到深色模式'"
+          @click="toggleDark"
+        >{{ isDark ? '☀️' : '🌙' }}</button>
       </div>
 
       <!-- ── Panel: 板块/个股行情 ── -->
@@ -369,6 +374,7 @@
       v-if="showFrameworkEditor"
       @close="showFrameworkEditor = false"
     />
+
   </div>
 </template>
 
@@ -985,6 +991,20 @@ onUnmounted(() => {
   stopRefreshTimer()
   document.removeEventListener('click', closeSysMenu)
 })
+
+// ── Dark mode ──────────────────────────────────────────────────────────────
+const isDark = ref(document.documentElement.classList.contains('dark'))
+
+function toggleDark() {
+  isDark.value = !isDark.value
+  if (isDark.value) {
+    document.documentElement.classList.add('dark')
+    localStorage.setItem('darkMode', '1')
+  } else {
+    document.documentElement.classList.remove('dark')
+    localStorage.setItem('darkMode', '0')
+  }
+}
 </script>
 
 <style scoped>
@@ -1210,6 +1230,7 @@ onUnmounted(() => {
 /* ── Main Tabs (板块/个股行情 | 宏观经济数据) ── */
 .main-tab-bar {
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 16px 0 0;
   border-bottom: 2px solid #e5e7eb;
@@ -1851,4 +1872,32 @@ onUnmounted(() => {
   .main-tab-bar::-webkit-scrollbar { display: none; }
   .main-tab { flex-shrink: 0; font-size: 0.82em; padding: 8px 14px; }
 }
+
+/* ── Dark mode toggle — in tab bar, right-aligned, floating style ── */
+.dark-toggle {
+  margin-left: auto;
+  margin-bottom: 2px;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s, border-color 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+.dark-toggle:hover {
+  transform: scale(1.12);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+.dark-toggle:active { transform: scale(0.92); }
 </style>

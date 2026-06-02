@@ -67,6 +67,7 @@ const error      = ref('')
 const rulesModal = ref(false)
 let chartInstance = null
 
+const isDark = () => document.documentElement.classList.contains('dark')
 const DIMS = ['情绪温度', '杠杆水位', '宏观金融', '技术超买', '曲线斜率', '期权波动率']
 
 function dimColor(score) {
@@ -87,9 +88,17 @@ function buildChart() {
   if (!canvasEl.value || !radar.value?.scores) return
 
   const scores = DIMS.map(d => radar.value.scores[d] ?? 50)
+  const dark = isDark()
+  const gridC  = dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'
+  const tickC  = dark ? '#64748b' : '#9ca3af'
+  const labelC = dark ? '#cbd5e1' : '#374151'
 
   if (chartInstance) {
     chartInstance.data.datasets[0].data = scores
+    chartInstance.options.scales.r.grid.color = gridC
+    chartInstance.options.scales.r.angleLines.color = gridC
+    chartInstance.options.scales.r.ticks.color = tickC
+    chartInstance.options.scales.r.pointLabels.color = labelC
     chartInstance.update()
     return
   }
@@ -130,20 +139,22 @@ function buildChart() {
           ticks: {
             stepSize: 25,
             font: { size: 9 },
-            color: '#9ca3af',
+            color: tickC,
             backdropColor: 'transparent',
           },
           pointLabels: {
             font: { size: 11 },
-            color: '#374151',
+            color: labelC,
           },
-          grid: { color: 'rgba(0,0,0,0.08)' },
-          angleLines: { color: 'rgba(0,0,0,0.08)' },
+          grid: { color: gridC },
+          angleLines: { color: gridC },
         },
       },
     },
   })
 }
+
+let _darkObserver = null
 
 async function load() {
   loading.value = true
@@ -160,8 +171,15 @@ async function load() {
   }
 }
 
-onMounted(load)
-onUnmounted(() => { chartInstance?.destroy() })
+onMounted(() => {
+  load()
+  _darkObserver = new MutationObserver(() => nextTick(buildChart))
+  _darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+})
+onUnmounted(() => {
+  chartInstance?.destroy()
+  _darkObserver?.disconnect()
+})
 </script>
 
 <style scoped>

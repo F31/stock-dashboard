@@ -1,0 +1,1413 @@
+/* =========================================================
+   Dark Mode  —  html.dark  prefix overrides scoped CSS
+   Palette:
+     bg-deep   #0f172a   page background
+     bg-card   #1e293b   cards / panels / modals
+     bg-hover  #334155   hover / elevated
+     border    #334155   borders
+     border-2  #475569   input borders
+     text-1    #e2e8f0   primary text
+     text-2    #94a3b8   secondary text
+     text-3    #64748b   muted text
+   ========================================================= */
+
+/* ── Base ─────────────────────────────────────────────── */
+html.dark body {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+/* ── Dashboard shell ──────────────────────────────────── */
+html.dark .dashboard {
+  background: #0f172a;
+}
+html.dark .main {
+  background: #0f172a;
+}
+
+/* ── Dark mode toggle button (in tab bar) ───────────── */
+html.dark .dark-toggle {
+  background: #1e293b;
+  border-color: #475569;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+}
+html.dark .dark-toggle:hover {
+  background: #334155;
+  border-color: #64748b;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+}
+
+/* ── Main tab bar (板块/量化/宏观/风险) ──────────────── */
+html.dark .main-tab-bar {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+html.dark .main-tab {
+  color: #94a3b8;
+  background: none;
+}
+html.dark .main-tab:hover {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+html.dark .main-tab.active {
+  background: #1e293b;
+  color: #60a5fa;
+  border-bottom-color: #3b82f6;
+}
+
+/* ── Sub tab bar (个股/板块 tabs) ────────────────────── */
+html.dark .tab-bar-wrap {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+html.dark .tab-bar {
+  background: #0f172a;
+}
+html.dark .tab {
+  background: #334155;
+  color: #94a3b8;
+  border-color: #475569;
+}
+html.dark .tab:hover {
+  background: #475569;
+  color: #e2e8f0;
+}
+html.dark .tab.active {
+  background: #1e293b;
+  color: #60a5fa;
+  border-color: #3b82f6;
+  border-bottom-color: #1e293b;
+}
+html.dark .tab-count {
+  background: #475569;
+  color: #94a3b8;
+}
+html.dark .tab.active .tab-count {
+  background: #1d3461;
+  color: #93c5fd;
+}
+html.dark .tab-bar-r {
+  background: #0f172a;
+  border-left-color: #334155;
+}
+html.dark .tab-action-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .tab-action-btn:hover:not(:disabled) {
+  background: #334155;
+  color: #e2e8f0;
+}
+html.dark .tab-action-add {
+  background: #1d3461;
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+html.dark .tab-action-add:hover {
+  background: #1e40af;
+}
+html.dark .tab-more {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .tab-more:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+html.dark .signal-filter {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .signal-filter--active {
+  background: #1d3461;
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+
+/* ── Status bar / pagination ─────────────────────────── */
+html.dark .status-bar {
+  background: #1e293b;
+  border-top-color: #334155;
+  color: #64748b;
+}
+html.dark .pagination {
+  background: #0f172a;
+  border-top-color: #334155;
+}
+html.dark .page-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .page-btn:hover:not(:disabled) {
+  background: #334155;
+  color: #e2e8f0;
+}
+html.dark .page-info {
+  color: #64748b;
+}
+
+/* ── Stock card ──────────────────────────────────────── */
+html.dark .sname {
+  color: #e2e8f0;
+}
+html.dark .sname-text:hover {
+  color: #60a5fa;
+}
+html.dark .scode {
+  color: #94a3b8;
+}
+html.dark .prev-close,
+html.dark .chg-hint,
+html.dark .no-data-notice {
+  color: #64748b;
+}
+html.dark .metrics {
+  border-top-color:    #263a50;
+  border-bottom-color: #263a50;
+}
+html.dark .met + .met {
+  border-left-color: #263a50;
+}
+html.dark .card-wrap > .card,
+html.dark .card {
+  background: #1e293b !important;
+  border-color: #263a50 !important;
+}
+html.dark .met-l {
+  color: #64748b;
+}
+html.dark .met-v {
+  color: #e2e8f0;
+}
+html.dark .fin-row {
+  background: #0f172a;
+}
+html.dark .sector-sub {
+  color: #64748b;
+}
+html.dark .drag-handle {
+  color: #475569;
+  background: #1e293b;
+}
+html.dark .card-wrap:hover .drag-handle {
+  background: #334155;
+}
+
+/* ── Sys dropdown ────────────────────────────────────── */
+html.dark .sys-dropdown {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+html.dark .sys-item {
+  color: #cbd5e1;
+}
+html.dark .sys-item:hover {
+  background: #334155;
+  color: #60a5fa;
+}
+html.dark .sys-item + .sys-item {
+  border-top-color: #334155;
+}
+html.dark .sys-divider {
+  background: #334155;
+}
+
+/* ── Sector top5 popup ───────────────────────────────── */
+html.dark .sector-top5-overlay {
+  background: rgba(0,0,0,.6);
+}
+html.dark .sector-top5-card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+html.dark .st5-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .st5-title {
+  color: #e2e8f0;
+}
+html.dark .st5-title small {
+  color: #64748b;
+}
+html.dark .st5-close {
+  color: #64748b;
+}
+html.dark .st5-close:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+html.dark .st5-row-hdr {
+  background: #0f172a;
+  color: #64748b;
+  border-bottom-color: #334155;
+}
+html.dark .st5-row-body:hover {
+  background: #334155;
+}
+html.dark .st5-rank { color: #64748b; }
+html.dark .st5-code { color: #64748b; }
+html.dark .st5-name { color: #e2e8f0; }
+html.dark .st5-price { color: #cbd5e1; }
+html.dark .st5-sort-btn {
+  background: #334155;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .st5-sort-btn:hover {
+  background: #475569;
+  color: #e2e8f0;
+}
+html.dark .st5-sort-btn.active {
+  background: #1d3461;
+  color: #93c5fd;
+}
+html.dark .st5-wl-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #60a5fa;
+}
+html.dark .st5-wl-btn:hover:not(:disabled) {
+  background: #1d3461;
+  border-color: #3b82f6;
+}
+
+/* ── Modal overlay (shared) ──────────────────────────── */
+html.dark .modal-overlay {
+  background: rgba(0,0,0,.75) !important;
+}
+
+/* ── StockDetailModal ────────────────────────────────── */
+html.dark .modal-container,
+html.dark .modal-wrap,
+html.dark .modal {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0;
+}
+html.dark .modal-header,
+html.dark .modal-hdr {
+  border-bottom-color: #334155 !important;
+  background: #1e293b !important;
+}
+html.dark .modal-title {
+  color: #e2e8f0 !important;
+}
+html.dark .close-btn {
+  color: #64748b !important;
+}
+html.dark .close-btn:hover {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.dark .stock-name {
+  color: #f1f5f9 !important;
+}
+html.dark .stock-code {
+  color: #94a3b8 !important;
+}
+html.dark .tab-btn {
+  color: #94a3b8 !important;
+  background: none !important;
+}
+html.dark .tab-btn:hover {
+  color: #e2e8f0 !important;
+}
+html.dark .tab-btn.active {
+  color: #60a5fa !important;
+  border-bottom-color: #3b82f6 !important;
+}
+html.dark .modal-tabs,
+html.dark .modal-body > div[style*="border-bottom"],
+html.dark .tab-row {
+  background: #0f172a !important;
+  border-bottom-color: #334155 !important;
+}
+html.dark .mg-item {
+  background: #1e293b !important;
+}
+html.dark .mg-label {
+  color: #64748b !important;
+}
+html.dark .mg-value {
+  color: #e2e8f0 !important;
+}
+html.dark .sec-ttl {
+  color: #64748b !important;
+}
+html.dark .sparkline-wrap {
+  border-color: #334155 !important;
+}
+html.dark .top5-table th {
+  background: #0f172a !important;
+  color: #64748b !important;
+  border-bottom-color: #334155 !important;
+}
+html.dark .top5-table td {
+  border-bottom-color: #334155 !important;
+  color: #cbd5e1 !important;
+}
+html.dark .top5-table tr:hover td {
+  background: #334155 !important;
+}
+html.dark .t5-name {
+  color: #e2e8f0 !important;
+}
+html.dark .t5-num {
+  color: #94a3b8 !important;
+}
+html.dark .news-item {
+  border-bottom-color: #334155 !important;
+}
+html.dark .news-item-title {
+  color: #e2e8f0 !important;
+}
+html.dark .news-item-meta {
+  color: #64748b !important;
+}
+html.dark .notes-area {
+  background: #0f172a !important;
+  border-color: #475569 !important;
+  color: #e2e8f0 !important;
+}
+
+/* badge 在深色下微调 */
+html.dark .qb-strong { background: #064e3b; color: #6ee7b7; }
+html.dark .qb-buy    { background: #052e16; color: #86efac; }
+html.dark .qb-neutral{ background: #1e3a5f; color: #93c5fd; }
+html.dark .qb-avoid  { background: #450a0a; color: #fca5a5; }
+html.dark .sig-strong, html.dark .sig-buy  { background: #064e3b !important; color: #6ee7b7 !important; }
+html.dark .sig-neutral, html.dark .sig-hold { background: #1e3a5f !important; color: #93c5fd !important; }
+html.dark .sig-watch  { background: #1e3a5f !important; color: #93c5fd !important; }
+html.dark .sig-reduce { background: #450a0a !important; color: #fca5a5 !important; }
+html.dark .ba { background: #422006 !important; color: #fcd34d !important; }
+html.dark .bh { background: #1e3a5f !important; color: #93c5fd !important; }
+html.dark .bu { background: #2e1065 !important; color: #c4b5fd !important; }
+html.dark .bs { background: #500724 !important; color: #fbcfe8 !important; }
+html.dark .price-tag.flat { background: #334155 !important; color: #94a3b8 !important; }
+
+/* ── QuantAnalysisMonitor ────────────────────────────── */
+html.dark .quan-wrap {
+  color: #e2e8f0;
+}
+html.dark .quan-hdr {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+html.dark .quan-title {
+  color: #e2e8f0;
+}
+html.dark .model-badge {
+  background: #1d3461;
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+html.dark .date-badge {
+  background: #334155;
+  color: #94a3b8;
+}
+html.dark .search-input {
+  background: #0f172a;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+html.dark .search-input::placeholder {
+  color: #475569;
+}
+html.dark .refresh-btn {
+  background: #334155;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .refresh-btn:hover {
+  background: #475569;
+}
+html.dark .pipeline-btn {
+  background: #334155;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .pipeline-btn:hover {
+  background: #475569;
+}
+html.dark .pipeline-btn.pipe-success {
+  background: #052e16;
+  border-color: #16a34a;
+  color: #86efac;
+}
+html.dark .pipeline-btn.pipe-error {
+  background: #450a0a;
+  border-color: #dc2626;
+  color: #fca5a5;
+}
+html.dark .universe-tabs {
+  background: #0f172a;
+}
+html.dark .utab {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+html.dark .utab:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+html.dark .utab.active {
+  background: #1d3461;
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+html.dark .utab-cnt {
+  background: #334155;
+  color: #64748b;
+}
+html.dark .utab.active .utab-cnt {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+html.dark .stat-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .stat-card:hover {
+  background: #334155;
+}
+html.dark .stat-lbl { color: #64748b; }
+html.dark .stat-val.c-dark  { color: #e2e8f0; }
+html.dark .stat-val.c-green { color: #4ade80; }
+html.dark .stat-val.c-lime  { color: #a3e635; }
+html.dark .stat-val.c-sky   { color: #38bdf8; }
+html.dark .stat-val.c-red   { color: #f87171; }
+/* ══════════════════════════════════════════════════════════
+   UNIFIED TABLE STYLE  —  All tables match 覆盖股票 popup
+   Reference: modal-tbl-row / modal-tbl-head
+   ══════════════════════════════════════════════════════════
+
+   Rule: bg #1e293b, hover #334155, header bg #0f172a
+         header text #64748b, primary text #e2e8f0,
+         secondary text #94a3b8, borders #334155
+   ========================================================= */
+
+/* ── Quan main list (QuantAnalysisMonitor) ─────────────── */
+html.dark .tbl-head {
+  background: #0f172a;
+  color: #64748b;
+  border-bottom-color: #334155;
+}
+
+/* All rows: uniform clean background — only left border differs */
+html.dark .tbl-row,
+html.dark .tbl-row.lbl-strong,
+html.dark .tbl-row.lbl-buy,
+html.dark .tbl-row.lbl-neutral,
+html.dark .tbl-row.lbl-avoid {
+  background: #1e293b;
+}
+html.dark .tbl-row:hover,
+html.dark .tbl-row.lbl-strong:hover,
+html.dark .tbl-row.lbl-buy:hover,
+html.dark .tbl-row.lbl-neutral:hover,
+html.dark .tbl-row.lbl-avoid:hover {
+  background: #334155;
+}
+/* Keep left-border color as signal indicator */
+html.dark .tbl-row.lbl-strong  { border-left-color: #22c55e; }
+html.dark .tbl-row.lbl-buy     { border-left-color: #84cc16; }
+html.dark .tbl-row.lbl-neutral { border-left-color: #3b82f6; }
+html.dark .tbl-row.lbl-avoid   { border-left-color: #475569; }
+
+/* Cell text */
+html.dark .rank-num            { color: #64748b; }
+html.dark .code-text           { color: #94a3b8; }
+html.dark .name-text           { color: #e2e8f0; }
+html.dark .code-text--dark     { color: #94a3b8 !important; }
+html.dark .name-text--dark     { color: #e2e8f0 !important; }
+html.dark .industry-col        { color: #94a3b8; }
+html.dark .industry-col--dark  { color: #94a3b8 !important; }
+html.dark .ind-rank-val        { color: #e2e8f0; }
+html.dark .ind-rank-sep,
+html.dark .ind-rank-total      { color: #64748b; }
+html.dark .ind-rank-na         { color: #475569; }
+html.dark .pe-pos              { color: #cbd5e1; }
+html.dark .pe-neg              { color: #94a3b8; }
+html.dark .pe-na,
+html.dark .peg-na              { color: #475569; }
+html.dark .peg-low             { color: #6ee7b7; }
+html.dark .peg-mid             { color: #fcd34d; }
+html.dark .peg-high            { color: #fca5a5; }
+html.dark .price-val           { color: #e2e8f0; }
+html.dark .pct-bar-wrap        { background: #334155; }
+html.dark .pct-val             { color: #94a3b8; }
+html.dark .pct-val--dark       { color: #94a3b8 !important; }
+
+/* Label / tag badges */
+html.dark .label-tag.lbl-strong { background: #064e3b; color: #6ee7b7; }
+html.dark .label-tag.lbl-buy    { background: #1a2e0d; color: #86efac; }
+html.dark .label-tag.lbl-neutral{ background: #1d3461; color: #93c5fd; }
+html.dark .label-tag.lbl-avoid  { background: #3b0a0a; color: #fca5a5; }
+html.dark .opp-tag              { background: #422006; color: #fcd34d; border-color: #78350f; }
+html.dark .warn-tag.warn-crowded{ background: #422006; color: #fcd34d; border-color: #78350f; }
+html.dark .warn-tag.warn-hot    { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
+
+/* Pagination + misc */
+html.dark .empty-tip            { color: #475569; }
+html.dark .empty-tip--dark      { color: #475569 !important; }
+html.dark .page-btn             { background: #1e293b; border-color: #475569; color: #94a3b8; }
+html.dark .page-btn:hover:not(:disabled) { background: #334155; color: #e2e8f0; }
+html.dark .page-btn:disabled    { opacity: 0.3; }
+html.dark .page-info            { color: #475569; }
+html.dark .section-title        { color: #e2e8f0; }
+html.dark .section-sub          { color: #475569; }
+
+/* ── Quant stock detail modal ────────────────────────── */
+html.dark .detail-modal {
+  background: #1e293b !important;
+}
+
+/* Header */
+html.dark .detail-hdr-info .detail-name { color: #f1f5f9; }
+html.dark .detail-code {
+  color: #94a3b8;
+  background: #334155;   /* was #f3f4f6 light gray */
+}
+
+/* Section title */
+html.dark .detail-sec-title {
+  color: #94a3b8;
+  border-bottom-color: #334155;
+}
+html.dark .fund-period { color: #64748b; }
+
+/* Quote strip */
+html.dark .detail-quote {
+  background: #0f172a;
+  border-color: #334155;
+}
+html.dark .dq-lbl { color: #64748b; }
+
+/* Loading / error */
+html.dark .detail-spinner {
+  border-color: #334155;
+  border-top-color: #60a5fa;
+}
+html.dark .detail-err   { color: #fca5a5; }
+html.dark .detail-state { color: #64748b; }
+
+/* Sentiment bar */
+html.dark .senti-warn    { background: #2d1f00; border-color: #78350f; }
+html.dark .senti-buy     { background: #052e16; border-color: #065f46; }
+html.dark .senti-neutral { background: #0f1f3d; border-color: #1e40af; }
+html.dark .senti-text    { color: #e2e8f0; }
+html.dark .senti-sub     { color: #64748b; }
+
+/* ── Factor breakdown card ── */
+html.dark .factor-breakdown {
+  background: #0f172a;          /* was #f8fafc */
+  border-color: #334155;
+}
+html.dark .fb-total          { color: #a5b4fc; }   /* was #4f46e5 dark purple */
+html.dark .fb-label          { color: #cbd5e1; }
+html.dark .fb-weight         { color: #64748b; }
+html.dark .fb-sub-tag        { background: #2e1065; color: #c4b5fd; }
+html.dark .fb-sublabel       { color: #a78bfa; }
+html.dark .fb-subval         { color: #94a3b8; }
+html.dark .fb-val-note       { color: #64748b; }
+html.dark .fb-bar-bg         { background: #334155; }
+html.dark .fb-val.fb-high    { color: #4ade80; }
+html.dark .fb-val.fb-mid     { color: #fbbf24; }
+html.dark .fb-val.fb-low     { color: #f87171; }
+html.dark .fb-calibrated     { background: #2e1065; color: #c4b5fd; border-color: #7c3aed; }
+html.dark .subsector-badge   { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
+
+/* ── MA grid ── */
+html.dark .ma-item    { background: #0f172a; border-color: #334155; }
+html.dark .ma-name    { color: #64748b; }
+html.dark .ma-val     { color: #e2e8f0; }
+html.dark .ma-bar-bg  { background: #334155; }
+
+/* ── Buy zones (三档买入区间) ── */
+html.dark .zone-card    { border-color: #334155; }
+html.dark .zone-t1      { background: #1e1700; border-left-color: #ca8a04; }   /* 观察买点 黄 */
+html.dark .zone-t2      { background: #0c1d36; border-left-color: #3b82f6; }   /* 中线买点 蓝 */
+html.dark .zone-t3      { background: #052e16; border-left-color: #16a34a; }   /* 最优买点 绿 */
+html.dark .zone-label   { color: #e2e8f0; }
+html.dark .zone-range   { color: #e2e8f0; }
+html.dark .zone-detail  { color: #64748b; }
+html.dark .zone-detail em { color: #94a3b8; }
+
+/* ── Targets & Stop loss ── */
+html.dark .ts-item      { border-color: #334155; }
+html.dark .ts-basis     { color: #64748b; }
+html.dark .target-price { color: #4ade80; }
+html.dark .stop-price   { color: #f87171; }
+html.dark .stop-dot     { color: #f87171; }
+
+/* ── Fundamentals grid ── */
+html.dark .fund-grid    { background: #0f172a; border-color: #334155; }
+html.dark .fund-val     { color: #e2e8f0; }
+html.dark .fund-lbl     { color: #64748b; }
+
+/* ── Sector valuation comparison ── */
+html.dark .sector-val-row { background: #0f172a; border-color: #334155; }
+html.dark .sv-lbl         { color: #64748b; }
+html.dark .sv-val         { color: #e2e8f0; }
+html.dark .sv-divider     { color: #475569; }
+html.dark .sv-cheap       { color: #4ade80; }
+html.dark .sv-fair        { color: #94a3b8; }
+html.dark .sv-pricey      { color: #fbbf24; }
+html.dark .sv-expensive   { color: #f87171; }
+html.dark .sv-prem        { color: #e2e8f0; }
+
+/* ── Disclaimer ── */
+html.dark .detail-disclaimer { color: #475569; border-top-color: #334155; }
+
+/* Pipeline modal */
+html.dark .pipeline-modal {
+  background: #1e293b !important;
+}
+html.dark .pipeline-body {
+  background: #1e293b;
+}
+html.dark .pipe-section {
+  border-bottom-color: #334155;
+}
+html.dark .pipe-sec-title { color: #cbd5e1; }
+html.dark .pipe-stat { color: #64748b; }
+html.dark .pipe-stat strong { color: #e2e8f0; }
+html.dark .pipe-desc { color: #64748b; }
+html.dark .pipe-empty { color: #475569; }
+html.dark .pipe-date-input {
+  background: #0f172a;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+html.dark .pipe-meta { color: #64748b; }
+html.dark .pipe-refresh-btn { color: #475569; }
+html.dark .pipe-refresh-btn:hover { color: #94a3b8; }
+html.dark .pipe-st-idle    { background: #334155; color: #94a3b8; }
+html.dark .pipe-st-running { background: #1d3461; color: #93c5fd; }
+html.dark .pipe-st-success { background: #064e3b; color: #6ee7b7; }
+html.dark .pipe-st-error   { background: #450a0a; color: #fca5a5; }
+
+/* Ssec / subsector bar */
+html.dark .ssec-select {
+  background: #0f172a;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+html.dark .ssec-select-arrow { color: #475569; }
+html.dark .fill-info-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .fill-info-btn:hover:not(:disabled) {
+  background: #334155;
+  border-color: #64748b;
+}
+
+/* Rules modal */
+html.dark .rules-modal { background: #1e293b !important; }
+html.dark .rules-ext-link { color: #60a5fa !important; }
+
+/* Stock list modal (within quan) */
+html.dark .modal-search {
+  background: #0f172a !important;
+  border-color: #475569 !important;
+  color: #e2e8f0 !important;
+}
+html.dark .modal-tbl-head {
+  background: #0f172a;
+  color: #64748b;
+  border-bottom-color: #334155;
+}
+html.dark .modal-tbl-row {
+  background: #1e293b !important;
+}
+html.dark .modal-tbl-row.lbl-strong,
+html.dark .modal-tbl-row.lbl-buy,
+html.dark .modal-tbl-row.lbl-neutral,
+html.dark .modal-tbl-row.lbl-avoid {
+  background: #1e293b !important;
+}
+html.dark .modal-tbl-row:hover,
+html.dark .modal-tbl-row.lbl-strong:hover,
+html.dark .modal-tbl-row.lbl-buy:hover,
+html.dark .modal-tbl-row.lbl-neutral:hover,
+html.dark .modal-tbl-row.lbl-avoid:hover {
+  background: #334155 !important;
+}
+html.dark .no-data-hint { color: #475569; }
+html.dark .wl-add-btn {
+  background: #1d3461;
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+html.dark .wl-added { color: #6ee7b7; }
+
+/* ── HotStockBoard ───────────────────────────────────── */
+html.dark .hot-board {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .hb-header {
+  border-bottom-color: #334155;
+}
+html.dark .hb-src-tab { color: #94a3b8; }
+html.dark .hb-src-tab:hover { background: #334155; color: #e2e8f0; }
+html.dark .hb-src-tab.active { background: #1d3461; color: #93c5fd; }
+html.dark .hb-time-tabs { border-left-color: #334155; }
+html.dark .hb-time-tab { color: #94a3b8; }
+html.dark .hb-time-tab:hover { background: #334155; color: #e2e8f0; }
+html.dark .hb-time-tab.active { background: #422006; color: #fcd34d; }
+html.dark .hb-top-label { background: #334155; color: #64748b; }
+html.dark .hb-update { color: #475569; }
+html.dark .hb-refresh { color: #64748b; }
+html.dark .hb-refresh:hover:not(:disabled) { background: #334155; color: #93c5fd; }
+html.dark .hb-cell {
+  border-right-color: #334155;
+  border-bottom-color: #334155;
+}
+html.dark .hb-cell:hover { background: #334155; }
+html.dark .hb-name { color: #e2e8f0; }
+html.dark .hb-code { color: #64748b; }
+html.dark .hb-hot  { color: #64748b; }
+html.dark .hb-loading, html.dark .hb-empty { color: #475569; }
+
+/* ── MacroMonitor / RiskWarningPanel / other panels ──── */
+html.dark .macro-panel {
+  background: #0f172a;
+}
+
+/* Generic panel / card patterns used in multiple components */
+html.dark [class*="-panel"],
+html.dark [class*="-card"]:not(.stat-card):not(.zone-card) {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark [class*="-section"] {
+  border-color: #334155;
+}
+
+/* Generic table fallback (covers any table not explicitly targeted) */
+html.dark table th {
+  background: #0f172a;
+  color: #64748b;
+  border-bottom-color: #334155;
+}
+html.dark table td {
+  background: #1e293b;
+  border-bottom-color: #334155;
+  color: #e2e8f0;
+}
+html.dark table tr:hover td {
+  background: #334155;
+}
+
+/* Generic inputs (covers all components) */
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark select,
+html.dark textarea {
+  background: #0f172a;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #475569;
+}
+
+/* ── AllStocksModal / AddStockModal / generic modals ─── */
+html.dark .modal-body {
+  background: #1e293b !important;
+}
+
+/* ── FundFlowPanel, SectorFundFlowPanel ──────────────── */
+html.dark .fund-flow-panel,
+html.dark [class*="fund-flow"] {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+/* ── CongestionMonitor ───────────────────────────────── */
+html.dark [class*="congestion"] {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+/* ── SectorHeatmap ───────────────────────────────────── */
+html.dark [class*="heatmap"] {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+/* ── Scrollbars (WebKit) ─────────────────────────────── */
+html.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* ── Smooth transition when toggling ─────────────────── */
+html.dark *,
+html.dark *::before,
+html.dark *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
+}
+
+/* ══════════════════════════════════════════════════════════
+   PATCH: Components missed in initial pass
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Global text color safety net ───────────────────────
+   Covers any hardcoded dark text we haven't explicitly
+   targeted — prevents black-on-dark situation.           */
+html.dark .macro-section,
+html.dark .congestion-section,
+html.dark .monitor-section,
+html.dark .rw-panel,
+html.dark .macro-panel {
+  color: #e2e8f0;
+}
+
+/* ── MacroMonitor ────────────────────────────────────── */
+html.dark .macro-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .macro-ttl {
+  color: #e2e8f0;
+}
+html.dark .update-hint {
+  color: #475569;
+}
+html.dark .refresh-btn {
+  border-color: #475569;
+  color: #94a3b8;
+  background: none;
+}
+html.dark .refresh-btn:hover {
+  border-color: #60a5fa;
+  color: #60a5fa;
+  background: #1d3461;
+}
+html.dark .loading-tip {
+  color: #475569;
+}
+/* Yield cards */
+html.dark .yield-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .ycard-title {
+  color: #e2e8f0;
+}
+html.dark .ycard-date {
+  color: #475569;
+}
+html.dark .y-term {
+  color: #94a3b8;
+}
+html.dark .y-bar-wrap {
+  background: #334155;
+}
+html.dark .y-val {
+  color: #e2e8f0;
+}
+html.dark .no-yield {
+  color: #475569;
+}
+/* Spread row */
+html.dark .spread-row {
+  background: #0f172a;
+  border-color: #334155;
+}
+html.dark .spread-label {
+  color: #94a3b8;
+}
+html.dark .spread-desc {
+  color: #475569;
+}
+/* Indicator cards */
+html.dark .indicator-row .ind-card,
+html.dark .ind-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .ind-label {
+  color: #e2e8f0;
+}
+html.dark .ind-source,
+html.dark .ind-period,
+html.dark .ind-unit,
+html.dark .ind-threshold {
+  color: #475569;
+}
+html.dark .ind-sub {
+  color: #94a3b8;
+}
+html.dark .ind-main.neutral .ind-big {
+  color: #94a3b8;
+}
+html.dark .ind-tag.neutral {
+  background: #334155;
+  color: #94a3b8;
+}
+html.dark .ind-tag.normal    { background: #052e16; color: #6ee7b7; }
+html.dark .ind-tag.hot       { background: #450a0a; color: #fca5a5; }
+html.dark .ind-tag.weak      { background: #422006; color: #fcd34d; }
+html.dark .ind-tag.deflation { background: #2e1065; color: #c4b5fd; }
+/* Section titles in macro */
+html.dark .macro-section .section-title {
+  color: #cbd5e1;
+}
+html.dark .fred-badge {
+  background: #1d3461;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
+html.dark .section-sub {
+  color: #64748b;
+}
+
+/* ── IndustrialProfitMonitor (charts) ────────────────── */
+html.dark .monitor-section .tab-bar {
+  border-bottom-color: #334155;
+  background: #0f172a;
+}
+html.dark .monitor-section .tab-btn {
+  color: #94a3b8;
+  background: none;
+}
+html.dark .monitor-section .tab-btn:hover {
+  color: #60a5fa;
+}
+html.dark .monitor-section .tab-btn.active {
+  color: #60a5fa;
+  border-bottom-color: #3b82f6;
+}
+html.dark .monitor-section .refresh-btn {
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .monitor-section .error-tip {
+  color: #fca5a5;
+}
+html.dark .chart-block {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .chart-header {
+  border-bottom-color: #334155;
+}
+html.dark .chart-title-main {
+  color: #e2e8f0;
+}
+html.dark .canvas-wrap {
+  background: #1e293b;
+}
+html.dark .chart-caption {
+  color: #64748b;
+  border-top-color: #334155;
+}
+html.dark .chart-title {
+  color: #cbd5e1;
+  border-bottom-color: #334155;
+}
+html.dark .chart-unit {
+  color: #64748b;
+}
+html.dark .data-source {
+  color: #475569;
+  border-top-color: #334155;
+}
+html.dark .source-badge {
+  background: #1d3461;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
+html.dark .source-badge--purple {
+  background: #2e1065;
+  color: #c4b5fd;
+  border-color: #7c3aed;
+}
+
+/* ── RiskRadarChart ──────────────────────────────────── */
+html.dark .radar-wrap {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .radar-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .radar-title {
+  color: #e2e8f0;
+}
+html.dark .clickable-title:hover {
+  background: #334155;
+}
+html.dark .radar-date {
+  color: #64748b;
+}
+html.dark .radar-label-txt {
+  color: #94a3b8;
+}
+html.dark .radar-error {
+  color: #64748b;
+}
+html.dark .radar-composite.normal {
+  color: #94a3b8;
+}
+html.dark .radar-canvas-wrap {
+  background: #1e293b;
+}
+html.dark .rdim-name {
+  color: #94a3b8;
+}
+html.dark .rdim-bar-wrap {
+  background: #334155;
+}
+/* Radar rules modal */
+html.dark .rules-modal {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .rules-ext-link {
+  background: #334155;
+  color: #93c5fd;
+  border-color: #475569;
+}
+html.dark .rules-ext-link:hover {
+  background: #1d3461;
+}
+
+/* ── RiskWarningPanel ────────────────────────────────── */
+html.dark .rw-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .rw-card-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .rw-card-title {
+  color: #e2e8f0;
+}
+html.dark .rw-date {
+  color: #64748b;
+}
+html.dark .rw-loading,
+html.dark .rw-empty {
+  color: #475569;
+}
+html.dark .rw-error {
+  color: #fca5a5;
+}
+/* Sentiment gauge SVG background arc */
+html.dark .sent-gauge path[stroke="#e5e7eb"] {
+  stroke: #334155;
+}
+html.dark .sent-sub {
+  color: #64748b;
+}
+html.dark .sent-pool-notice {
+  color: #64748b;
+}
+html.dark .sent-breadth-bar {
+  background: #334155;
+}
+html.dark .sent-bar-flat {
+  background: #475569;
+}
+html.dark .sent-flat-n {
+  color: #64748b;
+}
+/* RST tabs (北向/两融 切换) */
+html.dark .rst-tabs {
+  background: #334155;
+}
+html.dark .rst-tab {
+  color: #94a3b8;
+  background: transparent;
+}
+html.dark .rst-tab:hover {
+  color: #e2e8f0;
+}
+html.dark .rst-tab-active {
+  background: #1e293b;
+  color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+html.dark .rst-bar-wrap {
+  background: #0f172a;
+}
+html.dark .rst-bar-val {
+  color: #64748b;
+}
+html.dark .rst-bar-date {
+  color: #475569;
+}
+html.dark .rst-detail-title {
+  color: #94a3b8;
+}
+/* Margin bar chart */
+html.dark .margin-latest {
+  color: #e2e8f0;
+}
+html.dark .margin-bar-label {
+  color: #475569;
+}
+html.dark .margin-stale {
+  color: #fcd34d;
+}
+/* Macro items (融资余额 etc.) */
+html.dark .macro-item {
+  border-bottom-color: #334155;
+}
+html.dark .macro-label {
+  color: #94a3b8;
+}
+html.dark .macro-val {
+  color: #e2e8f0;
+}
+/* ── rw-table: 大宗交易 / 龙虎榜 / 解禁明细 ─────────────
+   Matches unified table style (覆盖股票 reference)
+   Uses !important to beat Vue scoped selectors on tr/td  */
+
+/* Header */
+html.dark .rw-table thead tr,
+html.dark .rw-table thead {
+  background: #0f172a !important;
+}
+html.dark .rw-table th {
+  background: #0f172a !important;
+  color: #64748b !important;
+  border-bottom: 1px solid #334155 !important;
+  font-weight: 600;
+}
+
+/* Body rows */
+html.dark .rw-table tbody tr {
+  background: #1e293b !important;
+}
+html.dark .rw-table tbody tr:hover {
+  background: #334155 !important;
+}
+
+/* All cells: clear any light background, set text */
+html.dark .rw-table td {
+  background: transparent !important;   /* inherits from tr */
+  border-bottom: 1px solid #2d3f55 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Named cell overrides */
+html.dark .rw-table .td-name   { color: #e2e8f0 !important; }
+html.dark .rw-table .td-reason { color: #94a3b8 !important; }
+
+/* Warning row (深折价) */
+html.dark .rw-table tbody tr.row-warn {
+  background: #1e1a00 !important;
+}
+html.dark .rw-table tbody tr.row-warn:hover {
+  background: #2a2500 !important;
+}
+
+/* Keep positive/negative/up/dn color signals */
+html.dark .rw-table .positive { color: #ef4444 !important; }
+html.dark .rw-table .negative { color: #22c55e !important; }
+html.dark .rw-table .up       { color: #ef4444 !important; }
+html.dark .rw-table .dn       { color: #22c55e !important; }
+
+html.dark .normal { color: #94a3b8; }
+
+/* ── FundFlowPanel ───────────────────────────────────── */
+html.dark .fund-flow-panel {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .ff-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .ff-title {
+  color: #e2e8f0;
+}
+html.dark .ff-sub {
+  color: #64748b;
+}
+html.dark .ff-refresh {
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .ff-loading {
+  color: #475569;
+}
+html.dark .ff-error {
+  color: #fca5a5;
+}
+html.dark .ff-row-hdr {
+  color: #64748b;
+  border-bottom-color: #334155;
+  background: #0f172a;
+}
+html.dark .ff-row-body:hover {
+  background: #334155;
+}
+html.dark .ff-top3 {
+  background: #1e1a00;
+}
+html.dark .ff-top3:hover {
+  background: #2a2500;
+}
+html.dark .ff-rank {
+  color: #64748b;
+}
+html.dark .ff-name {
+  color: #e2e8f0;
+}
+html.dark .ff-ratio {
+  color: #64748b;
+}
+
+/* ── SectorFundFlowPanel ─────────────────────────────── */
+html.dark .sff-panel {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .sff-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .sff-title {
+  color: #e2e8f0;
+}
+html.dark .sff-refresh {
+  border-color: #475569;
+  color: #94a3b8;
+}
+html.dark .sff-loading {
+  color: #475569;
+}
+html.dark .sff-row-hdr {
+  color: #64748b;
+  border-bottom-color: #334155;
+  background: #0f172a;
+}
+html.dark .sff-row-body:hover {
+  background: #334155;
+}
+html.dark .sff-top3 {
+  background: #1e1a00;
+}
+html.dark .sff-top3:hover {
+  background: #2a2500;
+}
+html.dark .sff-rank {
+  color: #64748b;
+}
+html.dark .sff-name {
+  color: #e2e8f0;
+}
+
+/* ── CongestionMonitor ───────────────────────────────── */
+html.dark .congestion-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .congestion-ttl {
+  color: #e2e8f0;
+}
+html.dark .congestion-sub {
+  color: #64748b;
+}
+html.dark .summary-bar {
+  background: #0f172a;
+  border-color: #334155;
+}
+html.dark .summary-label {
+  color: #64748b;
+}
+html.dark .sector-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .sector-card:hover {
+  background: #334155;
+}
+html.dark .sector-card.flat {
+  border-left-color: #475569;
+}
+html.dark .sc-name {
+  color: #e2e8f0;
+}
+html.dark .sc-code {
+  color: #64748b;
+}
+html.dark .sc-fund-label {
+  color: #475569;
+}
+html.dark .sc-turnover {
+  color: #475569;
+}
+html.dark .congestion-section .loading-tip,
+html.dark .congestion-section .no-data {
+  color: #475569;
+  background: #1e293b;
+  border-color: #334155;
+}
+
+/* ── MarketIntel (指数 bar + 行情数据) ───────────────── */
+html.dark .index-bar {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+html.dark .idx-pill {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .idx-name {
+  color: #64748b;
+}
+html.dark .idx-chg:not(.dir-up):not(.dir-down) {
+  background: #334155;
+  color: #94a3b8;
+}
+html.dark .intel-section {
+  background: #0f172a;
+}
+html.dark .intel-hdr {
+  border-bottom-color: #334155;
+}
+html.dark .intel-ttl {
+  color: #e2e8f0;
+}
+html.dark .intel-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .intel-card:hover {
+  background: #334155;
+}
+html.dark .intel-tt {
+  color: #e2e8f0;
+}
+html.dark .intel-sub {
+  color: #64748b;
+}
+html.dark .intel-val:not(.dir-up):not(.dir-down) {
+  color: #60a5fa;
+}
