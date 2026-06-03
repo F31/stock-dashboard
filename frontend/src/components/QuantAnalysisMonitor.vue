@@ -54,9 +54,9 @@
               <div class="pipe-controls">
                 <input v-model="pipelineDate" class="pipe-date-input" type="date" />
                 <button class="pipe-run-btn"
-                        :disabled="pipelineState.status === 'running'"
+                        :disabled="pipelineRunning"
                         @click="runPipeline">
-                  {{ pipelineState.status === 'running' ? '运行中…' : '▶ 执行' }}
+                  {{ pipelineRunning ? '运行中…' : '▶ 执行' }}
                 </button>
               </div>
             </div>
@@ -65,11 +65,33 @@
             <div class="pipe-section">
               <div class="pipe-sec-title">
                 运行状态
-                <span :class="['pipe-status-badge', 'pipe-st-' + pipelineState.status]">
-                  {{ pipelineState.status }}
+                <!-- 运行中由进度条表达状态，徽章仅在 未运行/成功/出错 时显示 -->
+                <span v-if="pipelineState.status !== 'running' && pipelineState.status !== 'pending'"
+                      :class="['pipe-status-badge', 'pipe-st-' + pipelineState.status]">
+                  {{ statusLabel(pipelineState.status) }}
                 </span>
                 <button class="pipe-refresh-btn" @click="refreshPipelineStatus">↻</button>
               </div>
+
+              <!-- Progress bar + ETA (only while running) -->
+              <div v-if="pipelineState.status === 'running' || pipelineState.status === 'pending'" class="pipe-progress-wrap">
+                <div class="pipe-progress-head">
+                  <span class="pipe-step-label">
+                    [{{ pipelineState.step_index || 0 }}/{{ pipelineState.total_steps || 10 }}]
+                    {{ pipelineState.step_name || '准备中…' }}
+                  </span>
+                  <span class="pipe-eta">
+                    {{ pipelineState.progress_pct ?? 0 }}%
+                    <span v-if="pipelineState.eta_seconds != null" class="pipe-eta-time">
+                      · 剩余 {{ fmtEta(pipelineState.eta_seconds) }}
+                    </span>
+                  </span>
+                </div>
+                <div class="pipe-progress-bar">
+                  <div class="pipe-progress-fill" :style="{ width: (pipelineState.progress_pct ?? 0) + '%' }"></div>
+                </div>
+              </div>
+
               <div v-if="pipelineState.started" class="pipe-meta">
                 开始: {{ pipelineState.started?.slice(0,19) }}
                 <span v-if="pipelineState.ended">  结束: {{ pipelineState.ended?.slice(0,19) }}</span>
@@ -189,10 +211,15 @@
                 ? (selectedSubsector ? subsectorDisplayName(selectedSubsector) : '主题链')
                 : (activeUniverse === 'star50' ? '科创50' : '沪深300') }}全量评分</span>
           <span class="section-sub">{{ filteredActiveScores.length }} 只符合条件</span>
-          <div class="page-nav" v-if="totalPages > 1">
-            <button class="page-btn" :disabled="currentPage === 0" @click="currentPage--">‹</button>
-            <span class="page-info">{{ currentPage + 1 }}/{{ totalPages }}</span>
-            <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="currentPage++">›</button>
+          <div class="page-nav">
+            <select class="page-size-sel" :value="pageSize" @change="onPageSizeChange($event.target.value)" title="每页条数">
+              <option v-for="n in PAGE_SIZE_OPTIONS" :key="n" :value="n">{{ n }}条/页</option>
+            </select>
+            <template v-if="totalPages > 1">
+              <button class="page-btn" :disabled="currentPage === 0" @click="currentPage--">‹</button>
+              <span class="page-info">{{ currentPage + 1 }}/{{ totalPages }}</span>
+              <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="currentPage++">›</button>
+            </template>
           </div>
         </div>
         <div class="tbl-head">
@@ -641,7 +668,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchQuanScores, fetchQuanStockLevels, fetchQuanThemeScores,
          triggerPipeline, fetchPipelineStatus, fetchPipelineLog, fetchPoolStats,
          triggerPrecomputeTech, fetchPrecomputeTechStatus,
@@ -669,7 +696,8 @@ async function handleAdd(row, event) {
   }
 }
 
-const PAGE_SIZE = 30
+const PAGE_SIZE_OPTIONS = [20, 50]
+const pageSize = ref(20)
 
 const tradeDate      = ref(null)
 const allScores      = ref([])
@@ -723,36 +751,40 @@ const hasData = computed(() =>
   allScores.value.length > 0 || themeScores.value.length > 0
 )
 
-const activeScores = computed(() => {
+// RAW source for the active universe — NOT enriched, so heavy enrich() does not
+// run over the full (up to ~2000-row) array on every reactive recompute.
+// enrich() is applied later only to the ~20-50 rows actually rendered.
+const activeScoresRaw = computed(() => {
   if (activeUniverse.value === 'theme') {
-    const src = selectedSubsector.value
+    return selectedSubsector.value
       ? themeScores.value.filter(r => r.subsector === selectedSubsector.value)
       : themeScores.value
-    return enrich(src)
   }
-  return enrich(activeUniverse.value === 'star50' ? star50Scores.value : allScores.value)
+  return activeUniverse.value === 'star50' ? star50Scores.value : allScores.value
 })
 
 const filteredActiveScores = computed(() => {
-  let rows = activeScores.value
+  let rows = activeScoresRaw.value
   const q = searchQuery.value.trim().toLowerCase()
   if (q) {
     rows = rows.filter(r =>
-      r.stock_code.includes(q) || r.stock_name.toLowerCase().includes(q)
+      r.stock_code.includes(q) || (r.stock_name || '').toLowerCase().includes(q)
     )
   }
   return rows
 })
 
 const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredActiveScores.value.length / PAGE_SIZE))
+  Math.max(1, Math.ceil(filteredActiveScores.value.length / pageSize.value))
 )
-const pagedScores = computed(() =>
-  filteredActiveScores.value.slice(currentPage.value * PAGE_SIZE, (currentPage.value + 1) * PAGE_SIZE)
-)
+// Enrich ONLY the current page slice (cheap: 20-50 rows instead of thousands)
+const pagedScores = computed(() => {
+  const start = currentPage.value * pageSize.value
+  return enrich(filteredActiveScores.value.slice(start, start + pageSize.value))
+})
 
 const activeStats = computed(() => {
-  const src = activeScores.value
+  const src = activeScoresRaw.value
   return {
     total:     src.length,
     strongBuy: src.filter(r => r.percentile_score >= 90).length,
@@ -852,8 +884,13 @@ const filteredModalStocks = computed(() => {
   )
 })
 
+function onPageSizeChange(val) {
+  pageSize.value = parseInt(val, 10) || 20
+  currentPage.value = 0   // reset to first page so the view stays consistent
+}
+
 function showStockList(kind) {
-  const src = activeScores.value
+  const src = activeScoresRaw.value
   modalSearch.value = ''
   let stocks, title
   if (kind === 'all')     { stocks = src; title = '全部覆盖股票' }
@@ -861,7 +898,8 @@ function showStockList(kind) {
   else if (kind === 'buy')    { stocks = src.filter(r => r.percentile_score >= 75 && r.percentile_score < 90); title = '推荐 (75–90)' }
   else if (kind === 'neutral'){ stocks = src.filter(r => r.percentile_score >= 50 && r.percentile_score < 75); title = '中性 (50–75)' }
   else                        { stocks = src.filter(r => r.percentile_score < 50); title = '回避 (<50)' }
-  listModal.value = { show: true, title, stocks }
+  // enrich once here (modal is user-triggered, on-demand)
+  listModal.value = { show: true, title, stocks: enrich(stocks) }
 }
 
 function labelCls(label) {
@@ -970,6 +1008,10 @@ async function fillStockInfo() {
   }
 }
 
+const pipelineRunning = computed(() =>
+  pipelineState.value.status === 'running' || pipelineState.value.status === 'pending'
+)
+
 const pipelineStatusCls = computed(() => ({
   'pipe-running': pipelineState.value.status === 'running',
   'pipe-success': pipelineState.value.status === 'success',
@@ -980,18 +1022,27 @@ async function runPipeline() {
   try {
     const res = await triggerPipeline(pipelineDate.value)
     pipelineState.value = res.data.state || pipelineState.value
-    // Auto-poll status while running
-    const poll = setInterval(async () => {
-      await refreshPipelineStatus()
-      if (pipelineState.value.status !== 'running') {
-        clearInterval(poll)
-        await refreshPipelineLog()
-        load()  // refresh scores when done
-      }
-    }, 5000)
+    startPipelinePolling()
   } catch (e) {
     console.error('Pipeline trigger failed', e)
   }
+}
+
+let _pipelinePoll = null
+function startPipelinePolling() {
+  if (_pipelinePoll) clearInterval(_pipelinePoll)
+  _pipelinePoll = setInterval(async () => {
+    await refreshPipelineStatus()
+    const st = pipelineState.value.status
+    if (st === 'running' || st === 'pending') {
+      refreshPipelineLog()   // keep log live while running
+    } else {
+      clearInterval(_pipelinePoll)
+      _pipelinePoll = null
+      await refreshPipelineLog()
+      load()  // refresh scores when done
+    }
+  }, 5000)
 }
 
 async function refreshPipelineStatus() {
@@ -999,6 +1050,18 @@ async function refreshPipelineStatus() {
     const res = await fetchPipelineStatus()
     pipelineState.value = res.data
   } catch {}
+}
+
+function fmtEta(secs) {
+  if (secs == null || secs < 0) return '—'
+  if (secs < 60) return `${Math.round(secs)} 秒`
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return s > 0 ? `${m} 分 ${s} 秒` : `${m} 分`
+}
+
+function statusLabel(s) {
+  return { idle: '未运行', success: '已完成', error: '执行出错' }[s] || s
 }
 
 async function refreshPipelineLog() {
@@ -1038,11 +1101,18 @@ async function refreshPrecomputeStatus() {
   } catch {}
 }
 
-onMounted(() => {
+onMounted(async () => {
   load()
-  refreshPipelineStatus()
+  await refreshPipelineStatus()
+  // If a pipeline is already running (e.g. page was reloaded), resume polling
+  const st = pipelineState.value.status
+  if (st === 'running' || st === 'pending') startPipelinePolling()
   loadPoolStats()
   refreshPrecomputeStatus()
+})
+
+onUnmounted(() => {
+  if (_pipelinePoll) { clearInterval(_pipelinePoll); _pipelinePoll = null }
 })
 
 function oppTagTip(row) {
@@ -1147,6 +1217,25 @@ function oppTagTip(row) {
 .pipe-st-success { background: #dcfce7; color: #166534; }
 .pipe-st-error   { background: #fee2e2; color: #991b1b; }
 .pipe-meta       { font-size: 0.70em; color: #9ca3af; }
+
+/* Progress bar + ETA */
+.pipe-progress-wrap { margin: 8px 0 4px; }
+.pipe-progress-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.72em; margin-bottom: 5px; gap: 8px;
+}
+.pipe-step-label { font-weight: 600; color: #374151; }
+.pipe-eta { color: #6b7280; white-space: nowrap; font-weight: 600; }
+.pipe-eta-time { color: #9ca3af; font-weight: 400; }
+.pipe-progress-bar {
+  height: 8px; background: #e5e7eb; border-radius: 5px; overflow: hidden;
+}
+.pipe-progress-fill {
+  height: 100%; border-radius: 5px;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 0.5s ease;
+}
+
 .pipe-refresh-btn {
   background: none; border: none; cursor: pointer;
   font-size: 1em; color: #9ca3af; padding: 0 4px;
@@ -1285,6 +1374,12 @@ function oppTagTip(row) {
 .section-title { font-size: 0.83em; font-weight: 700; color: #374151; }
 .section-sub   { font-size: 0.67em; color: #9ca3af; }
 .page-nav { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.page-size-sel {
+  font-size: 0.7em; color: #374151; background: #fff;
+  border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 6px;
+  cursor: pointer; outline: none; margin-right: 2px;
+}
+.page-size-sel:focus { border-color: #6366f1; }
 .page-btn {
   background: #f3f4f6; border: 1px solid #e5e7eb;
   color: #374151; border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 0.85em;

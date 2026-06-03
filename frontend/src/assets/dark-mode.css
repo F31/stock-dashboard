@@ -190,12 +190,12 @@ html.dark .fin-row {
 html.dark .sector-sub {
   color: #64748b;
 }
+/* drag-handle: transparent by default (like light mode); only a subtle
+   background when hovering the handle ITSELF, never on card hover —
+   a solid box here would cover the stock name in the top-left corner. */
 html.dark .drag-handle {
-  color: #475569;
-  background: #1e293b;
-}
-html.dark .card-wrap:hover .drag-handle {
-  background: #334155;
+  color: #64748b;
+  background: transparent;
 }
 
 /* ── Sys dropdown ────────────────────────────────────── */
@@ -562,6 +562,7 @@ html.dark .page-btn             { background: #1e293b; border-color: #475569; co
 html.dark .page-btn:hover:not(:disabled) { background: #334155; color: #e2e8f0; }
 html.dark .page-btn:disabled    { opacity: 0.3; }
 html.dark .page-info            { color: #475569; }
+html.dark .page-size-sel        { background: #0f172a; border-color: #475569; color: #cbd5e1; }
 html.dark .section-title        { color: #e2e8f0; }
 html.dark .section-sub          { color: #475569; }
 
@@ -688,6 +689,10 @@ html.dark .pipe-date-input {
   color: #e2e8f0;
 }
 html.dark .pipe-meta { color: #64748b; }
+html.dark .pipe-step-label { color: #cbd5e1; }
+html.dark .pipe-eta { color: #94a3b8; }
+html.dark .pipe-eta-time { color: #64748b; }
+html.dark .pipe-progress-bar { background: #334155; }
 html.dark .pipe-refresh-btn { color: #475569; }
 html.dark .pipe-refresh-btn:hover { color: #94a3b8; }
 html.dark .pipe-st-idle    { background: #334155; color: #94a3b8; }
@@ -1410,4 +1415,428 @@ html.dark .intel-sub {
 }
 html.dark .intel-val:not(.dir-up):not(.dir-down) {
   color: #60a5fa;
+}
+
+/* ══════════════════════════════════════════════════════════
+   PATCH 2 — System modals & tab pages thorough dark fix
+   Covers: DataSourceConfig / PromptTemplateConfig /
+           ScheduledTaskConfig / WatchedTickerConfig /
+           PremarketHistoryModal / FrameworkEditor /
+           UserManagement / OperationLog / LLMConfigModal /
+           AddStockModal / AllStocksModal / PremarketModal
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Universal modal container variants ─────────────────── */
+html.dark .modal-box {
+  background: #1e293b !important;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+html.dark .modal-box .modal-header,
+html.dark .modal-box .modal-hdr {
+  background: #1e293b !important;
+  border-bottom-color: #334155 !important;
+}
+html.dark .modal-title,
+html.dark .modal-hdr h3,
+html.dark .modal-header h2,
+html.dark .modal-header h3 {
+  color: #e2e8f0 !important;
+}
+html.dark .modal-total,
+html.dark .hdr-count,
+html.dark .hdr-sub {
+  color: #64748b !important;
+}
+html.dark .hdr-sep {
+  background: #334155 !important;
+}
+html.dark .modal-body {
+  background: #1e293b !important;
+  color: #e2e8f0;
+}
+
+/* ── Universal data-table (DataSource / Scheduled / Watched) */
+html.dark .data-table th {
+  background: #0f172a !important;
+  color: #64748b !important;
+  border-bottom-color: #334155 !important;
+}
+html.dark .data-table td {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  border-bottom-color: #334155 !important;
+}
+html.dark .data-table tr:hover td {
+  background: #334155 !important;
+}
+html.dark .col-name { color: #e2e8f0 !important; }
+html.dark .col-url,
+html.dark .col-type,
+html.dark .col-desc  { color: #94a3b8 !important; }
+
+/* ── Secondary / cancel buttons ─────────────────────────── */
+html.dark .btn-cancel,
+html.dark .btn-ghost {
+  background: #1e293b !important;
+  color: #94a3b8 !important;
+  border-color: #475569 !important;
+}
+html.dark .btn-cancel:hover,
+html.dark .btn-ghost:hover {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* ── Action / operation row buttons ─────────────────────── */
+html.dark .op-btn,
+html.dark .act-btn {
+  background: #1e293b !important;
+  color: #94a3b8 !important;
+  border-color: #475569 !important;
+}
+html.dark .op-btn:hover,
+html.dark .act-btn:hover {
+  background: #334155 !important;
+  border-color: #64748b !important;
+  color: #e2e8f0 !important;
+}
+html.dark .op-btn.toggle,
+html.dark .toggle-btn {
+  background: #334155 !important;
+  border-color: #475569 !important;
+  color: #e2e8f0 !important;
+}
+html.dark .op-btn.toggle:hover,
+html.dark .toggle-btn:hover {
+  background: #475569 !important;
+}
+
+/* ── Type / status / market badges ──────────────────────── */
+html.dark .type-badge        { background: #334155 !important; color: #e2e8f0 !important; }
+html.dark .type-badge.webpage{ background: #2e1065 !important; color: #c4b5fd !important; }
+html.dark .status-badge,
+html.dark .status-dot         { background: #334155 !important; color: #94a3b8 !important; }
+html.dark .status-dot.active,
+html.dark .status-badge.active{ background: #064e3b !important; color: #6ee7b7 !important; }
+html.dark .status-dot.inactive,
+html.dark .status-badge.disabled{ background: #334155 !important; color: #64748b !important; }
+html.dark .mkt-a  { background: #422006 !important; color: #fcd34d !important; }
+html.dark .mkt-hk { background: #1d3461 !important; color: #93c5fd !important; }
+html.dark .mkt-us { background: #2e1065 !important; color: #c4b5fd !important; }
+
+/* ── DataSourceConfig ────────────────────────────────────── */
+html.dark .akshare-fn { color: #64748b !important; }
+
+/* ── PromptTemplateConfig / TemplateCard ────────────────── */
+html.dark .t-name    { color: #e2e8f0 !important; }
+html.dark .t-preview { color: #94a3b8 !important; }
+html.dark .template-card,
+html.dark .template-item {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+}
+html.dark .template-card:hover,
+html.dark .template-item:hover {
+  background: #334155 !important;
+}
+
+/* ── FrameworkEditor (产业链矩阵) ─────────────────────────
+   Inner panels each carry their own light bg (#fafafa/#fff),
+   so all of them must be overridden explicitly.            */
+
+/* Sidebar (framework list) */
+html.dark .sidebar { border-right-color: #334155 !important; background: #1e293b !important; }
+html.dark .sidebar-empty,
+html.dark .editor-empty { color: #64748b !important; }
+html.dark .fw-item { background: transparent !important; }
+html.dark .fw-item:hover { background: #334155 !important; }
+html.dark .fw-item.selected { background: #1d3461 !important; border-color: #3b82f6 !important; }
+html.dark .fw-item-name { color: #e2e8f0 !important; }
+html.dark .fw-item-meta { color: #64748b !important; }
+html.dark .badge-active { background: #064e3b !important; color: #6ee7b7 !important; }
+
+/* Editor top bar */
+html.dark .editor-topbar { border-bottom-color: #334155 !important; background: #1e293b !important; }
+html.dark .name-input,
+html.dark .desc-input {
+  background: #0f172a !important; border-color: #475569 !important; color: #e2e8f0 !important;
+}
+html.dark .btn-activate { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
+html.dark .btn-activate:hover:not(:disabled) { background: #064e3b !important; color: #6ee7b7 !important; }
+html.dark .btn-active-ind { background: #064e3b !important; color: #6ee7b7 !important; }
+html.dark .btn-del { background: #1e293b !important; color: #fca5a5 !important; border-color: #7f1d1d !important; }
+html.dark .btn-del:hover:not(:disabled) { background: #450a0a !important; }
+html.dark .save-error { color: #fca5a5 !important; }
+
+/* Tab bar */
+html.dark .tab-bar { background: #0f172a !important; border-bottom-color: #334155 !important; }
+html.dark .tab-btn { color: #94a3b8 !important; background: none !important; }
+html.dark .tab-btn:hover { color: #e2e8f0 !important; }
+html.dark .tab-btn.active { color: #60a5fa !important; border-bottom-color: #3b82f6 !important; }
+
+/* Canvas */
+html.dark .canvas-toolbar { background: #0f172a !important; border-bottom-color: #334155 !important; }
+html.dark .canvas-hint,
+html.dark .canvas-empty { color: #64748b !important; }
+html.dark .icon-btn { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
+html.dark .icon-btn:hover { background: #334155 !important; color: #e2e8f0 !important; border-color: #64748b !important; }
+html.dark .icon-btn-danger:hover { background: #450a0a !important; color: #fca5a5 !important; border-color: #7f1d1d !important; }
+
+/* Layer row */
+html.dark .layer-row { background: #0f172a !important; border-color: #334155 !important; }
+html.dark .layer-row:hover { border-color: #3b82f6 !important; }
+html.dark .layer-hdr { border-bottom-color: #334155 !important; }
+html.dark .layer-name { color: #e2e8f0 !important; }
+html.dark .layer-desc { color: #64748b !important; }
+html.dark .layer-id-badge.norm-badge { background: #2e1065 !important; color: #c4b5fd !important; }
+html.dark .layer-id-badge.bn-badge   { background: #450a0a !important; color: #fca5a5 !important; }
+/* ★物理瓶颈 chip — dark amber bg so the amber text has real contrast */
+html.dark .bn-chip { background: #422006 !important; color: #fcd34d !important; border: 1px solid #78350f !important; }
+
+/* Sector cards */
+html.dark .sectors-empty { color: #475569 !important; }
+html.dark .sector-card { background: #1e293b !important; border-color: #334155 !important; }
+html.dark .sector-card:hover { border-color: #3b82f6 !important; }
+html.dark .sector-card.drop-here { border-color: #60a5fa !important; }
+html.dark .grip { color: #475569 !important; }
+html.dark .sector-name { color: #e2e8f0 !important; }
+html.dark .sector-bn { color: #fcd34d !important; }
+html.dark .co-count-badge { background: #334155 !important; color: #94a3b8 !important; }
+html.dark .sector-desc { color: #64748b !important; }
+html.dark .btn-add-csector { color: #93c5fd !important; }
+html.dark .btn-add-csector:hover { background: #1d3461 !important; border-color: #3b82f6 !important; }
+
+/* Company popup */
+html.dark .co-popup { background: #1e293b !important; border-color: #334155 !important; box-shadow: 0 8px 24px rgba(0,0,0,.5) !important; }
+html.dark .co-popup-hdr { background: #0f172a !important; border-bottom-color: #334155 !important; }
+html.dark .co-popup-empty { color: #64748b !important; }
+html.dark .co-name { color: #e2e8f0 !important; }
+html.dark .co-mkt  { color: #64748b !important; }
+html.dark .co-item:hover { background: #334155 !important; }
+html.dark .co-del { color: #475569 !important; }
+html.dark .co-del:hover { color: #fca5a5 !important; }
+
+/* Keyword tab (kw-*) */
+html.dark .kw-layout { background: #1e293b !important; }
+html.dark .kw-sidebar { border-right-color: #334155 !important; background: #0f172a !important; }
+html.dark .kw-item { color: #cbd5e1 !important; }
+html.dark .kw-item:hover { background: #334155 !important; }
+html.dark .kw-item.selected { background: #1d3461 !important; color: #93c5fd !important; }
+html.dark .kw-layer { background: #2e1065 !important; color: #c4b5fd !important; }
+html.dark .kw-col   { background: #422006 !important; color: #fcd34d !important; }
+html.dark .kw-count { background: #334155 !important; color: #94a3b8 !important; }
+html.dark .kw-editor-head { color: #e2e8f0 !important; }
+html.dark .hint { color: #64748b !important; }
+html.dark .kw-textarea {
+  background: #0f172a !important; border-color: #475569 !important; color: #e2e8f0 !important;
+}
+html.dark .kw-foot,
+html.dark .kw-ph { color: #64748b !important; }
+
+/* Confirm / form dialogs (dlg-*) */
+html.dark .dlg-overlay { background: rgba(0,0,0,.7) !important; }
+html.dark .dlg-box { background: #1e293b !important; border-color: #334155 !important; }
+html.dark .dlg-hdr { border-bottom-color: #334155 !important; color: #e2e8f0 !important; }
+html.dark .dlg-body p { color: #cbd5e1 !important; }
+html.dark .dlg-body strong { color: #e2e8f0 !important; }
+html.dark .dlg-foot { border-top-color: #334155 !important; }
+html.dark .frow label { color: #94a3b8 !important; }
+html.dark .frow-check label { color: #cbd5e1 !important; }
+html.dark .finput,
+html.dark .fselect {
+  background: #0f172a !important; border-color: #475569 !important; color: #e2e8f0 !important;
+}
+html.dark .ferr { color: #fca5a5 !important; }
+html.dark .btn-primary { background: #2563eb !important; color: #fff !important; }
+html.dark .btn-primary:hover { background: #1d4ed8 !important; }
+
+/* ── UserManagement ────────────────────────────────────── */
+html.dark .user-table th { background: #0f172a !important; color: #64748b !important; border-color: #334155 !important; }
+html.dark .user-table td { background: #1e293b !important; color: #e2e8f0 !important; border-color: #334155 !important; }
+html.dark .user-table tr:hover td { background: #334155 !important; }
+html.dark .role-badge        { background: #1d3461 !important; color: #93c5fd !important; }
+html.dark .role-badge.admin  { background: #450a0a !important; color: #fca5a5 !important; }
+html.dark .user-form         { background: #0f172a !important; border-color: #334155 !important; }
+html.dark .form-group label  { color: #94a3b8 !important; }
+
+/* ── OperationLog ───────────────────────────────────────── */
+html.dark .filter-bar        { background: #0f172a !important; border-bottom-color: #334155 !important; }
+html.dark .filter-input,
+html.dark .filter-sel        { background: #1e293b !important; border-color: #475569 !important; color: #e2e8f0 !important; }
+html.dark .log-table         { background: #1e293b; }
+html.dark .log-table th      { background: #0f172a !important; color: #64748b !important; border-color: #334155 !important; }
+html.dark .log-table td      { background: #1e293b !important; color: #e2e8f0 !important; border-color: #334155 !important; }
+html.dark .log-table tr:hover td { background: #334155 !important; }
+html.dark .col-user          { color: #e2e8f0 !important; }
+html.dark .col-action        { color: #93c5fd !important; }
+html.dark .col-detail        { color: #94a3b8 !important; }
+html.dark .col-time          { color: #64748b !important; }
+
+/* ── LLMConfigModal ────────────────────────────────────── */
+html.dark .config-card,
+html.dark .llm-card {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+}
+html.dark .config-card:hover,
+html.dark .llm-card:hover {
+  background: #334155 !important;
+}
+html.dark .config-name,
+html.dark .llm-name   { color: #e2e8f0 !important; }
+html.dark .config-desc,
+html.dark .llm-desc   { color: #94a3b8 !important; }
+html.dark .config-meta,
+html.dark .llm-meta   { color: #64748b !important; }
+html.dark .default-badge { background: #064e3b !important; color: #6ee7b7 !important; }
+html.dark .form-section { background: #0f172a !important; border-color: #334155 !important; }
+html.dark .form-label   { color: #94a3b8 !important; }
+html.dark .form-hint    { color: #64748b !important; }
+
+/* ── AddStockModal ─────────────────────────────────────── */
+html.dark .market-tabs,
+html.dark .market-tab-bar { background: #0f172a !important; border-bottom-color: #334155 !important; }
+html.dark .market-tab      { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
+html.dark .market-tab.active { background: #1d3461 !important; border-color: #3b82f6 !important; color: #93c5fd !important; }
+html.dark .search-results  { background: #1e293b !important; border-color: #334155 !important; }
+html.dark .search-result-item { border-bottom-color: #334155 !important; }
+html.dark .search-result-item:hover { background: #334155 !important; }
+html.dark .si-name { color: #e2e8f0 !important; }
+html.dark .si-code { color: #64748b !important; }
+html.dark .selected-preview { background: #0f172a !important; border-color: #334155 !important; }
+html.dark .sp-label { color: #64748b !important; }
+html.dark .sp-name  { color: #e2e8f0 !important; }
+html.dark .sp-code  { color: #94a3b8 !important; }
+
+/* ── AllStocksModal ─────────────────────────────────────── */
+html.dark .search-bar        { background: #0f172a !important; border-bottom-color: #334155 !important; }
+html.dark .search-icon       { color: #475569 !important; }
+html.dark .search-input      { background: #1e293b !important; border-color: #475569 !important; color: #e2e8f0 !important; }
+html.dark .search-clear      { color: #64748b !important; }
+html.dark .search-clear:hover { background: #334155 !important; color: #e2e8f0 !important; }
+html.dark .stock-table th    { background: #0f172a !important; color: #64748b !important; border-color: #334155 !important; }
+html.dark .stock-table td    { background: #1e293b !important; border-color: #334155 !important; }
+html.dark .stock-table tbody tr:hover td { background: #334155 !important; }
+html.dark .drag-handle       { color: #64748b !important; background: transparent !important; }
+html.dark .drag-handle:hover { color: #94a3b8 !important; background: #334155 !important; }
+html.dark .td-name-top       { color: #e2e8f0 !important; }
+html.dark .td-name-sub       { color: #64748b !important; }
+html.dark .td-name-link:hover { color: #60a5fa !important; }
+
+/* ── PremarketModal (white body area) ───────────────────── */
+html.dark .loading-state,
+html.dark .empty-state { color: #64748b !important; }
+html.dark .spinner { border-color: #334155 !important; border-top-color: #60a5fa !important; }
+
+/* ── PremarketHistoryModal ──────────────────────────────── */
+html.dark .report-list     { background: #1e293b !important; }
+html.dark .report-item     { border-bottom-color: #334155 !important; color: #e2e8f0 !important; }
+html.dark .report-item:hover { background: #334155 !important; }
+html.dark .report-item.selected { background: #1d3461 !important; }
+html.dark .report-date     { color: #e2e8f0 !important; }
+html.dark .report-time     { color: #64748b !important; }
+html.dark .report-meta     { color: #64748b !important; }
+html.dark .report-summary  { color: #94a3b8 !important; }
+html.dark .preview-panel   { background: #0f172a !important; border-left-color: #334155 !important; }
+html.dark .preview-header  { background: #0f172a !important; border-bottom-color: #334155 !important; color: #94a3b8 !important; }
+html.dark .preview-content { color: #e2e8f0 !important; }
+html.dark .preview-section { border-bottom-color: #334155 !important; }
+html.dark .section-label   { color: #64748b !important; }
+html.dark .basis-text,
+html.dark .outlook-text    { color: #94a3b8 !important; }
+html.dark .page-btn        { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
+html.dark .page-btn:hover:not(:disabled) { background: #334155 !important; color: #e2e8f0 !important; }
+html.dark .page-current    { color: #e2e8f0 !important; }
+html.dark .page-sep        { color: #475569 !important; }
+html.dark .page-total      { color: #64748b !important; }
+html.dark .report-viewer-overlay { background: rgba(0,0,0,.8) !important; }
+html.dark .report-viewer-box   { background: #1e293b !important; border-color: #334155 !important; }
+html.dark .report-viewer-header { background: #1e293b !important; border-bottom-color: #334155 !important; }
+html.dark .report-viewer-title  { color: #e2e8f0 !important; }
+html.dark .btn-share        { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
+html.dark .btn-share:hover  { background: #334155 !important; }
+html.dark .btn-share.copied { background: #064e3b !important; border-color: #16a34a !important; color: #6ee7b7 !important; }
+html.dark .stuck-badge      { background: #422006 !important; color: #fcd34d !important; }
+html.dark .stuck-hint       { color: #94a3b8 !important; }
+html.dark .rw-retry { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
+
+/* ── WatchedTickerConfig ─────────────────────────────────── */
+html.dark .ticker-name    { color: #e2e8f0 !important; }
+html.dark .ticker-code    { color: #94a3b8 !important; }
+html.dark .ticker-desc    { color: #64748b !important; }
+
+/* ── Common: form inside modals ──────────────────────────── */
+html.dark .modal-box input,
+html.dark .modal-box select,
+html.dark .modal-box textarea,
+html.dark .user-form input,
+html.dark .user-form select,
+html.dark .user-form textarea {
+  background: #0f172a !important;
+  border-color: #475569 !important;
+  color: #e2e8f0 !important;
+}
+html.dark .modal-box input::placeholder,
+html.dark .modal-box textarea::placeholder { color: #475569 !important; }
+html.dark .modal-box label { color: #94a3b8 !important; }
+
+/* ── Row-report btn in PremarketHistoryModal ─────────────── */
+html.dark .row-report-btn {
+  background: #1d3461 !important;
+  border-color: #3b82f6 !important;
+  color: #93c5fd !important;
+}
+html.dark .row-report-btn:hover { background: #1e40af !important; }
+
+/* ── Dark toggle in tab bar (light mode style for contrast) ─ */
+html.dark .main-tab-bar { border-bottom-color: #334155; }
+
+/* ── Premarket report 观察清单 (PremarketModal) ──────────── */
+html.dark .watch-card {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+}
+html.dark .watch-name { color: #f1f5f9 !important; }   /* 股票名称 → 白色 */
+html.dark .watch-body { color: #cbd5e1; }
+html.dark .watch-row { border-bottom-color: #334155 !important; }
+html.dark .row-label { color: #94a3b8; }
+html.dark .watch-row.bull .row-label { color: #4ade80 !important; }
+html.dark .watch-row.bear .row-label { color: #f87171 !important; }
+html.dark .count-badge { background: #334155; color: #94a3b8; }
+html.dark .outlook-summary { color: #cbd5e1 !important; }
+
+/* 历史弹窗里的观察清单 chip */
+html.dark .stock-chip {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+  border-color: #475569 !important;
+}
+html.dark .watch-chips .chip {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.dark .watch-chips .chip em { color: #94a3b8 !important; }
+
+/* ── Login page ─────────────────────────────────────────── */
+html.dark .login-page { background: #0f172a; }
+html.dark .login-card {
+  background: #1e293b;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.5);
+}
+html.dark .brand h1 { color: #f1f5f9; }   /* 股票投资仪表盘 → 白色 */
+html.dark .mode-bar { border-bottom-color: #334155; }
+html.dark .mode-btn { color: #64748b; }
+html.dark .mode-btn.active { color: #60a5fa; border-bottom-color: #3b82f6; }
+html.dark .mode-btn:not(.active):hover { color: #94a3b8; }
+html.dark .field input {
+  background: #0f172a;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+html.dark .field input::placeholder { color: #475569; }
+html.dark .field input:focus {
+  border-color: #3b82f6;
+  background: #0f172a;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
 }

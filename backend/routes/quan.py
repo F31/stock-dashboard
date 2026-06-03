@@ -1420,6 +1420,63 @@ _PIPELINE_SCRIPT = f"{_PIPELINE_ROOT}/run_pipeline.sh"
 _PIPELINE_LOG   = f"{_PIPELINE_ROOT}/logs/pipeline_latest.log"
 _PIPELINE_PYTHON = "/root/qlib/qvenv/bin/python"
 
+# ── Pipeline step weights for progress + ETA ──────────────────────────────────
+# Ordered list of (step_key, label, default_weight_seconds).
+# Weights are typical durations used to compute weighted progress % and ETA.
+# Actual durations are recorded each run and EMA-blended to self-calibrate.
+_PIPELINE_STEPS: list[tuple[str, str, float]] = [
+    ("init_subsector_config", "初始化子板块配置",  10),
+    ("build_ai_pool",         "构建AI股票池",      120),
+    ("update_features",       "更新基本面特征",     180),
+    ("train_lgbm_ai",         "LightGBM训练评分",   300),
+    ("train_gnn_ai",          "GNN图神经网络评分",  600),
+    ("score_themes",          "三链主题评分",       120),
+    ("run_daily",             "每日因子评分",       180),
+    ("train_themes",          "主题权重校准",       180),
+    ("precompute_tech_levels","预计算技术指标",     360),
+    ("sync_to_cloud",         "同步数据到云端",      20),
+]
+_STEP_KEY_TO_IDX = {k: i for i, (k, _, _) in enumerate(_PIPELINE_STEPS)}
+_STEP_WEIGHTS_FILE = f"{_PIPELINE_ROOT}/logs/pipeline_step_weights.json"
+
+
+def _load_step_weights() -> list[float]:
+    """Load self-calibrated step weights; fall back to defaults."""
+    import json as _json, os as _os
+    defaults = [w for _, _, w in _PIPELINE_STEPS]
+    try:
+        if _os.path.exists(_STEP_WEIGHTS_FILE):
+            with open(_STEP_WEIGHTS_FILE) as f:
+                saved = _json.load(f)
+            # saved is {step_key: seconds}; merge over defaults by key
+            return [
+                float(saved.get(k, dw))
+                for (k, _, dw) in _PIPELINE_STEPS
+            ]
+    except Exception:
+        pass
+    return defaults
+
+
+def _save_step_weights(durations: dict[str, float]) -> None:
+    """EMA-blend new durations into saved weights (alpha=0.4)."""
+    import json as _json, os as _os
+    try:
+        prev = {}
+        if _os.path.exists(_STEP_WEIGHTS_FILE):
+            with open(_STEP_WEIGHTS_FILE) as f:
+                prev = _json.load(f)
+        blended = {}
+        for k, _, dw in _PIPELINE_STEPS:
+            old = float(prev.get(k, dw))
+            new = durations.get(k)
+            blended[k] = round(0.6 * old + 0.4 * new, 1) if new else old
+        with open(_STEP_WEIGHTS_FILE, "w") as f:
+            _json.dump(blended, f)
+    except Exception as e:
+        logger.debug("save step weights failed: %s", e)
+
+
 # In-process state for the running pipeline (reset on process restart)
 _pipeline_state: dict = {
     "status": "idle",       # idle | running | success | error
@@ -1428,21 +1485,56 @@ _pipeline_state: dict = {
     "ended":   None,
     "date":    None,
     "tail":    "",
+    "step_index":  0,        # 1-based index of current step (0 = not started)
+    "step_name":   "",       # human-readable label of current step
+    "total_steps": len(_PIPELINE_STEPS),
+    "progress_pct": 0,       # weighted completion percentage 0-100
+    "eta_seconds":  None,    # estimated seconds remaining
 }
 _pipeline_lock = _threading.Lock()
 
 
+_STEP_RE = re.compile(r"===\s*STEP:\s*(\w+)\s*===")
+
+
+def _compute_progress(weights: list[float], done_idx: int, cur_elapsed: float) -> tuple[int, float | None]:
+    """Weighted progress % and ETA seconds.
+
+    done_idx: number of FULLY completed steps (0-based count).
+    cur_elapsed: seconds spent so far on the current (in-progress) step.
+    """
+    total_w = sum(weights) or 1.0
+    done_w  = sum(weights[:done_idx])
+    # Partial credit for the in-progress step, capped at its own weight
+    if done_idx < len(weights):
+        cur_w = weights[done_idx]
+        done_w += min(cur_elapsed, cur_w * 0.95)  # cap so it doesn't hit 100% early
+    pct = min(99, round(done_w / total_w * 100))
+    remaining = max(0.0, total_w - done_w)
+    return pct, round(remaining)
+
+
 def _run_pipeline_bg(trade_date: str) -> None:
-    """Background thread that executes run_pipeline.sh."""
-    import shlex
+    """Background thread that executes run_pipeline.sh with step progress tracking."""
+    import time as _time
     cmd = ["bash", _PIPELINE_SCRIPT, trade_date]
     log_path = f"{_PIPELINE_ROOT}/logs/pipeline_{trade_date.replace('-','')}.log"
+
+    weights = _load_step_weights()
+    step_started_at: dict[int, float] = {}   # idx → start timestamp
+    step_durations: dict[str, float] = {}    # step_key → measured seconds
+    cur_idx = -1                              # index of in-progress step (0-based)
+
     try:
         with open(log_path, "w") as lf, _pipeline_lock:
             _pipeline_state["status"]  = "running"
             _pipeline_state["started"] = _datetime.now().isoformat()
             _pipeline_state["ended"]   = None
             _pipeline_state["tail"]    = ""
+            _pipeline_state["step_index"]   = 0
+            _pipeline_state["step_name"]    = "启动中…"
+            _pipeline_state["progress_pct"] = 0
+            _pipeline_state["eta_seconds"]  = round(sum(weights))
 
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1455,22 +1547,63 @@ def _run_pipeline_bg(trade_date: str) -> None:
         with open(log_path, "a") as lf:
             for line in proc.stdout:
                 lf.write(line)
+                lf.flush()
                 lines.append(line.rstrip())
                 if len(lines) > 50:
                     lines.pop(0)
 
+                m = _STEP_RE.search(line)
+                if m:
+                    step_key = m.group(1)
+                    idx = _STEP_KEY_TO_IDX.get(step_key)
+                    if idx is not None:
+                        now = _time.time()
+                        # Record duration of the step that just finished
+                        if cur_idx >= 0 and cur_idx in step_started_at:
+                            prev_key = _PIPELINE_STEPS[cur_idx][0]
+                            step_durations[prev_key] = now - step_started_at[cur_idx]
+                        cur_idx = idx
+                        step_started_at[idx] = now
+                        pct, eta = _compute_progress(weights, idx, 0.0)
+                        with _pipeline_lock:
+                            _pipeline_state["step_index"]   = idx + 1
+                            _pipeline_state["step_name"]    = _PIPELINE_STEPS[idx][1]
+                            _pipeline_state["progress_pct"] = pct
+                            _pipeline_state["eta_seconds"]  = eta
+                else:
+                    # Non-STEP line: refresh ETA/progress with current step's elapsed time
+                    if cur_idx >= 0 and cur_idx in step_started_at:
+                        elapsed = _time.time() - step_started_at[cur_idx]
+                        pct, eta = _compute_progress(weights, cur_idx, elapsed)
+                        with _pipeline_lock:
+                            _pipeline_state["progress_pct"] = pct
+                            _pipeline_state["eta_seconds"]  = eta
+
         proc.wait()
+        # Record the final step's duration
+        if cur_idx >= 0 and cur_idx in step_started_at:
+            step_durations[_PIPELINE_STEPS[cur_idx][0]] = _time.time() - step_started_at[cur_idx]
+
+        ok = proc.returncode == 0
         with _pipeline_lock:
-            _pipeline_state["status"] = "success" if proc.returncode == 0 else "error"
+            _pipeline_state["status"] = "success" if ok else "error"
             _pipeline_state["ended"]  = _datetime.now().isoformat()
             _pipeline_state["tail"]   = "\n".join(lines[-20:])
             _pipeline_state["pid"]    = None
+            _pipeline_state["progress_pct"] = 100 if ok else _pipeline_state.get("progress_pct", 0)
+            _pipeline_state["eta_seconds"]  = 0 if ok else None
+            _pipeline_state["step_name"]    = "已完成" if ok else "执行出错"
+
+        if ok and step_durations:
+            _save_step_weights(step_durations)
     except Exception as exc:
         with _pipeline_lock:
             _pipeline_state["status"] = "error"
             _pipeline_state["ended"]  = _datetime.now().isoformat()
             _pipeline_state["tail"]   = str(exc)
             _pipeline_state["pid"]    = None
+            _pipeline_state["eta_seconds"] = None
+            _pipeline_state["step_name"]   = "执行出错"
 
 
 @router.post("/pipeline/trigger")
@@ -1496,6 +1629,10 @@ async def trigger_pipeline(
         _pipeline_state["date"]    = td
         _pipeline_state["status"]  = "pending"
         _pipeline_state["started"] = _datetime.now().isoformat()
+        _pipeline_state["step_index"]   = 0
+        _pipeline_state["step_name"]    = "准备启动…"
+        _pipeline_state["progress_pct"] = 0
+        _pipeline_state["eta_seconds"]  = round(sum(_load_step_weights()))
 
     t = _threading.Thread(target=_run_pipeline_bg, args=(td,), daemon=True)
     t.start()

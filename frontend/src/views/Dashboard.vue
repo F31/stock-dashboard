@@ -323,8 +323,11 @@
     />
 
     <!-- Stock Detail Modal -->
+    <!-- :key forces a fresh instance per stock so a previously errored/stale
+         instance can never be reused (fixes intermittent "won't open") -->
     <StockDetailModal
       v-if="detailStock"
+      :key="(detailStock.market || '') + ':' + (detailStock.stock_code || '')"
       :stock="detailStock"
       :initialTab="detailInitialTab"
       :currentUser="currentUserObj"
@@ -379,7 +382,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent, onErrorCaptured } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
 import { useAuthStore } from '../stores/authStore.js'
@@ -393,10 +396,20 @@ import FundFlowPanel  from '../components/FundFlowPanel.vue'
 import SectorHeatmap      from '../components/SectorHeatmap.vue'
 import SectorFundFlowPanel from '../components/SectorFundFlowPanel.vue'
 
+// Retry a dynamic import a few times so a transient chunk-load failure
+// (network blip) doesn't get cached as a permanent failure requiring a refresh.
+function importWithRetry(loader, retries = 2, delay = 400) {
+  return () => loader().catch((err) => {
+    if (retries <= 0) throw err
+    return new Promise((resolve) => setTimeout(resolve, delay))
+      .then(() => importWithRetry(loader, retries - 1, delay * 2)())
+  })
+}
+
 // ── Lazy: shown only after a user action (modal / tab switch) ───────────────
 const AddStockModal      = defineAsyncComponent(() => import('../components/AddStockModal.vue'))
 const AllStocksModal     = defineAsyncComponent(() => import('../components/AllStocksModal.vue'))
-const StockDetailModal   = defineAsyncComponent(() => import('../components/StockDetailModal.vue'))
+const StockDetailModal   = defineAsyncComponent(importWithRetry(() => import('../components/StockDetailModal.vue')))
 const CongestionMonitor  = defineAsyncComponent(() => import('../components/CongestionMonitor.vue'))
 
 // Heavy tab panels — loaded only when the user clicks the tab
@@ -538,6 +551,18 @@ async function loadQuanScores() {
 const activeTab = ref('A')
 const quanLabelFilter = ref('')
 const detailStock = ref(null)
+
+// Safety net: if the detail modal subtree ever throws during render/lifecycle,
+// reset its state so the page stays usable and the next click can reopen it
+// (instead of a stale/dead instance silently refusing to open until refresh).
+onErrorCaptured((err) => {
+  console.error('Modal subtree error captured:', err)
+  if (detailStock.value) {
+    detailStock.value = null
+    detailInitialTab.value = 'info'
+  }
+  return false  // stop propagation; keep the app alive
+})
 
 // Decode JWT to get current user id and role (no extra network call needed)
 const currentUserObj = computed(() => {
