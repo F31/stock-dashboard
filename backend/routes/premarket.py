@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import PremarketReport, User
 from routes.auth import get_current_user
+from routes.admin import require_admin
 from schemas import PremarketReportResponse
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,12 @@ def _to_resp(r: PremarketReport) -> PremarketReportResponse:
 def trigger_run(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),   # 仅管理员可手动触发
 ):
-    """手动触发一次盘前分析（后台异步执行），立即返回记录 ID 供前端轮询。"""
+    """手动触发一次盘前分析（后台异步执行），立即返回记录 ID 供前端轮询。
+
+    仅管理员可调用；普通用户与定时任务（系统内部）走自动执行路径。
+    """
     from datetime import datetime as _dt
     record = PremarketReport(
         report_date=_dt.now().strftime("%Y-%m-%d"),

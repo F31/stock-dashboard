@@ -19,7 +19,7 @@
           </div>
         </div>
         <div class="header-actions">
-          <button class="btn btn-run" :disabled="running" @click="triggerRun">
+          <button v-if="isAdmin" class="btn btn-run" :disabled="running" @click="triggerRun">
             <span :class="['run-icon', { spinning: running }]">↻</span>
             {{ running ? '分析中...' : '立即运行' }}
           </button>
@@ -75,8 +75,9 @@
       <div v-else-if="!analysis" class="empty-state">
         <div class="empty-icon">📋</div>
         <p>暂无分析报告</p>
-        <p class="empty-sub">点击「立即运行」生成今日盘前分析，或等待定时任务在每天早上 6:00 自动执行</p>
-        <button class="btn btn-run large" @click="triggerRun">
+        <p class="empty-sub" v-if="isAdmin">点击「立即运行」生成今日盘前分析，或等待定时任务在每天早上 6:00 自动执行</p>
+        <p class="empty-sub" v-else>系统每天早上 6:00 自动生成盘前分析，请稍后查看</p>
+        <button v-if="isAdmin" class="btn btn-run large" @click="triggerRun">
           ☀ 立即运行
         </button>
       </div>
@@ -218,6 +219,10 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { getLatestPremarket, triggerPremarket, getPremarketReport, getStreamText, synthesizeTTS } from '../api'
+
+const props = defineProps({
+  isAdmin: { type: Boolean, default: false },
+})
 
 const emit = defineEmits(['close'])
 
@@ -812,6 +817,7 @@ async function load() {
 }
 
 async function triggerRun() {
+  if (!props.isAdmin) return   // 仅管理员可触发（后端亦强制校验）
   if (running.value) return
   running.value = true
   runningStep.value = 0

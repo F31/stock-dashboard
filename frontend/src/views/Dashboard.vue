@@ -339,6 +339,7 @@
     <!-- Premarket Analysis Modal -->
     <PremarketModal
       v-if="showPremarket"
+      :is-admin="isAdmin"
       @close="showPremarket = false"
     />
 
