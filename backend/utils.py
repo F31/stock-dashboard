@@ -45,7 +45,10 @@ def get_ip_location(ip: str) -> str:
         r = requests.get(
             f"http://ip-api.com/json/{ip}",
             params={"lang": "zh-CN", "fields": "status,country,regionName,city"},
-            timeout=2,
+            timeout=4,
+            # 绕过本机代理(127.0.0.1:7892)——否则 requests 走代理无法到达
+            # ip-api.com,会 2s 超时返回空,导致归属地一直为空。
+            proxies={"http": None, "https": None},
         )
         data = r.json()
         if data.get("status") == "success":

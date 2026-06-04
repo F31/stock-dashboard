@@ -152,6 +152,21 @@ html.dark .page-info {
 }
 
 /* ── Stock card ──────────────────────────────────────── */
+/* 涨跌幅标签框（.ctag）：同色系深底 + 亮字，深色卡片上对比清晰 */
+html.dark .ctag.up   { background: #3a1216; color: #f87171; }
+html.dark .ctag.down { background: #06281a; color: #4ade80; }
+html.dark .ctag.flat { background: #334155; color: #94a3b8; }
+/* 无底色的现价/大号涨跌幅文字：在深色卡片上调亮，避免暗红/暗绿发闷 */
+html.dark .cprice.up,
+html.dark .chg-pct-big.up   { color: #f87171; }
+html.dark .cprice.down,
+html.dark .chg-pct-big.down { color: #4ade80; }
+html.dark .cprice.flat,
+html.dark .chg-pct-big.flat { color: #94a3b8; }
+/* 指标格里的涨跌色（met-v）同步调亮 */
+html.dark .met-v.up   { color: #f87171; }
+html.dark .met-v.down { color: #4ade80; }
+
 html.dark .sname {
   color: #e2e8f0;
 }
@@ -1699,11 +1714,22 @@ html.dark .market-tabs,
 html.dark .market-tab-bar { background: #0f172a !important; border-bottom-color: #334155 !important; }
 html.dark .market-tab      { background: #1e293b !important; border-color: #475569 !important; color: #94a3b8 !important; }
 html.dark .market-tab.active { background: #1d3461 !important; border-color: #3b82f6 !important; color: #93c5fd !important; }
-html.dark .search-results  { background: #1e293b !important; border-color: #334155 !important; }
+/* 添加股票搜索下拉列表（实际类名是 .search-item，非 .search-result-item）*/
+html.dark .search-results { background: #1e293b !important; border-color: #475569 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; }
+html.dark .search-item { border-bottom-color: #334155 !important; }
+html.dark .search-item:hover,
+html.dark .search-item.active { background: #1d3461 !important; }   /* 深蓝高亮，对比清晰 */
 html.dark .search-result-item { border-bottom-color: #334155 !important; }
 html.dark .search-result-item:hover { background: #334155 !important; }
-html.dark .si-name { color: #e2e8f0 !important; }
-html.dark .si-code { color: #64748b !important; }
+html.dark .si-name { color: #f1f5f9 !important; }   /* 名称：近白，醒目 */
+html.dark .si-code { color: #94a3b8 !important; }   /* 代码：浅灰 */
+html.dark .search-empty,
+html.dark .search-more { color: #94a3b8 !important; }
+/* 市场徽章：深色同色系 */
+html.dark .si-badge.si-a      { background: #422006 !important; color: #fcd34d !important; }
+html.dark .si-badge.si-hk     { background: #1d3461 !important; color: #93c5fd !important; }
+html.dark .si-badge.si-us     { background: #2e1065 !important; color: #c4b5fd !important; }
+html.dark .si-badge.si-sector { background: #500724 !important; color: #fbcfe8 !important; }
 html.dark .selected-preview { background: #0f172a !important; border-color: #334155 !important; }
 html.dark .sp-label { color: #64748b !important; }
 html.dark .sp-name  { color: #e2e8f0 !important; }

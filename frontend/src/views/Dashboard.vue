@@ -70,9 +70,9 @@
         </button>
         <button
           class="dark-toggle"
-          :title="isDark ? '切换到浅色模式' : '切换到深色模式'"
+          :title="themeTitle"
           @click="toggleDark"
-        >{{ isDark ? '☀️' : '🌙' }}</button>
+        >{{ themeIcon }}</button>
       </div>
 
       <!-- ── Panel: 板块/个股行情 ── -->
@@ -388,6 +388,7 @@ import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
 import { useAuthStore } from '../stores/authStore.js'
 import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
+import { getThemeMode, setThemeMode, applyTheme } from '../utils/theme'
 import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5, fetchStockPreview } from '../api/index.js'
 
 // ── Always on first paint ───────────────────────────────────────────────────
@@ -1027,19 +1028,38 @@ onUnmounted(() => {
   document.removeEventListener('click', closeSysMenu)
 })
 
-// ── Dark mode ──────────────────────────────────────────────────────────────
+// ── Theme: auto(by time) / light / dark ────────────────────────────────────
+const themeMode = ref(getThemeMode())              // 'auto' | 'light' | 'dark'
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
+// Cycle: 自动 → 浅色 → 深色 → 自动
+const _THEME_CYCLE = ['auto', 'light', 'dark']
 function toggleDark() {
-  isDark.value = !isDark.value
-  if (isDark.value) {
-    document.documentElement.classList.add('dark')
-    localStorage.setItem('darkMode', '1')
-  } else {
-    document.documentElement.classList.remove('dark')
-    localStorage.setItem('darkMode', '0')
-  }
+  const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(themeMode.value) + 1) % 3]
+  themeMode.value = next
+  setThemeMode(next)
+  isDark.value = document.documentElement.classList.contains('dark')
 }
+
+const themeIcon  = computed(() => ({ auto: '🌗', light: '☀️', dark: '🌙' }[themeMode.value]))
+const themeTitle = computed(() => ({
+  auto:  '当前：自动（按时间）· 点击切换为浅色',
+  light: '当前：浅色 · 点击切换为深色',
+  dark:  '当前：深色 · 点击切换为自动',
+}[themeMode.value]))
+
+// In auto mode, re-evaluate periodically so the theme flips at the
+// day/night boundary (18:00 / 06:00) while the page stays open.
+let _themeTimer = null
+onMounted(() => {
+  _themeTimer = setInterval(() => {
+    if (themeMode.value === 'auto') {
+      applyTheme()
+      isDark.value = document.documentElement.classList.contains('dark')
+    }
+  }, 60000)   // check every minute
+})
+onUnmounted(() => { if (_themeTimer) clearInterval(_themeTimer) })
 </script>
 
 <style scoped>

@@ -1402,38 +1402,82 @@ async def get_stock_performance_intel() -> list:
     return items
 
 
+_EM_SUGGEST_URL = "https://searchapi.eastmoney.com/api/suggest/get"
+_EM_SUGGEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://www.eastmoney.com/",
+}
+# SecurityTypeName → our market; everything else (指数/基金/板块/债券/期货/权证) is skipped
+# Mainland boards all map to "A": 沪A/深A/京A + 科创板(688)/创业板(300)/北交所(8/4/920)
+_EM_TYPE_TO_MARKET = {
+    "沪A": "A", "深A": "A", "京A": "A",
+    "科创板": "A", "创业板": "A", "北交所": "A",
+    "港股": "HK", "美股": "US",
+}
+
+
+async def _em_search_suggest(keyword: str) -> list:
+    """Query EastMoney's search-suggest API (keyword → matches in ONE fast call).
+
+    Replaces the old ak.stock_info_a_code_name() which downloaded the full
+    ~5500-stock list (~44s cold) on every search and timed out at 8s.
+    Returns [{code, market, name}] for A/HK/US stocks only.
+    """
+    import httpx
+    try:
+        # trust_env=False bypasses the local proxy (127.0.0.1:7892) that blocks EM
+        async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
+            r = await client.get(
+                _EM_SUGGEST_URL,
+                params={"input": keyword, "type": "14",
+                        "token": "D43BF722C8E33BDC906FB84D85E326E8", "count": "10"},
+                headers=_EM_SUGGEST_HEADERS,
+            )
+        items = (r.json().get("QuotationCodeTable") or {}).get("Data") or []
+    except Exception as e:
+        logger.debug("EM suggest failed for %s: %s", keyword, e)
+        return []
+
+    out = []
+    for it in items:
+        market = _EM_TYPE_TO_MARKET.get(str(it.get("SecurityTypeName") or ""))
+        if not market:
+            continue
+        code = str(it.get("Code") or "").strip()
+        name = str(it.get("Name") or "").strip()
+        if not code or not name:
+            continue
+        # Sanity filter per market to drop warrants/notes/ETF noise
+        if market == "A"  and not (code.isdigit() and len(code) == 6):
+            continue
+        if market == "HK" and not (code.isdigit() and len(code) == 5):
+            continue
+        if market == "US" and not code.isalpha():   # excludes notes like AAPL22
+            continue
+        out.append({"code": code if market != "US" else code.upper(),
+                    "market": market, "name": name})
+    return out
+
+
 async def search_stock(keyword: str) -> list:
-    """Search stocks by keyword.
-    Strategy:
-      - A-shares: use akshare local name DB (fast, no network needed)
-      - HK/US: use Sina real-time API directly (reliable, single-call verification)
+    """Search stocks by keyword via EastMoney search-suggest (fast, ~0.1s).
+
+    Primary: EM suggest API (covers A/HK/US in one keyword query).
+    Fallback: Sina exact-code verification for codes EM doesn't surface.
+    Results are cached briefly so repeated identical searches are instant.
     """
     if not keyword or not keyword.strip():
         return []
     keyword = keyword.strip()
     kw_upper = keyword.upper()
-    results = []
 
-    # ── A-shares: search local akshare name DB ──
-    try:
-        import akshare as ak
-        try:
-            async with _akshare_sem:
-                df = await asyncio.wait_for(
-                    asyncio.to_thread(ak.stock_info_a_code_name), timeout=8
-                )
-            if df is not None and not df.empty:
-                df["code_str"] = df["code"].astype(str)
-                mask = df["code_str"].str.contains(keyword, case=False) | df["name"].str.contains(keyword, case=False)
-                for _, r in df[mask].head(10).iterrows():
-                    results.append({
-                        "code": str(r["code"]), "market": "A",
-                        "name": str(r["name"]).strip(),
-                    })
-        except Exception as e:
-            logger.debug(f"A-share search error: {e}")
-    except ImportError:
-        logger.warning("akshare not installed")
+    cache_key = f"search:{keyword.lower()}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    # ── Primary: EastMoney search-suggest (one fast keyword query) ──
+    results = await _em_search_suggest(keyword)
 
     # ── Fallback: verify unknown codes via Sina real-time API ──
     # A-share numeric code not found → try Sina
@@ -1479,6 +1523,9 @@ async def search_stock(keyword: str) -> list:
         except Exception as e:
             logger.debug(f"Sina HK fallback error: {e}")
 
+    # Cache results briefly (10 min) so repeated identical searches are instant
+    if results:
+        _set_cache(cache_key, results, 600)
     return results
 
 
