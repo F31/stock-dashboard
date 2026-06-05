@@ -338,18 +338,43 @@ async def _fetch_board_via_push2his(code: str) -> Optional[Dict[str, Any]]:
 
 # ── Main fetch entry point ──
 
-async def fetch_sector_realtime(code: str) -> dict:
-    """Fetch realtime data for a single BK board.
+# Coalesce concurrent identical board fetches (single-flight). Without this,
+# overlapping refreshes (foreground request + SWR background task) both miss the
+# `sector:{code}` cache — which is only set after completion — and each issues a
+# duplicate push2his kline call.
+_inflight_sector: Dict[str, "asyncio.Future"] = {}
 
-    Strategy:
-      1. push2his kline  → full OHLCV (best, but rate-limited)
-      2. sidemenu + getAllBKChanges → name + change% + fund flow (always works)
-    """
+
+async def fetch_sector_realtime(code: str) -> dict:
+    """Fetch realtime data for a single BK board (cached + single-flight)."""
     cache_key = f"sector:{code}"
     cached = _get_cached(cache_key)
     if cached:
         return cached
 
+    code_up = code.upper()
+    inflight = _inflight_sector.get(code_up)
+    if inflight is not None:
+        return await inflight
+
+    task = asyncio.ensure_future(_fetch_sector_realtime_impl(code))
+    _inflight_sector[code_up] = task
+    try:
+        return await task
+    finally:
+        _inflight_sector.pop(code_up, None)
+
+
+async def _fetch_sector_realtime_impl(code: str) -> dict:
+    """Fetch realtime data for a single BK board.
+
+    Strategy:
+      1. push2his kline → full OHLCV incl. name + change% (best, but rate-limited)
+      2. ONLY if push2his is missing price/name, fall back to the bulk
+         getAllBKChanges (clist) board map. That map is a ~10-page fetch, so we
+         avoid it whenever push2his already answered — which is the common case.
+    """
+    cache_key = f"sector:{code}"
     code_up = code.upper()
     saved_name = _custom_names.get(code_up, "")
 
@@ -366,17 +391,18 @@ async def fetch_sector_realtime(code: str) -> dict:
         "down_count": None,
     }
 
-    # Run push2his and getAllBKChanges concurrently
-    push2his_task = asyncio.create_task(_fetch_board_via_push2his(code_up))
-    changes_task  = asyncio.create_task(_fetch_all_bk_changes())
+    # Primary source first; only pay for the bulk board-changes map if push2his
+    # did not give us both a price and a name.
+    push2his_data = await _fetch_board_via_push2his(code_up)
+    push2his_has_price = isinstance(push2his_data, dict) and push2his_data.get("price") is not None
+    push2his_has_name = isinstance(push2his_data, dict) and bool(push2his_data.get("name"))
 
-    push2his_data, changes_map = await asyncio.gather(
-        push2his_task, changes_task, return_exceptions=True
-    )
-    if isinstance(push2his_data, Exception):
-        push2his_data = None
-    if isinstance(changes_map, Exception):
-        changes_map = {}
+    changes_map: Dict[str, Any] = {}
+    if not (push2his_has_price and push2his_has_name):
+        try:
+            changes_map = await _fetch_all_bk_changes()
+        except Exception:
+            changes_map = {}
 
     # ── Determine board name ──
     # Priority: user override > push2his name > getAllBKChanges name > sidemenu name
