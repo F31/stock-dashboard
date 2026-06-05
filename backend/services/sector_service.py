@@ -18,6 +18,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 from services.stock_service import _akshare_sem
+from services import http_client
 
 # ── Cache ──
 _cache: Dict[str, tuple] = {}
@@ -84,6 +85,10 @@ _load_custom_names()
 # 防止并发请求竞态：多个 asyncio task 同时 cache miss 时只发一次 HTTP 请求
 _board_map_lock = asyncio.Lock()
 _bk_changes_lock = asyncio.Lock()
+
+# Last successful board-changes map, kept for serve-stale when a fetch fails
+# (EastMoney throttling) so dependent views don't go blank.
+_last_good_changes: Dict[str, Dict] = {}
 
 
 # ── Board code patterns ──
@@ -155,13 +160,13 @@ async def _load_board_map() -> Dict[str, Dict]:
 
         result: Dict[str, Dict] = {}
         try:
-            async with _make_client(timeout=6) as client:
-                resp = await client.get(
-                    "https://quote.eastmoney.com/center/api/sidemenu_new.json",
-                    headers=_HEADERS_EM,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await http_client.get(
+                "https://quote.eastmoney.com/center/api/sidemenu_new.json",
+                headers=_HEADERS_EM,
+                timeout=6,
+                direct=_EM_DIRECT,
+            )
+            data = resp.json()
 
             type_map = {1: "region", 2: "industry", 3: "concept"}
             for entry in data.get("bklist", []):
@@ -194,37 +199,32 @@ _CLIST_PAGE_SIZE = 100
 _CLIST_MAX_PAGES = 20  # safety cap (~2000 boards max)
 
 
-async def _fetch_clist_boards(client: httpx.AsyncClient, fs: str) -> Dict[str, Dict]:
-    """Fetch one board universe (paginated) via push2 clist/get."""
+async def _fetch_clist_boards(fs: str) -> Dict[str, Dict]:
+    """Fetch one board universe (paginated) via push2 clist/get.
+
+    Goes through ``http_client`` so requests are rate-limited, retried with
+    backoff, and circuit-broken per host — preventing the burst that gets the
+    EastMoney IP throttled. (No local retry here; http_client handles it.)
+    """
     out: Dict[str, Dict] = {}
     for page in range(1, _CLIST_MAX_PAGES + 1):
-        # EastMoney intermittently drops connections under load; retry briefly.
-        data = None
-        for attempt in range(3):
-            try:
-                resp = await client.get(
-                    "https://push2.eastmoney.com/api/qt/clist/get",
-                    params={
-                        "pn": str(page),
-                        "pz": str(_CLIST_PAGE_SIZE),
-                        "po": "1",          # descending
-                        "np": "1",
-                        "fltt": "2",
-                        "invt": "2",
-                        "fid": "f62",       # order by 主力净流入
-                        "fs": fs,
-                        "fields": "f2,f3,f12,f14,f62",
-                    },
-                    headers=_HEADERS_EM,
-                )
-                resp.raise_for_status()
-                data = resp.json().get("data") or {}
-                break
-            except Exception as e:
-                if attempt == 2:
-                    raise
-                logger.debug(f"clist fetch retry {attempt} for fs={fs!r} pn={page}: {e}")
-                await asyncio.sleep(0.6 * (attempt + 1))
+        resp = await http_client.get(
+            "https://push2.eastmoney.com/api/qt/clist/get",
+            params={
+                "pn": str(page),
+                "pz": str(_CLIST_PAGE_SIZE),
+                "po": "1",          # descending
+                "np": "1",
+                "fltt": "2",
+                "invt": "2",
+                "fid": "f62",       # order by 主力净流入
+                "fs": fs,
+                "fields": "f2,f3,f12,f14,f62",
+            },
+            headers=_HEADERS_EM,
+            direct=_EM_DIRECT,
+        )
+        data = resp.json().get("data") or {}
         rows = data.get("diff") or []
         for entry in rows:
             code = str(entry.get("f12", "")).upper()
@@ -241,11 +241,70 @@ async def _fetch_clist_boards(client: httpx.AsyncClient, fs: str) -> Dict[str, D
     return out
 
 
-async def _fetch_all_bk_changes() -> Dict[str, Dict]:
-    """Fetch realtime change% and fund-flow for ALL boards from push2 clist/get.
+# ── Fallback source: 同花顺 (THS) via akshare — independent of EastMoney ──
 
-    Returns {BK_CODE: {"change_pct": float, "fund_flow": float, "name": str}}
-    Cached 30 s. Covers both industry and concept boards.
+async def _fetch_boards_via_ths() -> Dict[str, Dict]:
+    """Fallback board source when EastMoney is throttled.
+
+    Uses akshare's 同花顺 industry-board summary (a different provider / IP risk
+    profile than EastMoney). Returns the same shape as the EM path, keyed by EM
+    ``BKxxxx`` codes so all downstream consumers keep working — THS reports board
+    *names*, which we map back to BK codes via the cached sidemenu map. Boards
+    whose name can't be mapped are skipped (downstream keys on BK codes).
+
+    Coverage: industry boards only (THS concept summary lacks change%/fund-flow).
+    Units: THS 涨跌幅 is percent (matches EM); 净流入 is 亿元 → converted to 元.
+    """
+    try:
+        import math
+        import akshare as ak
+        async with _akshare_sem:
+            df = await asyncio.to_thread(ak.stock_board_industry_summary_ths)
+    except Exception as e:
+        logger.warning(f"THS board fallback failed: {e}")
+        return {}
+
+    if df is None or getattr(df, "empty", True):
+        return {}
+
+    # Build name → BK-code map. Prefer the EM sidemenu, but also fold in the
+    # disk-persisted custom-names map so mapping still works if the sidemenu is
+    # unreachable (e.g. EM fully banned) — keeping the fallback truly independent.
+    board_map = await _load_board_map()
+    name_to_code = {info["name"]: code for code, info in board_map.items()}
+    for _code, _nm in _custom_names.items():
+        if _nm:
+            name_to_code.setdefault(_nm, _code)
+
+    def _num(v):
+        f = _float(v)
+        if f is None or math.isnan(f):
+            return None
+        return f
+
+    out: Dict[str, Dict] = {}
+    for _, row in df.iterrows():
+        name = str(row.get("板块", "")).strip()
+        code = name_to_code.get(name)
+        if not name or not code:
+            continue  # unmapped name → skip (downstream keys on BK codes)
+        flow = _num(row.get("净流入"))
+        out[code] = {
+            "name": name,
+            "change_pct": _num(row.get("涨跌幅")),
+            "fund_flow": flow * 1e8 if flow is not None else None,  # 亿元 → 元
+            "source": "ths",
+        }
+    logger.info(f"THS fallback: mapped {len(out)}/{len(df)} industry boards to BK codes")
+    return out
+
+
+async def _fetch_all_bk_changes() -> Dict[str, Dict]:
+    """Fetch realtime change% and fund-flow for ALL boards.
+
+    Source chain: EastMoney push2 clist (primary) → 同花顺/THS (fallback) →
+    last-known-good (serve-stale). Returns {BK_CODE: {change_pct, fund_flow, name}}.
+    Cached 30 s. Covers both industry and concept boards (THS fallback is industry-only).
     """
     cache_key = "bk_changes:all"
     cached = _get_cached(cache_key)
@@ -258,20 +317,38 @@ async def _fetch_all_bk_changes() -> Dict[str, Dict]:
             return cached
 
         result: Dict[str, Dict] = {}
-        try:
-            async with _make_client(timeout=8) as client:
-                for fs in _CLIST_BOARD_FS:
-                    try:
-                        result.update(await _fetch_clist_boards(client, fs))
-                    except Exception as e:
-                        logger.warning(f"clist boards fetch failed for fs={fs!r}: {e}")
-            logger.info(f"bk_changes: loaded {len(result)} boards from clist/get")
-        except Exception as e:
-            logger.warning(f"getAllBKChanges (clist) fetch failed: {e}")
+        for fs in _CLIST_BOARD_FS:
+            try:
+                result.update(await _fetch_clist_boards(fs))
+            except Exception as e:
+                logger.warning(f"clist boards fetch failed for fs={fs!r}: {e}")
 
-        ttl = CACHE_TTL_CHANGES if result else 10
-        _set_cache(cache_key, result, ttl)
-        return result
+        if result:
+            logger.info(f"bk_changes: loaded {len(result)} boards from clist/get")
+            _last_good_changes.clear()
+            _last_good_changes.update(result)
+            _set_cache(cache_key, result, CACHE_TTL_CHANGES)
+            return result
+
+        # EastMoney empty/throttled — try the independent 同花顺 (THS) fallback.
+        ths = await _fetch_boards_via_ths()
+        if ths:
+            logger.info(f"bk_changes: loaded {len(ths)} boards from THS fallback")
+            _last_good_changes.clear()
+            _last_good_changes.update(ths)
+            _set_cache(cache_key, ths, CACHE_TTL_CHANGES)
+            return ths
+
+        # Both sources failed/empty — serve last-known-good
+        # so the heatmap and fund-flow TOP10 don't go blank during a throttle.
+        if _last_good_changes:
+            logger.warning("bk_changes fetch empty; serving %d cached boards (serve-stale)",
+                            len(_last_good_changes))
+            _set_cache(cache_key, dict(_last_good_changes), 10)
+            return dict(_last_good_changes)
+
+        _set_cache(cache_key, {}, 10)
+        return {}
 
 
 # ── Source 3: push2his kline (OHLCV — rate-limited) ──
@@ -287,23 +364,23 @@ async def _fetch_board_via_push2his(code: str) -> Optional[Dict[str, Any]]:
     if _get_cached(f"push2his_fail:{code}"):
         return None
     try:
-        async with _make_client(timeout=3) as client:
-            resp = await client.get(
-                "https://push2his.eastmoney.com/api/qt/stock/kline/get",
-                params={
-                    "secid": f"90.{code.upper()}",
-                    "klt": "101",
-                    "fqt": "0",
-                    "lmt": "1",
-                    "end": "20500101",
-                    "iscca": "1",
-                    "fields1": "f1,f2,f3,f4,f5,f6",
-                    "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-                },
-                headers=_HEADERS_EM,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await http_client.get(
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+            params={
+                "secid": f"90.{code.upper()}",
+                "klt": "101",
+                "fqt": "0",
+                "lmt": "1",
+                "end": "20500101",
+                "iscca": "1",
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            },
+            headers=_HEADERS_EM,
+            timeout=3,
+            direct=_EM_DIRECT,
+        )
+        data = resp.json()
 
         if data.get("rc") != 0 or not data.get("data"):
             return None
@@ -338,31 +415,39 @@ async def _fetch_board_via_push2his(code: str) -> Optional[Dict[str, Any]]:
 
 # ── Main fetch entry point ──
 
-# Coalesce concurrent identical board fetches (single-flight). Without this,
+# Per-code lock to dedup concurrent identical board fetches. Without this,
 # overlapping refreshes (foreground request + SWR background task) both miss the
 # `sector:{code}` cache — which is only set after completion — and each issues a
 # duplicate push2his kline call.
-_inflight_sector: Dict[str, "asyncio.Future"] = {}
+#
+# A lock (not a shared task) is used deliberately: callers wrap this in
+# asyncio.wait_for(timeout=…), and a timeout cancels the caller. A shared task
+# would have that cancellation propagate into the task and break *other* waiters
+# with CancelledError. With a lock, a cancelled caller simply releases it; other
+# waiters proceed independently.
+_sector_locks: Dict[str, asyncio.Lock] = {}
 
 
 async def fetch_sector_realtime(code: str) -> dict:
-    """Fetch realtime data for a single BK board (cached + single-flight)."""
+    """Fetch realtime data for a single BK board (cached + per-code dedup)."""
     cache_key = f"sector:{code}"
     cached = _get_cached(cache_key)
     if cached:
         return cached
 
     code_up = code.upper()
-    inflight = _inflight_sector.get(code_up)
-    if inflight is not None:
-        return await inflight
+    lock = _sector_locks.get(code_up)
+    if lock is None:
+        lock = asyncio.Lock()
+        _sector_locks[code_up] = lock
 
-    task = asyncio.ensure_future(_fetch_sector_realtime_impl(code))
-    _inflight_sector[code_up] = task
-    try:
-        return await task
-    finally:
-        _inflight_sector.pop(code_up, None)
+    async with lock:
+        # Re-check cache after acquiring: a concurrent caller may have just
+        # populated it, letting us skip a duplicate upstream fetch.
+        cached = _get_cached(cache_key)
+        if cached:
+            return cached
+        return await _fetch_sector_realtime_impl(code)
 
 
 async def _fetch_sector_realtime_impl(code: str) -> dict:
@@ -545,10 +630,8 @@ async def fetch_sector_top5(code: str) -> list:
     }
 
     try:
-        async with _make_client(timeout=8) as client:
-            resp = await client.get(url, params=params, headers=_HEADERS_EM)
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await http_client.get(url, params=params, headers=_HEADERS_EM, direct=_EM_DIRECT)
+        data = resp.json()
     except Exception as e:
         logger.warning(f"sector_top5 fetch error {code}: {e}")
         return []
@@ -620,10 +703,8 @@ async def fetch_sector_top5_by_change(code: str) -> list:
     }
 
     try:
-        async with _make_client(timeout=8) as client:
-            resp = await client.get(url, params=params, headers=_HEADERS_EM)
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await http_client.get(url, params=params, headers=_HEADERS_EM, direct=_EM_DIRECT)
+        data = resp.json()
     except Exception as e:
         logger.warning(f"sector_top5_by_change fetch error {code}: {e}")
         return []

@@ -59,8 +59,11 @@ class CircuitOpenError(Exception):
     """Raised when a host's circuit breaker is open (failing fast)."""
 
 
-# ── Shared client (lazy singleton) ──
+# ── Shared clients (lazy singletons) ──
+# `_client` honors the system proxy (HTTP(S)_PROXY); `_direct_client` bypasses it
+# (trust_env=False) for callers/deployments that must reach a host directly.
 _client: Optional[httpx.AsyncClient] = None
+_direct_client: Optional[httpx.AsyncClient] = None
 _client_lock = asyncio.Lock()
 
 # ── Per-host state ──
@@ -71,15 +74,23 @@ _cb_fails: Dict[str, int] = {}
 _cb_open_until: Dict[str, float] = {}
 
 
-async def get_client() -> httpx.AsyncClient:
-    """Return the shared pooled client, creating it on first use."""
-    global _client
+async def get_client(direct: bool = False) -> httpx.AsyncClient:
+    """Return a shared pooled client, creating it on first use.
+
+    direct=False → honor the system proxy (required in proxy-only environments).
+    direct=True  → bypass the proxy (trust_env=False) for direct connections.
+    """
+    global _client, _direct_client
+    limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+    if direct:
+        if _direct_client is None:
+            async with _client_lock:
+                if _direct_client is None:
+                    _direct_client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, limits=limits, trust_env=False)
+        return _direct_client
     if _client is None:
         async with _client_lock:
             if _client is None:
-                limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
-                # trust_env=True so the system proxy (HTTP(S)_PROXY) is honored —
-                # required in proxy-only network environments.
                 _client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, limits=limits, trust_env=True)
     return _client
 
@@ -135,18 +146,19 @@ async def _throttle(host: str) -> None:
 
 
 async def get(url: str, *, params=None, headers=None, timeout: Optional[float] = None,
-              retries: Optional[int] = None) -> httpx.Response:
+              retries: Optional[int] = None, direct: bool = False) -> httpx.Response:
     """Rate-limited, circuit-broken GET with retry/backoff.
 
     Raises ``CircuitOpenError`` immediately if the host circuit is open, or the
     last underlying exception if all retries fail. Callers should treat any
-    exception as "no fresh data" and fall back to cache/stale.
+    exception as "no fresh data" and fall back to cache/stale. ``direct=True``
+    bypasses the system proxy.
     """
     host = _host_of(url)
     if circuit_open(host):
         raise CircuitOpenError(f"{host} circuit open")
 
-    client = await get_client()
+    client = await get_client(direct=direct)
     attempts = RETRY_ATTEMPTS if retries is None else retries
     last_exc: Optional[Exception] = None
 
@@ -173,9 +185,11 @@ async def get(url: str, *, params=None, headers=None, timeout: Optional[float] =
 # ── Test / lifecycle helpers ──
 
 def _set_test_client(client: Optional[httpx.AsyncClient]) -> None:
-    """Inject a client (e.g. backed by httpx.MockTransport) for tests."""
-    global _client
+    """Inject a client (e.g. backed by httpx.MockTransport) for tests.
+    Used for both proxy and direct so tests pass regardless of the direct flag."""
+    global _client, _direct_client
     _client = client
+    _direct_client = client
 
 
 def _reset_state() -> None:
@@ -188,7 +202,10 @@ def _reset_state() -> None:
 
 
 async def aclose() -> None:
-    global _client
+    global _client, _direct_client
     if _client is not None:
         await _client.aclose()
         _client = None
+    if _direct_client is not None:
+        await _direct_client.aclose()
+        _direct_client = None
