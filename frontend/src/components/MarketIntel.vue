@@ -34,7 +34,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchMarketIntel } from '../api'
-import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
+import { isMarketOpen, msUntilNextOpen, initTradeCalendar, jitter } from '../utils/marketTime'
 
 const props = defineProps({ mode: { type: String, default: '' } })
 
@@ -59,7 +59,7 @@ function scheduleRefresh() {
     timer = setInterval(() => {
       load()
       if (!isMarketOpen()) { clearInterval(timer); timer = null }
-    }, 60000)
+    }, jitter(60000))
   } else {
     const ms = msUntilNextOpen()
     timer = setTimeout(() => {

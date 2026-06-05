@@ -60,7 +60,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchSectorCongestion } from '../api'
-import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
+import { isMarketOpen, msUntilNextOpen, initTradeCalendar, jitter } from '../utils/marketTime'
 
 const sectors = ref([])
 const loading = ref(false)
@@ -97,7 +97,7 @@ function scheduleRefresh() {
     timer = setInterval(() => {
       load()
       if (!isMarketOpen()) { clearInterval(timer); timer = null }
-    }, 30000)
+    }, jitter(30000))
   } else {
     const ms = msUntilNextOpen()
     timer = setTimeout(() => {

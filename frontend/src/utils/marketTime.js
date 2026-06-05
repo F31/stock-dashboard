@@ -171,3 +171,15 @@ export function msUntilNextOpen() {
     return cand.getTime() - now
   }
 }
+
+/**
+ * 给轮询间隔加入随机抖动，避免多客户端/多组件在同一墙钟时刻
+ * 对上游行情接口同时发起请求（惊群效应），降低被限流/封禁风险。
+ * @param {number} ms 基准间隔（毫秒）
+ * @param {number} pct 抖动比例（默认 ±15%）
+ * @returns {number} 抖动后的间隔
+ */
+export function jitter(ms, pct = 0.15) {
+  const delta = ms * pct
+  return Math.round(ms - delta + Math.random() * 2 * delta)
+}

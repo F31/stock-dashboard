@@ -387,7 +387,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch, defin
 import { useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stockStore'
 import { useAuthStore } from '../stores/authStore.js'
-import { isMarketOpen, msUntilNextOpen, initTradeCalendar } from '../utils/marketTime'
+import { isMarketOpen, msUntilNextOpen, initTradeCalendar, jitter } from '../utils/marketTime'
 import { getThemeMode, setThemeMode, applyTheme } from '../utils/theme'
 import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5, fetchStockPreview } from '../api/index.js'
 
@@ -986,7 +986,7 @@ function scheduleNextRefresh() {
         store.refreshPriceOnly().then(() => { lastUpdate.value = fmtTime() })
       }
       if (!isMarketOpen()) stopRefreshTimer()
-    }, 30000)
+    }, jitter(30000))
   } else {
     // 非交易时段: 不拉数据，精确等到下次开盘再启动 interval
     const ms = msUntilNextOpen()

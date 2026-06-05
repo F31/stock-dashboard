@@ -38,7 +38,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { fetchSectorHeatmap } from '../api'
-import { isMarketOpen, msUntilNextOpen } from '../utils/marketTime'
+import { isMarketOpen, msUntilNextOpen, jitter } from '../utils/marketTime'
 
 const emit = defineEmits(['select-board'])
 const boards = ref([])
@@ -119,7 +119,7 @@ function scheduleRefresh() {
         clearInterval(refreshTimer)
         refreshTimer = null
       }
-    }, 30000)
+    }, jitter(30000))
   } else {
     const ms = msUntilNextOpen()
     refreshTimer = setTimeout(() => {

@@ -10,6 +10,8 @@ from collections import defaultdict
 
 import httpx
 
+from services import http_client
+
 logger = logging.getLogger(__name__)
 
 # ── Cache ──
@@ -25,12 +27,26 @@ CACHE_TTL_FINANCE = 3600 # 1 hour — PE, market cap, turnover rate
 _akshare_sem = asyncio.Semaphore(3)
 
 
+# Keep expired entries around (up to STALE_MAX_AGE) so upstream outages can be
+# served from "last known good" data instead of returning empty — see _get_stale.
+STALE_MAX_AGE = 3600  # 1 hour
+
+
 def _get_cached(key: str):
     if key in _cache:
         val, ts, ttl = _cache[key]
         if time.time() - ts < ttl:
             return val
-        del _cache[key]
+    return None
+
+
+def _get_stale(key: str, max_age: int = STALE_MAX_AGE):
+    """Return a cached value regardless of TTL, as long as it is younger than
+    ``max_age``. Used as a fallback when a fresh fetch fails (serve-stale)."""
+    if key in _cache:
+        val, ts, _ttl = _cache[key]
+        if time.time() - ts < max_age:
+            return val
     return None
 
 
@@ -104,9 +120,7 @@ async def _fetch_sina_quotes(symbols: List[str]) -> Dict[str, str]:
 
     url = f"http://hq.sinajs.cn/list={','.join(symbols)}"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers=_SINA_HEADERS)
-            resp.raise_for_status()
+        resp = await http_client.get(url, headers=_SINA_HEADERS)
     except Exception as e:
         logger.warning(f"Sina quote HTTP error: {e}")
         return {}
@@ -149,9 +163,7 @@ async def _fetch_tencent_quotes(symbols: List[str]) -> Dict[str, dict]:
 
     url = f"https://qt.gtimg.cn/q={','.join(tencent_syms)}"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers=_TENCENT_HEADERS)
-            resp.raise_for_status()
+        resp = await http_client.get(url, headers=_TENCENT_HEADERS)
     except Exception as e:
         logger.warning(f"Tencent quote HTTP error: {e}")
         return {}
@@ -411,43 +423,41 @@ async def _fetch_sina_finance(symbols: List[str]) -> Dict[str, dict]:
         return {}
 
     result = {}
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
 
-            async def _fetch_one(sym: str):
+    async def _fetch_one(sym: str):
+        try:
+            resp = await http_client.get(
+                SINA_FINANCE_URL,
+                params={"symbol": sym},
+                headers=_SINA_HEADERS,
+                timeout=15,
+            )
+            text = resp.text.strip()
+            m = re.search(r'\{.*\}', text)
+            if m:
+                import json
+                data = json.loads(m.group())
+                finance = {}
+                mc_str = data.get("market_cap", data.get("总市值", ""))
+                finance["market_cap"] = _parse_chinese_number(mc_str)
+                pe_str = data.get("pe", data.get("市盈率", ""))
                 try:
-                    resp = await client.get(
-                        SINA_FINANCE_URL,
-                        params={"symbol": sym},
-                        headers=_SINA_HEADERS,
-                    )
-                    resp.raise_for_status()
-                    text = resp.text.strip()
-                    m = re.search(r'\{.*\}', text)
-                    if m:
-                        import json
-                        data = json.loads(m.group())
-                        finance = {}
-                        mc_str = data.get("market_cap", data.get("总市值", ""))
-                        finance["market_cap"] = _parse_chinese_number(mc_str)
-                        pe_str = data.get("pe", data.get("市盈率", ""))
-                        try:
-                            finance["pe"] = float(pe_str) if pe_str else None
-                        except (ValueError, TypeError):
-                            finance["pe"] = None
-                        ts_str = data.get("total_shares", data.get("总股本", ""))
-                        finance["total_shares"] = _parse_chinese_number(ts_str)
-                        if any(v is not None for v in finance.values()):
-                            return sym, finance
-                except Exception as e:
-                    logger.debug(f"Sina finance error for {sym}: {e}")
-                return sym, None
+                    finance["pe"] = float(pe_str) if pe_str else None
+                except (ValueError, TypeError):
+                    finance["pe"] = None
+                ts_str = data.get("total_shares", data.get("总股本", ""))
+                finance["total_shares"] = _parse_chinese_number(ts_str)
+                if any(v is not None for v in finance.values()):
+                    return sym, finance
+        except Exception as e:
+            logger.debug(f"Sina finance error for {sym}: {e}")
+        return sym, None
 
-            tasks = [_fetch_one(sym) for sym in a_symbols]
-            outcomes = await asyncio.gather(*tasks)
-            for sym, data in outcomes:
-                if data:
-                    result[sym] = data
+    try:
+        outcomes = await asyncio.gather(*[_fetch_one(sym) for sym in a_symbols])
+        for sym, data in outcomes:
+            if data:
+                result[sym] = data
     except Exception as e:
         logger.warning(f"Sina finance API error: {e}")
 
@@ -505,55 +515,53 @@ async def _fetch_market_center_data(symbol: str, market: str) -> dict:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, params=params, headers=_SINA_HEADERS)
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                item = data[0]
-                result = {}
-                # PE
-                pe = item.get("per") or item.get("pe")
-                if pe is not None:
-                    try:
-                        result["pe"] = float(pe)
-                    except (ValueError, TypeError):
-                        pass
-                # Market cap
-                mc = item.get("mktcap") or item.get("marketcapital")
-                if mc is not None:
-                    try:
-                        result["market_cap"] = float(mc)
-                    except (ValueError, TypeError):
-                        pass
-                # Turnover rate
-                tr = item.get("turnoverratio")
-                if tr is not None:
-                    try:
-                        if isinstance(tr, str) and "%" in tr:
-                            result["turnover_rate"] = float(tr.replace("%", ""))
-                        else:
-                            result["turnover_rate"] = float(tr)
-                    except (ValueError, TypeError):
-                        pass
-                # Amount (成交额)
-                amt = item.get("amount")
-                if amt is not None:
-                    try:
-                        result["amount"] = float(amt)
-                    except (ValueError, TypeError):
-                        pass
-                # Float market cap (流通市值)
-                nmc = item.get("nmc")
-                if nmc is not None:
-                    try:
-                        result["float_market_cap"] = float(nmc)
-                    except (ValueError, TypeError):
-                        pass
+        resp = await http_client.get(url, params=params, headers=_SINA_HEADERS)
+        data = resp.json()
+        if isinstance(data, list) and len(data) > 0:
+            item = data[0]
+            result = {}
+            # PE
+            pe = item.get("per") or item.get("pe")
+            if pe is not None:
+                try:
+                    result["pe"] = float(pe)
+                except (ValueError, TypeError):
+                    pass
+            # Market cap
+            mc = item.get("mktcap") or item.get("marketcapital")
+            if mc is not None:
+                try:
+                    result["market_cap"] = float(mc)
+                except (ValueError, TypeError):
+                    pass
+            # Turnover rate
+            tr = item.get("turnoverratio")
+            if tr is not None:
+                try:
+                    if isinstance(tr, str) and "%" in tr:
+                        result["turnover_rate"] = float(tr.replace("%", ""))
+                    else:
+                        result["turnover_rate"] = float(tr)
+                except (ValueError, TypeError):
+                    pass
+            # Amount (成交额)
+            amt = item.get("amount")
+            if amt is not None:
+                try:
+                    result["amount"] = float(amt)
+                except (ValueError, TypeError):
+                    pass
+            # Float market cap (流通市值)
+            nmc = item.get("nmc")
+            if nmc is not None:
+                try:
+                    result["float_market_cap"] = float(nmc)
+                except (ValueError, TypeError):
+                    pass
 
-                if result:
-                    _set_cache(cache_key, result, CACHE_TTL_FINANCE)
-                    return result
+            if result:
+                _set_cache(cache_key, result, CACHE_TTL_FINANCE)
+                return result
     except Exception as e:
         logger.debug(f"Market_Center error for {mc_symbol}: {e}")
 
@@ -650,27 +658,25 @@ async def _fetch_all_stocks_finance(codes_by_market: Dict[str, List[str]]) -> Di
         params = {"page": 1, "num": 200, "sort": "amount", "asc": 0, "node": node, "_s_r_a": "page"}
 
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(MARKET_CENTER_URL, params=params, headers=MC_HEADERS)
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await http_client.get(MARKET_CENTER_URL, params=params, headers=MC_HEADERS, timeout=15)
+            data = resp.json()
 
-                all_finance = {}
-                if isinstance(data, list):
-                    for item in data:
-                        sym = item.get("symbol", "")
-                        code = _extract_code_from_symbol(sym, market)
-                        if not code:
-                            continue
-                        fin = _parse_market_center_item(item)
-                        if fin:
-                            all_finance[code] = fin
-                            if code in codes:
-                                result[(market, code)] = fin
+            all_finance = {}
+            if isinstance(data, list):
+                for item in data:
+                    sym = item.get("symbol", "")
+                    code = _extract_code_from_symbol(sym, market)
+                    if not code:
+                        continue
+                    fin = _parse_market_center_item(item)
+                    if fin:
+                        all_finance[code] = fin
+                        if code in codes:
+                            result[(market, code)] = fin
 
-                # Cache the full batch
-                if all_finance:
-                    _set_cache(cache_key, all_finance, CACHE_TTL_FINANCE)
+            # Cache the full batch
+            if all_finance:
+                _set_cache(cache_key, all_finance, CACHE_TTL_FINANCE)
 
         except Exception as e:
             logger.debug(f"Market_Center batch error for {market}: {e}")
@@ -1112,10 +1118,19 @@ async def fetch_stocks_batch(stocks: List[Dict[str, str]]) -> List[dict]:
                 entry["market"] = market
                 new_entries.append(entry)
                 continue
-            results.append({
-                "code": code, "market": market,
-                "error": "not found",
-            })
+            # Serve-stale: upstream gave us nothing this cycle — return the last
+            # known good value (within STALE_MAX_AGE) instead of an error, so the
+            # UI keeps showing prices during an outage and we don't hammer retries.
+            stale = _get_stale(f"realtime:{market}:{code}")
+            if stale:
+                stale_entry = dict(stale)
+                stale_entry["stale"] = True
+                results.append(stale_entry)
+            else:
+                results.append({
+                    "code": code, "market": market,
+                    "error": "not found",
+                })
 
     # Enrich all new entries with PE, market cap, turnover rate (batch)
     await _enrich_with_finance(new_entries)

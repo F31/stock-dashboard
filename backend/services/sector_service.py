@@ -106,18 +106,33 @@ _HEADERS_EM = {
     "Referer": "https://quote.eastmoney.com/",
 }
 
+# Whether to bypass the system proxy for EastMoney domains. Some deployments
+# can reach EastMoney directly and prefer to skip a (corporate) proxy; others
+# (e.g. environments where ALL outbound internet is routed through a local
+# proxy such as 127.0.0.1:7892) can ONLY reach EastMoney via that proxy. Default
+# is to respect the system proxy (HTTP(S)_PROXY / NO_PROXY); set
+# EASTMONEY_DIRECT=1 to force a direct connection that bypasses the proxy.
+_EM_DIRECT = os.getenv("EASTMONEY_DIRECT", "").strip().lower() in ("1", "true", "yes")
+
+_EM_BYPASS_MOUNTS = {
+    "https://push2.eastmoney.com": None,
+    "https://push2delay.eastmoney.com": None,
+    "https://push2his.eastmoney.com": None,
+    "https://push2ex.eastmoney.com": None,
+    "https://quote.eastmoney.com": None,
+}
+
+
 def _make_client(timeout: float = 8) -> httpx.AsyncClient:
-    """Create an httpx client.  EastMoney domains bypass the local proxy."""
-    return httpx.AsyncClient(
-        timeout=timeout,
-        mounts={
-            "https://push2.eastmoney.com": None,
-            "https://push2delay.eastmoney.com": None,
-            "https://push2his.eastmoney.com": None,
-            "https://push2ex.eastmoney.com": None,
-            "https://quote.eastmoney.com": None,
-        },
-    )
+    """Create an httpx client for EastMoney calls.
+
+    Respects the system proxy by default (so it works in proxy-only network
+    environments). When EASTMONEY_DIRECT=1, bypasses the proxy for EastMoney
+    domains instead (the previous default behaviour).
+    """
+    if _EM_DIRECT:
+        return httpx.AsyncClient(timeout=timeout, mounts=_EM_BYPASS_MOUNTS)
+    return httpx.AsyncClient(timeout=timeout, trust_env=True)
 
 
 # ── Source 1: sidemenu_new.json (all BK names) ──
@@ -165,13 +180,72 @@ async def _load_board_map() -> Dict[str, Dict]:
         return result
 
 
-# ── Source 2: push2ex getAllBKChanges (realtime change% + fund flow) ──
+# ── Source 2: push2 clist/get (realtime change% + fund flow for all boards) ──
+#
+# Was push2ex getAllBKChanges, but that endpoint now returns {"data": null}
+# (deprecated upstream). The clist/get board list is the supported replacement.
+# fs selects board universes: "m:90 t:2" = 行业板块 (industry),
+# "m:90 t:3" = 概念板块 (concept). f62 (主力净流入) is already in 元.
+# clist caps page size at 100 rows, so we paginate.
+
+# Board universes to pull for the "all boards" map (industry + concept).
+_CLIST_BOARD_FS = ("m:90 t:2", "m:90 t:3")
+_CLIST_PAGE_SIZE = 100
+_CLIST_MAX_PAGES = 20  # safety cap (~2000 boards max)
+
+
+async def _fetch_clist_boards(client: httpx.AsyncClient, fs: str) -> Dict[str, Dict]:
+    """Fetch one board universe (paginated) via push2 clist/get."""
+    out: Dict[str, Dict] = {}
+    for page in range(1, _CLIST_MAX_PAGES + 1):
+        # EastMoney intermittently drops connections under load; retry briefly.
+        data = None
+        for attempt in range(3):
+            try:
+                resp = await client.get(
+                    "https://push2.eastmoney.com/api/qt/clist/get",
+                    params={
+                        "pn": str(page),
+                        "pz": str(_CLIST_PAGE_SIZE),
+                        "po": "1",          # descending
+                        "np": "1",
+                        "fltt": "2",
+                        "invt": "2",
+                        "fid": "f62",       # order by 主力净流入
+                        "fs": fs,
+                        "fields": "f2,f3,f12,f14,f62",
+                    },
+                    headers=_HEADERS_EM,
+                )
+                resp.raise_for_status()
+                data = resp.json().get("data") or {}
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                logger.debug(f"clist fetch retry {attempt} for fs={fs!r} pn={page}: {e}")
+                await asyncio.sleep(0.6 * (attempt + 1))
+        rows = data.get("diff") or []
+        for entry in rows:
+            code = str(entry.get("f12", "")).upper()
+            if code:
+                out[code] = {
+                    "name": entry.get("f14", ""),
+                    "change_pct": _float(entry.get("f3")),
+                    "fund_flow": _float(entry.get("f62")),  # already in 元 ("-" → None)
+                }
+        # Stop when we've collected the whole universe or hit a short page.
+        total = data.get("total") or 0
+        if len(rows) < _CLIST_PAGE_SIZE or len(out) >= total:
+            break
+    return out
+
 
 async def _fetch_all_bk_changes() -> Dict[str, Dict]:
-    """Fetch realtime change% and fund-flow for ALL boards from push2ex.
+    """Fetch realtime change% and fund-flow for ALL boards from push2 clist/get.
 
     Returns {BK_CODE: {"change_pct": float, "fund_flow": float, "name": str}}
-    Cached 30 s. One API call covers all boards.
+    Cached 30 s. Covers both industry and concept boards.
     """
     cache_key = "bk_changes:all"
     cached = _get_cached(cache_key)
@@ -186,31 +260,14 @@ async def _fetch_all_bk_changes() -> Dict[str, Dict]:
         result: Dict[str, Dict] = {}
         try:
             async with _make_client(timeout=8) as client:
-                resp = await client.get(
-                    "https://push2ex.eastmoney.com/getAllBKChanges",
-                    params={
-                        "ut": "7eea3edcaed734bea9cbfc24409ed989",
-                        "dpt": "wzchanges",
-                        "pageindex": "0",
-                        "pagesize": "5000",
-                    },
-                    headers=_HEADERS_EM,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-
-            for entry in data.get("data", {}).get("allbk", []):
-                code = entry.get("c", "").upper()
-                if code:
-                    raw_flow = _float(entry.get("zjl"))
-                    result[code] = {
-                        "name": entry.get("n", ""),
-                        "change_pct": _float(entry.get("u")),
-                        "fund_flow": raw_flow * 10000 if raw_flow is not None else None,  # zjl is 万元, convert to 元
-                    }
-            logger.info(f"bk_changes: loaded {len(result)} boards from push2ex")
+                for fs in _CLIST_BOARD_FS:
+                    try:
+                        result.update(await _fetch_clist_boards(client, fs))
+                    except Exception as e:
+                        logger.warning(f"clist boards fetch failed for fs={fs!r}: {e}")
+            logger.info(f"bk_changes: loaded {len(result)} boards from clist/get")
         except Exception as e:
-            logger.warning(f"getAllBKChanges fetch failed: {e}")
+            logger.warning(f"getAllBKChanges (clist) fetch failed: {e}")
 
         ttl = CACHE_TTL_CHANGES if result else 10
         _set_cache(cache_key, result, ttl)
