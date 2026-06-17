@@ -90,6 +90,13 @@ _bk_changes_lock = asyncio.Lock()
 # (EastMoney throttling) so dependent views don't go blank.
 _last_good_changes: Dict[str, Dict] = {}
 
+# Background concept board cache — populated every 5 min by a background
+# poller via push2delay clist.  The main 30s cycle only fetches industry
+# boards; concept data is merged from this cache to avoid bursting the
+# push2delay API with too many concurrent requests.
+_CONCEPT_BG_CACHE_KEY = "bk_changes:concept:bg"
+_CONCEPT_BG_TTL = 300  # 5 min — concept boards change slower than industry
+
 
 # ── Board code patterns ──
 RE_BOARD_CODE = re.compile(r'^BK\d{4}$', re.IGNORECASE)
@@ -98,10 +105,6 @@ RE_SINA_BOARD = re.compile(r'^(sh|sz)880\d{3}$', re.IGNORECASE)
 
 def is_board_code(code: str) -> bool:
     return bool(RE_BOARD_CODE.match(code) or RE_SINA_BOARD.match(code))
-
-
-def is_industry_board_code(code: str) -> bool:
-    return bool(RE_BOARD_CODE.match(code))
 
 
 # ── HTTP helpers ──
@@ -193,8 +196,10 @@ async def _load_board_map() -> Dict[str, Dict]:
 # "m:90 t:3" = 概念板块 (concept). f62 (主力净流入) is already in 元.
 # clist caps page size at 100 rows, so we paginate.
 
-# Board universes to pull for the "all boards" map (industry + concept).
-_CLIST_BOARD_FS = ("m:90 t:2", "m:90 t:3")
+# Board universes for the main path (30s refresh) — industry only.
+# Concept boards are fetched separately by the background poller (5 min)
+# to avoid bursting push2delay with too many concurrent requests.
+_CLIST_BOARD_FS = ("m:90 t:2",)
 _CLIST_PAGE_SIZE = 100
 _CLIST_MAX_PAGES = 20  # safety cap (~2000 boards max)
 
@@ -208,36 +213,42 @@ async def _fetch_clist_boards(fs: str) -> Dict[str, Dict]:
     """
     out: Dict[str, Dict] = {}
     for page in range(1, _CLIST_MAX_PAGES + 1):
-        resp = await http_client.get(
-            "https://push2.eastmoney.com/api/qt/clist/get",
-            params={
-                "pn": str(page),
-                "pz": str(_CLIST_PAGE_SIZE),
-                "po": "1",          # descending
-                "np": "1",
-                "fltt": "2",
-                "invt": "2",
-                "fid": "f62",       # order by 主力净流入
-                "fs": fs,
-                "fields": "f2,f3,f12,f14,f62",
-            },
-            headers=_HEADERS_EM,
-            direct=_EM_DIRECT,
-        )
-        data = resp.json().get("data") or {}
-        rows = data.get("diff") or []
-        for entry in rows:
-            code = str(entry.get("f12", "")).upper()
-            if code:
-                out[code] = {
-                    "name": entry.get("f14", ""),
-                    "change_pct": _float(entry.get("f3")),
-                    "fund_flow": _float(entry.get("f62")),  # already in 元 ("-" → None)
-                }
-        # Stop when we've collected the whole universe or hit a short page.
-        total = data.get("total") or 0
-        if len(rows) < _CLIST_PAGE_SIZE or len(out) >= total:
+        try:
+            resp = await http_client.get(
+                "https://push2delay.eastmoney.com/api/qt/clist/get",
+                params={
+                    "pn": str(page),
+                    "pz": str(_CLIST_PAGE_SIZE),
+                    "po": "1",          # descending
+                    "np": "1",
+                    "fltt": "2",
+                    "invt": "2",
+                    "fid": "f62",       # order by 主力净流入
+                    "fs": fs,
+                    "fields": "f2,f3,f12,f14,f62",
+                },
+                headers=_HEADERS_EM,
+                direct=_EM_DIRECT,
+            )
+            data = resp.json().get("data") or {}
+            rows = data.get("diff") or []
+            for entry in rows:
+                code = str(entry.get("f12", "")).upper()
+                if code:
+                    out[code] = {
+                        "name": entry.get("f14", ""),
+                        "change_pct": _float(entry.get("f3")),
+                        "fund_flow": _float(entry.get("f62")),  # already in 元 ("-" → None)
+                    }
+            # Stop when we've collected the whole universe or hit a short page.
+            total = data.get("total") or 0
+            if len(rows) < _CLIST_PAGE_SIZE or len(out) >= total:
+                break
+        except Exception:
             break
+    if out:
+        total_hint = f"{len(out)} rows (partial)"
+        logger.info(f"clist boards fetched {total_hint} for fs={fs!r}")
     return out
 
 
@@ -317,6 +328,11 @@ async def _fetch_all_bk_changes() -> Dict[str, Dict]:
             return cached
 
         result: Dict[str, Dict] = {}
+        # Merge background concept data (5-min cache) as base —
+        # clist data (30s refresh) wins for overlapping keys.
+        concept_bg = _get_cached(_CONCEPT_BG_CACHE_KEY)
+        if concept_bg:
+            result.update(concept_bg)
         for fs in _CLIST_BOARD_FS:
             try:
                 result.update(await _fetch_clist_boards(fs))
@@ -349,6 +365,41 @@ async def _fetch_all_bk_changes() -> Dict[str, Dict]:
 
         _set_cache(cache_key, {}, 10)
         return {}
+
+
+# ── Background concept board poller ──
+# To avoid bursting push2delay with 10+ requests per 30s cycle (which
+# looks like scraping and risks throttling), the main path only fetches
+# industry boards (∼5 pages, ∼0.75s).  Concept boards (∼5 pages) are
+# fetched by this background poller every 5 minutes and cached.  The
+# merged result still provides full 990-board coverage without the
+# request spike.
+
+
+async def _concept_board_bg_loop() -> None:
+    """Background loop: refresh concept boards via clist every 5 minutes.
+
+    Decouples concept board fetching from the main 30s cycle so the main
+    path only pulls industry boards (∼5 requests per cycle) and concept
+    boards come from this background cache.  That cuts the push2delay
+    request rate from ∼0.33 req/s to ∼0.17 req/s.
+    """
+    await asyncio.sleep(20)  # let app finish starting up
+    import random
+    while True:
+        try:
+            result = await _fetch_clist_boards("m:90 t:3")
+            if result:
+                _set_cache(_CONCEPT_BG_CACHE_KEY, result, _CONCEPT_BG_TTL)
+                logger.info("concept bg: cached %d boards", len(result))
+        except Exception as exc:
+            logger.warning("concept bg loop error: %s", exc)
+        await asyncio.sleep(_CONCEPT_BG_TTL + random.uniform(-30, 30))
+
+
+def start_concept_board_poller() -> asyncio.Task:
+    """Start the background concept board poller. Call from app lifespan."""
+    return asyncio.create_task(_concept_board_bg_loop())
 
 
 # ── Source 3: push2his kline (OHLCV — rate-limited) ──
@@ -750,18 +801,24 @@ async def fetch_sector_fund_flow_top10() -> list:
     """Return top-10 boards sorted by fund_flow (主力净流入) descending.
 
     Uses the batched getAllBKChanges endpoint (fast, single API call).
-    Only BK-format industry boards are included.
+    Includes both industry and concept boards.
     """
     changes = await _fetch_all_bk_changes()
+    board_map = await _load_board_map()
     entries = []
     for code, info in changes.items():
-        if is_industry_board_code(code) and info.get("fund_flow") is not None:
-            entries.append({
-                "code": code,
-                "name": info.get("name", ""),
-                "change_pct": info.get("change_pct"),
-                "fund_flow": info.get("fund_flow"),
-            })
+        if not RE_BOARD_CODE.match(code):
+            continue
+        if info.get("fund_flow") is None:
+            continue
+        board_meta = board_map.get(code, {})
+        entries.append({
+            "code": code,
+            "name": info.get("name", ""),
+            "change_pct": info.get("change_pct"),
+            "fund_flow": info.get("fund_flow"),
+            "type": board_meta.get("type", "concept"),
+        })
     entries.sort(key=lambda x: x["fund_flow"], reverse=True)
     return entries[:10]
 
@@ -769,22 +826,29 @@ async def fetch_sector_fund_flow_top10() -> list:
 async def fetch_heatmap_data() -> list:
     """Return top-100 boards with change_pct and fund_flow for heatmap rendering.
 
-    Uses the batched getAllBKChanges endpoint.  Sorted by descending
-    absolute fund_flow so the most active boards appear first.
-    Only BK-format industry boards are included.
+    Sorted by descending absolute fund_flow so the most active boards
+    appear first.  Falls back to |change_pct| when fund_flow is unavailable
+    (e.g. non-trading hours).  Each entry includes a ``type`` field
+    ("industry" or "concept") for frontend filtering.
     """
     changes = await _fetch_all_bk_changes()
+    board_map = await _load_board_map()
     entries = []
     for code, info in changes.items():
-        if is_industry_board_code(code):
-            entries.append({
-                "code": code,
-                "name": info.get("name", ""),
-                "change_pct": info.get("change_pct"),
-                "fund_flow": info.get("fund_flow"),
-            })
-    # Sort by |fund_flow| descending — most active boards first
-    entries.sort(key=lambda x: abs(x["fund_flow"]) if x["fund_flow"] is not None else 0, reverse=True)
+        if not RE_BOARD_CODE.match(code):
+            continue
+        board_meta = board_map.get(code, {})
+        entries.append({
+            "code": code,
+            "name": info.get("name", ""),
+            "change_pct": info.get("change_pct"),
+            "fund_flow": info.get("fund_flow"),
+            "type": board_meta.get("type", "concept"),
+        })
+    entries.sort(key=lambda x: (
+        abs(x["fund_flow"]) if x["fund_flow"] is not None else 0,
+        abs(x["change_pct"]) if x["change_pct"] is not None else 0,
+    ), reverse=True)
     return entries[:100]
 
 

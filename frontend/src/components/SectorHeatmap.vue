@@ -1,9 +1,9 @@
 <template>
   <div class="heatmap-section">
     <div class="heatmap-hdr">
-      <span class="heatmap-ttl">📊 概念板块热力图</span>
-      <span class="heatmap-sub" v-if="boards.length">
-        {{ boards.length }} 板块
+      <span class="heatmap-ttl">📊 板块热力图</span>
+      <span class="heatmap-sub" v-if="allBoards.length">
+        {{ filteredBoards.length }} 板块
       </span>
       <div class="hdr-right">
         <span class="update-hint" v-if="updateTime">{{ updateTime }}</span>
@@ -11,9 +11,37 @@
       </div>
     </div>
 
-    <div class="heatmap-grid" v-if="boards.length">
+    <!-- filter bar -->
+    <div class="filter-bar" v-if="allBoards.length || searchTerm">
+      <div class="filter-tabs">
+        <button
+          :class="['tab-btn', { active: activeTab === 'all' }]"
+          @click="activeTab = 'all'"
+        >全部</button>
+        <button
+          :class="['tab-btn', { active: activeTab === 'industry' }]"
+          @click="activeTab = 'industry'"
+        >{{ typeCount('industry') }}</button>
+        <button
+          :class="['tab-btn', { active: activeTab === 'concept' }]"
+          @click="activeTab = 'concept'"
+        >{{ typeCount('concept') }}</button>
+      </div>
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input
+          class="search-input"
+          type="text"
+          v-model="searchTerm"
+          placeholder="搜索板块..."
+        />
+        <span class="search-clear" v-if="searchTerm" @click="searchTerm = ''">✕</span>
+      </div>
+    </div>
+
+    <div class="heatmap-grid" v-if="filteredBoards.length">
       <div
-        v-for="b in boards"
+        v-for="b in filteredBoards"
         :key="b.code"
         class="heatmap-tile"
         :style="tileStyle(b.change_pct)"
@@ -31,26 +59,47 @@
     </div>
 
     <div class="loading-tip" v-else-if="loading">热力图数据加载中...</div>
-    <div class="no-data" v-else>暂无概念板块数据</div>
+    <div class="no-data" v-else-if="allBoards.length === 0">暂无板块数据</div>
+    <div class="no-data" v-else>无匹配板块</div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchSectorHeatmap } from '../api'
 import { isMarketOpen, msUntilNextOpen, jitter } from '../utils/marketTime'
 
 const emit = defineEmits(['select-board'])
-const boards = ref([])
+const allBoards = ref([])
 const updateTime = ref('')
 const loading = ref(false)
+const activeTab = ref('all')
+const searchTerm = ref('')
 let refreshTimer = null
+
+const filteredBoards = computed(() => {
+  let list = allBoards.value
+  if (activeTab.value !== 'all') {
+    list = list.filter(b => b.type === activeTab.value)
+  }
+  if (searchTerm.value.trim()) {
+    const s = searchTerm.value.trim().toLowerCase()
+    list = list.filter(b => b.name && b.name.toLowerCase().includes(s))
+  }
+  return list
+})
+
+function typeCount(type) {
+  const cnt = allBoards.value.filter(b => b.type === type).length
+  const label = type === 'industry' ? '行业' : '概念'
+  return `${label}(${cnt})`
+}
 
 async function load() {
   loading.value = true
   try {
     const res = await fetchSectorHeatmap()
-    boards.value = res.data.boards || []
+    allBoards.value = res.data.boards || []
     if (res.data.update_time) {
       updateTime.value = res.data.update_time
     }
@@ -152,7 +201,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 
@@ -188,6 +237,89 @@ onUnmounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ── Filter bar ── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab-btn {
+  padding: 3px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 0.72em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+.tab-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.search-icon {
+  position: absolute;
+  left: 8px;
+  font-size: 0.7em;
+  pointer-events: none;
+}
+
+.search-input {
+  padding: 3px 24px 3px 28px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.72em;
+  color: #374151;
+  outline: none;
+  width: 140px;
+  transition: border-color 0.15s ease;
+}
+
+.search-input::placeholder {
+  color: #9ca3af;
+}
+
+.search-input:focus {
+  border-color: #3b82f6;
+}
+
+.search-clear {
+  position: absolute;
+  right: 6px;
+  font-size: 0.65em;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.search-clear:hover {
+  color: #6b7280;
 }
 
 /* ── Grid ── */
@@ -312,6 +444,16 @@ onUnmounted(() => {
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .search-box {
+    margin-left: 0;
+  }
+  .search-input {
+    width: 100%;
+  }
   .heatmap-grid {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 5px;

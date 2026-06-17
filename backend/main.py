@@ -433,12 +433,14 @@ async def _daily_pe_backfill():
 async def lifespan(app: FastAPI):
     from routes.macro import _prefetch_fund_flow
     from services.risk_service import prefetch_risk_t1
+    from services.sector_service import start_concept_board_poller
     task_macro    = asyncio.create_task(_daily_macro_refresh())
     task_capex    = asyncio.create_task(_daily_capex_refresh())
     task_cleanup  = asyncio.create_task(_periodic_stale_cleanup())
     task_pe       = asyncio.create_task(_daily_pe_backfill())
     task_ff       = asyncio.create_task(_prefetch_fund_flow())
     task_risk_t1  = asyncio.create_task(prefetch_risk_t1())
+    task_concept  = start_concept_board_poller()
     # 启动盘前分析调度器
     try:
         from premarket.scheduler import start as sched_start, stop as sched_stop
@@ -448,7 +450,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.warning(f"Scheduler start error: {e}")
     yield
-    for t in (task_macro, task_capex, task_cleanup, task_pe, task_ff, task_risk_t1):
+    for t in (task_macro, task_capex, task_cleanup, task_pe, task_ff, task_risk_t1, task_concept):
         t.cancel()
         try:
             await t
