@@ -244,6 +244,7 @@ async def _fetch_clist_boards(fs: str) -> Dict[str, Dict]:
             total = data.get("total") or 0
             if len(rows) < _CLIST_PAGE_SIZE or len(out) >= total:
                 break
+            await asyncio.sleep(1.0)
         except Exception:
             break
     if out:
