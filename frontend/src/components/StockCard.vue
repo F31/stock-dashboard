@@ -29,6 +29,10 @@
           {{ quanScore.label }}
           <em>({{ Math.round(quanScore.percentile_score) }})</em>
         </span>
+        <span v-if="!isSector && hmmSignal" :class="['hmm-badge', hmmBadgeCls]"
+              :title="hmmSignal.reason || 'HMM买卖点信号'">
+          {{ hmmBadgeLabel }}<em v-if="hmmSignal.confidence">({{ hmmSignal.confidence }})</em>
+        </span>
         <button class="del-btn" @click="$emit('remove')" title="删除">×</button>
       </div>
     </div>
@@ -116,6 +120,7 @@ import { ref, computed, nextTick } from 'vue'
 const props = defineProps({
   stock: Object,
   quanScore: { type: Object, default: null },  // { percentile_score, label }
+  hmmSignal: { type: Object, default: null },  // { signal, regime, confidence, reason }
 })
 const emit = defineEmits(['remove', 'rename', 'open-detail'])
 
@@ -179,6 +184,20 @@ const quanBadgeClass = computed(() => {
   if (p >= 75) return 'qb-buy'
   if (p >= 50) return 'qb-neutral'
   return 'qb-avoid'
+})
+
+// ── HMM 买卖点徽章 ──
+const hmmBadgeLabel = computed(() => {
+  const s = props.hmmSignal?.signal
+  if (s === 'buy') return '🔴 买'
+  if (s === 'sell') return '🟢 卖'
+  return '⚪ 持'
+})
+const hmmBadgeCls = computed(() => {
+  const s = props.hmmSignal?.signal
+  if (s === 'buy') return 'hmm-buy'
+  if (s === 'sell') return 'hmm-sell'
+  return 'hmm-hold'
 })
 
 const growthClass = computed(() => {
@@ -385,6 +404,18 @@ function fmtCapex(v) {
 .sig-buy    { background: #d1fae5; color: #047857; }
 .sig-neutral{ background: #dbeafe; color: #1d4ed8; }
 .sig-avoid  { background: #fee2e2; color: #dc2626; }
+
+/* HMM buy/sell badge */
+.hmm-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px; white-space: nowrap;
+  cursor: help;
+}
+.hmm-badge em { font-style: normal; font-weight: 500; font-size: 10px; opacity: 0.85; }
+.hmm-buy  { background: #fee2e2; color: #dc2626; }
+.hmm-sell { background: #dcfce7; color: #15803d; }
+.hmm-hold { background: #f3f4f6; color: #6b7280; }
 
 /* Financial fundamentals row */
 .fin-row { background: #f9fafb; }

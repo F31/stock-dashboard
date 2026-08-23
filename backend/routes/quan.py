@@ -1434,6 +1434,7 @@ _PIPELINE_STEPS: list[tuple[str, str, float]] = [
     ("run_daily",             "每日因子评分",       180),
     ("train_themes",          "主题权重校准",       180),
     ("precompute_tech_levels","预计算技术指标",     360),
+    ("run_hmm_signals",      "HMM买卖点信号",        120),
     ("sync_to_cloud",         "同步数据到云端",      20),
 ]
 _STEP_KEY_TO_IDX = {k: i for i, (k, _, _) in enumerate(_PIPELINE_STEPS)}

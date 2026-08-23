@@ -845,7 +845,7 @@ async def prefetch_risk_t1():
     """服务启动后台预热：将大宗交易、龙虎榜、解禁压力缓存提前填充。
     这些数据 T+1 更新，一天内不变，避免第一个用户请求等待 10-20s。
     """
-    await asyncio.sleep(15)   # 等服务器完全就绪
+    await asyncio.sleep(480)  # delay 8 min to avoid startup memory spike
     logger.info("Risk T+1 prefetch started")
     tasks = [
         ("block_trades", fetch_block_trades),

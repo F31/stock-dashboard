@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.triggers.cron import CronTrigger
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,12 @@ def start(db):
     if _scheduler and _scheduler.running:
         return
 
-    _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+    # Explicitly use ThreadPoolExecutor to prevent APScheduler from spawning
+    # multiprocessing workers (ProcessPoolExecutor uses spawn and leaks ~250MB).
+    _scheduler = BackgroundScheduler(
+        executors={"default": ThreadPoolExecutor(max_workers=2)},
+        timezone="Asia/Shanghai",
+    )
     _scheduler.start()
     logger.info("APScheduler started")
     sync_jobs(db)

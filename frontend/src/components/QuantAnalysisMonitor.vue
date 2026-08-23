@@ -585,6 +585,80 @@
                 </div>
               </div>
 
+              <!-- HMM 状态机 -->
+              <div class="detail-sec-title">
+                🎯 HMM 状态机买卖点
+                <span v-if="detailModal.hmmLoading" class="fund-period">（加载中…）</span>
+              </div>
+
+              <!-- HMM 信号缺失 -->
+              <div v-if="!detailModal.hmmLoading && !detailModal.hmm" class="detail-state" style="padding:8px 0;font-size:0.8em;">
+                HMM 买卖点信号暂未生成（运行训练流水线后自动计算），此处按需首算可能要数秒。
+              </div>
+
+              <template v-if="detailModal.hmm">
+                <!-- 信号徽章 + 概率条 -->
+                <div class="hmm-overview">
+                  <div class="hmm-verdict" :class="`hmm-${detailModal.hmm.signal}`">
+                    {{ detailModal.hmm.signal === 'buy' ? '🔴 建议买入' :
+                       detailModal.hmm.signal === 'sell' ? '🟢 建议卖出' : '⚪ 持币观望' }}
+                    <span class="hmm-regime" v-if="detailModal.hmm.regime">
+                      {{ {bull:'牛态', range:'震荡', bear:'熊态'}[detailModal.hmm.regime] || detailModal.hmm.regime }}
+                    </span>
+                  </div>
+                  <div class="hmm-prob-bar">
+                    <div class="hmm-prob-seg seg-bull" :style="{ width: ((detailModal.hmm.prob_bull||0)*100).toFixed(0)+'%' }"
+                         title="牛态概率"></div>
+                    <div class="hmm-prob-seg seg-neutral" :style="{ width: ((detailModal.hmm.prob_neutral||0)*100).toFixed(0)+'%' }"
+                         title="震荡概率"></div>
+                    <div class="hmm-prob-seg seg-bear" :style="{ width: ((detailModal.hmm.prob_bear||0)*100).toFixed(0)+'%' }"
+                         title="熊态概率"></div>
+                  </div>
+                  <div class="hmm-prob-labels">
+                    <span class="c-red">牛 {{ ((detailModal.hmm.prob_bull||0)*100).toFixed(0) }}%</span>
+                    <span class="c-gray">震 {{ ((detailModal.hmm.prob_neutral||0)*100).toFixed(0) }}%</span>
+                    <span class="c-green">熊 {{ ((detailModal.hmm.prob_bear||0)*100).toFixed(0) }}%</span>
+                    <span class="hmm-conf" v-if="detailModal.hmm.confidence != null">
+                      置信度 {{ detailModal.hmm.confidence }}%
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 建议价位 -->
+                <div class="hmm-prices" v-if="detailModal.levels?.price != null">
+                  <div class="hp-item hp-buy">
+                    <span class="hp-lbl">建议买点</span>
+                    <span class="hp-val">{{ detailModal.hmm.buy_price?.toFixed(2) }}</span>
+                  </div>
+                  <div class="hp-item hp-target">
+                    <span class="hp-lbl">目标价</span>
+                    <span class="hp-val">{{ detailModal.hmm.target_price?.toFixed(2) }}</span>
+                  </div>
+                  <div class="hp-item hp-stop">
+                    <span class="hp-lbl">移动止损</span>
+                    <span class="hp-val">{{ detailModal.hmm.stop_price?.toFixed(2) }}</span>
+                  </div>
+                  <div class="hp-item hp-now">
+                    <span class="hp-lbl">现价</span>
+                    <span class="hp-val">{{ detailModal.levels.price?.toFixed(2) }}</span>
+                  </div>
+                </div>
+
+                <!-- 双轴叠加图 -->
+                <div class="hmm-chart-wrap" v-if="detailModal.hmmHistory?.length">
+                  <canvas ref="hmmChartCanvasRef"></canvas>
+                </div>
+                <div class="hmm-chart-legend">
+                  <span><i class="dot dot-red"></i>牛态</span>
+                  <span><i class="dot dot-gray"></i>震荡</span>
+                  <span><i class="dot dot-green"></i>熊态</span>
+                  <span class="fund-period">色带=状态 · 蓝线=收盘 · 虚线=牛/熊概率</span>
+                </div>
+
+                <!-- reason -->
+                <div class="hmm-reason" v-if="detailModal.hmm.reason">{{ detailModal.hmm.reason }}</div>
+              </template>
+
               <!-- Buy zones -->
               <div class="detail-sec-title">买入区间参考</div>
               <div v-if="!detailModal.levels.buy_zones?.length" class="detail-state" style="padding:8px 0;font-size:0.8em;">数据不足，无法计算买入区间</div>
@@ -668,11 +742,45 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import {
+  Chart, LineController, LineElement, PointElement,
+  LinearScale, CategoryScale, Tooltip, Filler,
+} from 'chart.js'
 import { fetchQuanScores, fetchQuanStockLevels, fetchQuanThemeScores,
+         fetchHmmSignal, fetchHmmSignalHistory,
          triggerPipeline, fetchPipelineStatus, fetchPipelineLog, fetchPoolStats,
          triggerPrecomputeTech, fetchPrecomputeTechStatus,
          refreshQuanStockInfo } from '../api/index.js'
+
+// chart.js 全局注册
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Filler)
+
+// ── HMM 状态色带插件：按 regime 在表体背景画彩色分段条 ──
+const stateBandPlugin = {
+  id: 'hmmStateBands',
+  afterDatasetsDraw(chart, _args, opts) {
+    const segs = opts?.segments || []
+    if (!segs.length) return
+    const { ctx, chartArea, scales } = chart
+    const x = scales.x
+    const yTop = chartArea.top
+    const yBottom = chartArea.bottom
+    const h = yBottom - yTop
+    const colors = { bull: 'rgba(239,68,68,0.13)', neutral: 'rgba(107,114,128,0.10)', bear: 'rgba(34,197,94,0.13)' }
+    for (const seg of segs) {
+      const x0 = x.getPixelForValue(seg.from)
+      const x1 = x.getPixelForValue(seg.to)
+      if (x0 == null || x1 == null) continue
+      ctx.save()
+      ctx.fillStyle = colors[seg.regime] || 'rgba(100,116,139,0.08)'
+      ctx.fillRect(x0, yTop, Math.max(x1 - x0, 0), h)
+      ctx.restore()
+    }
+  },
+}
+
+let hmmChart = null
 
 const props = defineProps({
   watchlistCodes:  { type: Array, default: () => [] },
@@ -956,7 +1064,8 @@ function maBarCls(pct) {
 }
 
 async function openDetail(row) {
-  detailModal.value = { show: true, stock: row, levels: null, loading: true, error: null }
+  detailModal.value = { show: true, stock: row, levels: null, loading: true, error: null,
+                        hmm: null, hmmHistory: null, hmmLoading: false }
   try {
     const res = await fetchQuanStockLevels(row.stock_code)
     if (res.data?.error) {
@@ -972,7 +1081,174 @@ async function openDetail(row) {
   } finally {
     detailModal.value.loading = false
   }
+
+  // HMM 信号（并行拉取，独立于 levels 失败）
+  loadHmmDetail(row.stock_code)
 }
+
+async function loadHmmDetail(code) {
+  detailModal.value.hmm = null
+  detailModal.value.hmmHistory = null
+  detailModal.value.hmmLoading = true
+  try {
+    const [sig, hist] = await Promise.all([
+      fetchHmmSignal(code),
+      fetchHmmSignalHistory(code, 20).catch(() => ({ data: { history: [] } })),
+    ])
+    detailModal.value.hmm = sig.data
+    const hh = hist.data?.history
+    if (Array.isArray(hh) && hh.length) {
+      detailModal.value.hmmHistory = hh
+      await nextTick()
+      renderHmmChart()
+    }
+  } catch {
+    // HMM 数据可能尚未生成 —— 保持占位
+  } finally {
+    detailModal.value.hmmLoading = false
+  }
+}
+
+const hmmChartCanvasRef = ref(null)
+
+function destroyHmmChart() {
+  if (hmmChart) {
+    hmmChart.destroy()
+    hmmChart = null
+  }
+}
+
+function renderHmmChart() {
+  const canvas = hmmChartCanvasRef.value
+  const hist = detailModal.value?.hmmHistory
+  if (!canvas || !hist || !hist.length) return
+  destroyHmmChart()
+
+  const isDark = () => document.documentElement.classList.contains('dark')
+  const gridColor  = () => isDark() ? '#334155' : '#f3f4f6'
+  const labelColor = () => isDark() ? '#94a3b8' : '#9ca3af'
+
+  const labels = hist.map(h => {
+    const d = String(h.trade_date).slice(5)  // MM-DD
+    return d
+  })
+  const closes = hist.map(h => h.close ?? null)
+  const bull = hist.map(h => Math.round((h.prob_bull ?? 0) * 100))
+  const bear = hist.map(h => Math.round((h.prob_bear ?? 0) * 100))
+
+  // 连续 regime 分段
+  const segments = []
+  let cur = null
+  for (let i = 0; i < hist.length; i++) {
+    const rg = hist[i].regime || 'range'
+    if (!cur || cur.regime !== rg) {
+      cur = { regime: rg, from: i, to: i }
+      segments.push(cur)
+    } else {
+      cur.to = i
+    }
+  }
+
+  hmmChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '收盘价',
+          data: closes,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37,99,235,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHitRadius: 8,
+          tension: 0.25,
+          fill: true,
+          yAxisID: 'y',
+          spanGaps: true,
+          order: 1,
+        },
+        {
+          label: 'P_牛%',
+          data: bull,
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239,68,68,0.06)',
+          borderWidth: 1.5,
+          borderDash: [5, 4],
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+          yAxisID: 'y1',
+          order: 2,
+        },
+        {
+          label: 'P_熊%',
+          data: bear,
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.06)',
+          borderWidth: 1.5,
+          borderDash: [5, 4],
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+          yAxisID: 'y1',
+          order: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: labelColor(),
+            font: { size: 10 },
+            boxWidth: 16,
+            padding: 10,
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.raw
+              if (ctx.dataset.label === '收盘价') return `收盘: ${v ?? '--'}`
+              return `${ctx.dataset.label}: ${v}%`
+            },
+          },
+        },
+        hmmStateBands: { segments },
+      },
+    },
+    plugins: [stateBandPlugin],
+    scales: {
+      x: {
+        ticks: { color: labelColor(), font: { size: 9 }, maxRotation: 30 },
+        grid: { color: gridColor() },
+      },
+      y: {
+        position: 'left',
+        ticks: { color: labelColor(), font: { size: 9 } },
+        grid: { color: gridColor() },
+        title: { display: true, text: '价格', color: labelColor(), font: { size: 9 } },
+      },
+      y1: {
+        position: 'right',
+        min: 0, max: 100,
+        ticks: { color: labelColor(), font: { size: 9 }, callback: v => v + '%' },
+        grid: { drawOnChartArea: false },
+        title: { display: true, text: '牛/熊概率', color: labelColor(), font: { size: 9 } },
+      },
+    },
+  })
+}
+
+watch(() => detailModal.value.show, (v) => {
+  if (!v) destroyHmmChart()
+})
+onUnmounted(destroyHmmChart)
 
 async function load() {
   loading.value = true
@@ -1741,6 +2017,76 @@ function oppTagTip(row) {
 .zone-range { font-size: 0.88em; font-weight: 800; color: #111827; font-family: monospace; }
 .zone-detail { font-size: 0.7em; color: #6b7280; }
 .zone-detail em { font-style: normal; color: #374151; font-weight: 600; }
+
+/* ── HMM 状态机 ─────────────────────────────────────────────── */
+.hmm-overview {
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.hmm-verdict {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 1em; font-weight: 800;
+  padding: 3px 12px; border-radius: 20px;
+}
+.hmm-buy  { background: #fee2e2; color: #dc2626; }
+.hmm-sell { background: #dcfce7; color: #15803d; }
+.hmm-hold { background: #f3f4f6; color: #6b7280; }
+.hmm-regime {
+  font-size: 0.72em; font-weight: 600; color: #6b7280;
+  background: #fff; border: 1px solid #e2e8f0;
+  padding: 1px 8px; border-radius: 12px;
+}
+.hmm-prob-bar {
+  display: flex; height: 12px; border-radius: 8px; overflow: hidden; margin-top: 10px;
+}
+.hmm-prob-seg { height: 100%; min-width: 0; }
+.seg-bull    { background: #ef4444; }
+.seg-neutral { background: #9ca3af; }
+.seg-bear    { background: #22c55e; }
+.hmm-prob-labels {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 0.72em; margin-top: 4px; color: #6b7280;
+}
+.hmm-conf { margin-left: auto; font-weight: 700; color: #374151; }
+.c-red { color: #dc2626; }
+.c-gray { color: #6b7280; }
+.c-green { color: #16a34a; }
+
+.hmm-prices {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0;
+}
+.hp-item {
+  border-radius: 8px; padding: 6px 10px; text-align: center;
+  background: #fff; border: 1px solid #e5e7eb;
+}
+.hp-lbl { display: block; font-size: 0.65em; color: #6b7280; }
+.hp-val { display: block; font-size: 0.92em; font-weight: 800; font-family: monospace; }
+.hp-buy .hp-val    { color: #dc2626; }
+.hp-target .hp-val { color: #16a34a; }
+.hp-stop .hp-val   { color: #f59e0b; }
+.hp-now .hp-val    { color: #374151; }
+
+.hmm-chart-wrap {
+  position: relative; height: 200px; margin: 10px 0 2px;
+  border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+}
+.hmm-chart-legend {
+  display: flex; gap: 12px; font-size: 0.68em; color: #6b7280;
+  margin-top: 4px;
+}
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 3px; }
+.dot-red { background: #ef4444; }
+.dot-gray { background: #9ca3af; }
+.dot-green { background: #22c55e; }
+
+.hmm-reason {
+  font-size: 0.74em; color: #374151; line-height: 1.55;
+  background: #eff6ff; border-left: 3px solid #3b82f6;
+  padding: 7px 10px; border-radius: 6px; margin-top: 8px;
+}
 
 /* Targets & Stop */
 .ts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

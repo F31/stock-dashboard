@@ -351,6 +351,17 @@ export function refreshQuanStockInfo() {
   return api.post('/quan/refresh-stock-info', {}, { timeout: 120000 })
 }
 
+// ── HMM 买卖点信号 ──
+export function fetchHmmWatchlist() {
+  return api.get('/hmm/watchlist')
+}
+export function fetchHmmSignal(stockCode) {
+  return api.get(`/hmm/signal/${stockCode}`, { timeout: 150000 })
+}
+export function fetchHmmSignalHistory(stockCode, days = 20) {
+  return api.get(`/hmm/signal/${stockCode}/history`, { params: { days } })
+}
+
 // ── Sector ──
 
 export function fetchSectorTop5ByChange(code) {

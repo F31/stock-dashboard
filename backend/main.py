@@ -22,6 +22,7 @@ from routes.premarket import router as premarket_router
 from routes.watched_tickers import router as watched_tickers_router
 from routes.analysis_framework import router as analysis_framework_router
 from routes.quan import router as quan_router
+from routes.hmm import router as hmm_router
 from routes.risk import router as risk_router
 from routes.hot import router as hot_router
 from database import engine, Base, get_db
@@ -96,6 +97,37 @@ try:
                 updated_at  TEXT DEFAULT (datetime('now')),
                 PRIMARY KEY (stock_code, trade_date)
             )
+        """))
+        _conn.commit()
+except Exception:
+    pass
+
+# Ensure watchlist_hmm_signal table exists (HMM buy/sell signals)
+try:
+    with engine.connect() as _conn:
+        _conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS watchlist_hmm_signal (
+                stock_code   TEXT NOT NULL,
+                trade_date   TEXT NOT NULL,
+                market       TEXT DEFAULT 'A',
+                n_states     INTEGER,
+                state_now    INTEGER,
+                regime       TEXT,
+                prob_bull    REAL,
+                prob_neutral REAL,
+                prob_bear    REAL,
+                signal       TEXT,
+                confidence   INTEGER,
+                buy_price    REAL,
+                target_price REAL,
+                stop_price   REAL,
+                model_json   TEXT,
+                reason       TEXT,
+                ticker_name  TEXT DEFAULT '',
+                created_at   TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (stock_code, trade_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_hmm_date ON watchlist_hmm_signal(trade_date);
         """))
         _conn.commit()
 except Exception:
@@ -383,7 +415,7 @@ async def _periodic_stale_cleanup():
 
 async def _daily_macro_refresh():
     """Background task: pre-warm then refresh profit + industrial charts every 24h."""
-    await asyncio.sleep(15)  # let app finish starting up first
+    await asyncio.sleep(600)  # delay 10 min to avoid startup memory spike
     while True:
         try:
             from services.macro_service import (
@@ -401,7 +433,7 @@ async def _daily_macro_refresh():
 
 async def _daily_capex_refresh():
     """Background task: refresh Capex for all watchlist items once per day."""
-    await asyncio.sleep(60)  # start after app is fully up
+    await asyncio.sleep(900)  # delay 15 min to avoid startup memory spike
     while True:
         try:
             from services.capex_service import refresh_all_capex
@@ -418,7 +450,7 @@ async def _daily_capex_refresh():
 
 async def _daily_pe_backfill():
     """Background task: backfill missing/negative PE from Tencent API once daily."""
-    await asyncio.sleep(120)  # start after other tasks
+    await asyncio.sleep(1200)  # delay 20 min to avoid startup memory spike
     while True:
         try:
             from services.valuation_backfill import backfill_pe
@@ -497,6 +529,7 @@ app.include_router(premarket_router, prefix="/api")
 app.include_router(watched_tickers_router, prefix="/api")
 app.include_router(analysis_framework_router, prefix="/api")
 app.include_router(quan_router, prefix="/api")
+app.include_router(hmm_router, prefix="/api")
 app.include_router(risk_router, prefix="/api")
 app.include_router(hot_router, prefix="/api")
 
@@ -520,4 +553,4 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)

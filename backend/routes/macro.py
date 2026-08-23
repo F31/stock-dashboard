@@ -305,7 +305,7 @@ async def _do_fund_flow_refresh() -> dict | None:
 
 async def _prefetch_fund_flow():
     """服务启动后台预热：交易时段提前拉取资金流向，首次用户请求直接命中缓存。"""
-    await asyncio.sleep(8)   # 等服务器完全就绪
+    await asyncio.sleep(300)  # delay 5 min to avoid startup memory spike
     if not _is_trading_time():
         return
     logger.info("Fund flow prefetch started (background)")

@@ -227,6 +227,7 @@
                 <StockCard
                   :stock="stock"
                   :quan-score="quanScoresMap[stock.stock_code] || null"
+                  :hmm-signal="hmmSignalsMap[stock.stock_code] || null"
                   @remove="handleRemove(stock.id)"
                   @rename="handleRename"
                   @open-detail="handleOpenDetail"
@@ -389,7 +390,7 @@ import { useStockStore } from '../stores/stockStore'
 import { useAuthStore } from '../stores/authStore.js'
 import { isMarketOpen, msUntilNextOpen, initTradeCalendar, jitter } from '../utils/marketTime'
 import { getThemeMode, setThemeMode, applyTheme } from '../utils/theme'
-import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5, fetchStockPreview } from '../api/index.js'
+import { fetchQuanScores, fetchSectorTop5ByChange, fetchSectorTop5, fetchStockPreview, fetchHmmWatchlist } from '../api/index.js'
 
 // ── Always on first paint ───────────────────────────────────────────────────
 import StockCard      from '../components/StockCard.vue'
@@ -461,8 +462,27 @@ const visitedTabs = reactive({ market: true, quan: false, macro: false, risk: fa
 
 // Quan scores map: stock_code -> { percentile_score, label }
 const quanScoresMap = ref({})
+const hmmSignalsMap = ref({})   // stock_code -> { signal, regime, confidence, reason }
 const quanSort = ref('default')
 const hasQuanData = computed(() => Object.keys(quanScoresMap.value).length > 0)
+
+async function loadHmmSignals() {
+  try {
+    const res = await fetchHmmWatchlist()
+    const map = {}
+    for (const row of (res.data.signals || [])) {
+      map[row.stock_code] = {
+        signal: row.signal,
+        regime: row.regime,
+        confidence: row.confidence,
+        reason: row.reason,
+      }
+    }
+    hmmSignalsMap.value = map
+  } catch {
+    // HMM signals may not be ready yet — silently ignore
+  }
+}
 
 // ── Sector tab state ──
 const sectorViewMode = ref('heatmap')  // 'heatmap' | 'list'
@@ -1016,6 +1036,7 @@ onMounted(async () => {
   }
 
   loadQuanScores()
+  loadHmmSignals()
   scheduleNextRefresh()
   document.addEventListener('click', closeSysMenu)
   initTradeCalendar()

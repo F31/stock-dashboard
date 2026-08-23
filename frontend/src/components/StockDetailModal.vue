@@ -91,6 +91,21 @@
                 <polyline :points="chartPoints" :fill="chartColor + '22'" :stroke="chartColor" stroke-width="2"/>
               </svg>
             </div>
+
+            <!-- HMM 买卖点信号 -->
+            <div class="hmm-strip" v-if="!isSector && hmmSignal">
+              <div class="hmm-strip-verdict" :class="`hmm-strip-${hmmSignal.signal}`">
+                {{ hmmSignal.signal === 'buy' ? '🔴 建议买入' :
+                   hmmSignal.signal === 'sell' ? '🟢 建议卖出' : '⚪ 持币观望' }}
+                <em v-if="hmmSignal.confidence != null">置信度 {{ hmmSignal.confidence }}%</em>
+              </div>
+              <div class="hmm-strip-prices">
+                <span>买点 <b class="c-up">{{ hmmSignal.buy_price != null ? hmmSignal.buy_price.toFixed(2) : '--' }}</b></span>
+                <span>目标 <b class="c-green">{{ hmmSignal.target_price != null ? hmmSignal.target_price.toFixed(2) : '--' }}</b></span>
+                <span>止损 <b class="c-orange">{{ hmmSignal.stop_price != null ? hmmSignal.stop_price.toFixed(2) : '--' }}</b></span>
+              </div>
+              <div class="hmm-strip-reason" v-if="hmmSignal.reason">{{ hmmSignal.reason }}</div>
+            </div>
           </div>
           <div v-else class="empty-tip">行情数据加载中...</div>
         </div>
@@ -185,7 +200,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5, fetchStockNews, fetchStockFinancials } from '../api/index.js'
+import { updateNotes, listReports, uploadReport, addLinkReport, deleteReport, fetchSectorTop5, fetchStockNews, fetchStockFinancials, fetchHmmSignal } from '../api/index.js'
 
 // Module-level Map cache: survives modal open/close within the same session
 const _newsCache = new Map()   // "code:market" → { data: [], ts: number }
@@ -230,6 +245,22 @@ const trend = computed(() => {
   if (v == null) return 'flat'
   return v >= 0 ? 'up' : 'down'
 })
+
+// ── HMM 买卖点信号 ──
+const hmmSignal = ref(null)
+
+async function loadHmmSignal() {
+  if (isSector.value) return
+  const code = props.stock.stock_code
+  if (!code) return
+  try {
+    const res = await fetchHmmSignal(code)
+    hmmSignal.value = res.data ?? null
+  } catch {
+    hmmSignal.value = null   // 信号可能未生成 —— 静默忽略
+  }
+}
+onMounted(loadHmmSignal)
 
 function fmt(v, digits = 2, suffix = '') {
   return v != null ? v.toFixed(digits) + suffix : '--'
@@ -581,6 +612,32 @@ async function removeReport(r) {
 
 .sparkline-wrap { height: 70px; margin-bottom: 14px; border: 1px solid #f3f4f6; border-radius: 8px; overflow: hidden; }
 .sparkline { width: 100%; height: 100%; }
+
+/* HMM 买卖点信号条 */
+.hmm-strip {
+  border-radius: 9px; padding: 9px 12px; margin-bottom: 14px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+}
+.hmm-strip-verdict {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.9em; font-weight: 800;
+  padding: 2px 10px; border-radius: 16px;
+}
+.hmm-strip-buy  { background: #fee2e2; color: #dc2626; }
+.hmm-strip-sell { background: #dcfce7; color: #15803d; }
+.hmm-strip-hold { background: #f3f4f6; color: #6b7280; }
+.hmm-strip-verdict em { font-style: normal; font-size: 0.72em; font-weight: 600; color: #6b7280; }
+.hmm-strip-prices {
+  display: flex; gap: 16px; margin-top: 7px; font-size: 0.78em; color: #6b7280;
+}
+.hmm-strip-prices b { font-family: monospace; margin-left: 2px; }
+.c-up { color: #dc2626; }
+.c-green { color: #16a34a; }
+.c-orange { color: #f59e0b; }
+.hmm-strip-reason {
+  font-size: 0.72em; color: #374151; line-height: 1.5;
+  margin-top: 7px; padding-top: 7px; border-top: 1px dashed #e2e8f0;
+}
 
 .top5-section { margin-bottom: 14px; }
 .top5-table {
